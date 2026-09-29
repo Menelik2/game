@@ -1,33 +1,66 @@
 # Apex Casino Platform
 
-Production-grade social casino (DEMO mode by default — virtual credits only).
+Production-oriented **social / demo casino** (virtual credits only by default).
 
 **Repo:** https://github.com/Menelik2/game  
-**Branches:** `main` and `root`
+**Default branch:** `root`
 
-## Vercel (frontend)
+## Features
 
-1. Import this repo at [vercel.com/new](https://vercel.com/new)
-2. **Root Directory:** `apps/web`
-3. Env:
-   - `NEXT_PUBLIC_API_URL` = your API base URL
-   - `NEXT_PUBLIC_DEMO_MODE` = `true`
-4. Deploy
+- Next.js frontend (premium dark UI)
+- NestJS API: auth (Argon2 + JWT), double-entry wallet, game engine (crypto RNG)
+- Games: slots, roulette, crash (+ blackjack/baccarat categories)
+- Bonuses, favorites, admin dashboard
+- Responsible gaming (limits + self-exclusion)
+- WebSocket wallet updates
+- TypeORM migration + seed
+- Docker Compose (Postgres, Redis, API, web)
+- GitHub Actions CI
 
-> NestJS API + Postgres cannot run on Vercel. Host API with Docker/Railway/Render.
+## Demo accounts (after seed)
 
-## Local full stack
+| Role   | Email                    | Password  |
+|--------|--------------------------|-----------|
+| Player | demo@apexc casino.com    | Demo123!  |
+| Admin  | admin@apexc casino.com   | Admin123! |
+
+## Local run
 
 ```bash
+git clone https://github.com/Menelik2/game.git
+cd game
 cp .env.example .env
-docker compose up -d --build
-# API seed after postgres is up
-docker compose exec api npm run seed
+
+# Infra
+docker compose up -d postgres redis
+
+# API
+cd apps/api && npm install
+npm run seed          # creates schema (synchronize in seed) + demo data
+npm run start:dev     # http://localhost:3001/api/docs
+
+# Web (another terminal)
+cd apps/web && npm install
+npm run dev           # http://localhost:3000
 ```
 
-- Web: http://localhost:3000
-- API docs: http://localhost:3001/api/docs
+Or full stack: `docker compose up -d --build`
 
-Demo: `demo@apexc casino.com` / `Demo123!`
+## Vercel (frontend only)
 
-See [DEPLOY.md](./DEPLOY.md) for full push instructions if you need to sync remaining API source from a complete local clone.
+1. Import this repo at https://vercel.com/new
+2. **Root Directory:** `apps/web`
+3. Production branch: `root`
+4. Env:
+   - `NEXT_PUBLIC_DEMO_MODE` = `true`
+   - `NEXT_PUBLIC_API_URL` = public API base URL (Railway/Render/Fly/Docker host)
+
+NestJS + Postgres **cannot** run on Vercel serverless as-is. Host the API separately.
+
+## Safety
+
+- `REAL_MONEY_ENABLED=false` by default
+- No real deposits/withdrawals in demo mode
+- Payment/KYC are interfaces only until licensed providers are connected
+
+See [DEPLOY.md](./DEPLOY.md) and [docs/](./docs/).
