@@ -19,13 +19,35 @@ async function bootstrap() {
 
   app.setGlobalPrefix(prefix);
 
-  app.use(helmet({
-    contentSecurityPolicy: false,
-  }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+    }),
+  );
   app.use(cookieParser());
 
+  const corsOrigins = (
+    config.get<string>('CORS_ORIGINS') ||
+    config.get<string>('APP_URL') ||
+    'http://localhost:3000'
+  )
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: config.get<string>('APP_URL', 'http://localhost:3000'),
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        corsOrigins.includes(origin) ||
+        corsOrigins.includes('*') ||
+        /\.vercel\.app$/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, false);
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Idempotency-Key'],
@@ -59,7 +81,7 @@ async function bootstrap() {
   await app.listen(port);
   const logger = new Logger('Bootstrap');
   logger.log(`Apex API running on http://localhost:${port}/${prefix}`);
-  logger.log(`DEMO_MODE=${config.get('DEMO_MODE')} REAL_MONEY_ENABLED=${config.get('REAL_MONEY_ENABLED')}`);
+  logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`);
 }
 
 bootstrap();
