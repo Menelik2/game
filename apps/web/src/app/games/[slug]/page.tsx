@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { randomUUID } from '@/lib/uuid';
+import { getDemoGameBySlug } from '@/lib/demo-games';
 
 export default function GamePlayPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -26,7 +27,15 @@ export default function GamePlayPage() {
 
   const { data: game, isLoading } = useQuery({
     queryKey: ['game', slug],
-    queryFn: () => api<any>(`/games/${slug}`),
+    queryFn: async () => {
+      try {
+        return await api<any>(`/games/${slug}`);
+      } catch {
+        const demo = getDemoGameBySlug(slug);
+        if (demo) return demo;
+        throw new Error('Game not found');
+      }
+    },
   });
 
   const startSession = useMutation({
@@ -41,7 +50,11 @@ export default function GamePlayPage() {
       setBetAmount(data.minBet ?? 1);
       setLastResult(null);
     },
-    onError: (err: any) => setError(err?.message || 'Could not start session'),
+    onError: (err: any) =>
+      setError(
+        err?.message ||
+          'Could not start session. API must be online and database seeded for live play.',
+      ),
   });
 
   const play = useMutation({
@@ -120,32 +133,23 @@ export default function GamePlayPage() {
         {result && (
           <div className="mb-6 space-y-2 rounded-xl bg-black/40 p-4 text-sm text-white/70">
             {result.type === 'slots' && (
-              <div>
-                <p className="text-xs text-white/40 mb-1">Payline</p>
-                <p className="font-mono text-lg tracking-widest">{(result.symbols as string[])?.join(' · ') || '—'}</p>
-                {result.multiplier != null && <p className="mt-1 text-xs">Multiplier: ×{String(result.multiplier)}</p>}
-              </div>
+              <p className="font-mono text-lg tracking-widest">{(result.symbols as string[])?.join(' · ')}</p>
             )}
             {result.type === 'roulette' && (
               <p>Ball: <strong className="text-white">{String(result.number)}</strong> ({String(result.color)})</p>
             )}
             {result.type === 'crash' && (
-              <p>Crash at <strong className="text-white">{String(result.crashPoint)}×</strong>
-                {result.cashedOut ? ' · Cashed out' : ' · Busted'}</p>
+              <p>Crash at <strong className="text-white">{String(result.crashPoint)}×</strong></p>
             )}
             {result.type === 'blackjack' && (
-              <div className="space-y-1">
-                <p>You: {(result.playerCards as string[])?.join(' ')} = <strong>{String(result.playerTotal)}</strong></p>
-                <p>Dealer: {(result.dealerCards as string[])?.join(' ')} = <strong>{String(result.dealerTotal)}</strong></p>
-                <p className="capitalize">Outcome: {String(result.outcome)}</p>
+              <div>
+                <p>You: {(result.playerCards as string[])?.join(' ')} = {String(result.playerTotal)}</p>
+                <p>Dealer: {(result.dealerCards as string[])?.join(' ')} = {String(result.dealerTotal)}</p>
+                <p className="capitalize">{String(result.outcome)}</p>
               </div>
             )}
             {result.type === 'baccarat' && (
-              <div className="space-y-1">
-                <p>Player: {(result.playerCards as string[])?.join(' ')} = {String(result.playerTotal)}</p>
-                <p>Banker: {(result.bankerCards as string[])?.join(' ')} = {String(result.bankerTotal)}</p>
-                <p className="capitalize">Winner: {String(result.winner)}</p>
-              </div>
+              <p className="capitalize">Winner: {String(result.winner)}</p>
             )}
           </div>
         )}
@@ -160,42 +164,31 @@ export default function GamePlayPage() {
             <>
               <div>
                 <label className="mb-1 block text-xs text-white/50">Bet amount (DEMO)</label>
-                <input type="number" min={game.minBet} max={game.maxBet} step="0.1" value={betAmount}
+                <input type="number" min={game.minBet || 0.1} max={game.maxBet || 100} step="0.1" value={betAmount}
                   onChange={(e) => setBetAmount(parseFloat(e.target.value) || 0)}
                   className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500" />
               </div>
               {game.category === 'ROULETTE' && (
-                <div>
-                  <label className="mb-1 block text-xs text-white/50">Bet on</label>
-                  <select value={betType} onChange={(e) => setBetType(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
-                    <option value="red">Red (1:1)</option>
-                    <option value="black">Black (1:1)</option>
-                    <option value="even">Even (1:1)</option>
-                    <option value="odd">Odd (1:1)</option>
-                    <option value="low">Low 1–18 (1:1)</option>
-                    <option value="high">High 19–36 (1:1)</option>
-                  </select>
-                </div>
+                <select value={betType} onChange={(e) => setBetType(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
+                  <option value="red">Red</option>
+                  <option value="black">Black</option>
+                  <option value="even">Even</option>
+                  <option value="odd">Odd</option>
+                </select>
               )}
               {game.category === 'BACCARAT' && (
-                <div>
-                  <label className="mb-1 block text-xs text-white/50">Bet on</label>
-                  <select value={betOn} onChange={(e) => setBetOn(e.target.value as any)}
-                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
-                    <option value="player">Player (1:1)</option>
-                    <option value="banker">Banker (0.95:1)</option>
-                    <option value="tie">Tie (8:1)</option>
-                  </select>
-                </div>
+                <select value={betOn} onChange={(e) => setBetOn(e.target.value as any)}
+                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
+                  <option value="player">Player</option>
+                  <option value="banker">Banker</option>
+                  <option value="tie">Tie</option>
+                </select>
               )}
               {game.category === 'CRASH' && (
-                <div>
-                  <label className="mb-1 block text-xs text-white/50">Auto cashout</label>
-                  <input type="number" min={1.01} max={100} step="0.1" value={autoCashout}
-                    onChange={(e) => setAutoCashout(parseFloat(e.target.value) || 1.5)}
-                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500" />
-                </div>
+                <input type="number" min={1.01} step="0.1" value={autoCashout}
+                  onChange={(e) => setAutoCashout(parseFloat(e.target.value) || 1.5)}
+                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm" />
               )}
               <button onClick={() => { setSpinning(true); play.mutate(); }}
                 disabled={play.isPending || spinning}
