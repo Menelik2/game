@@ -2,23 +2,23 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@/lib/auth-context';
-import { api } from '@/lib/api';
 import { useState } from 'react';
 import Link from 'next/link';
-
-function uuid() {
-  return crypto.randomUUID();
-}
+import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { randomUUID } from '@/lib/uuid';
 
 export default function GamePlayPage() {
   const { slug } = useParams<{ slug: string }>();
   const { user, token } = useAuth();
   const router = useRouter();
   const qc = useQueryClient();
+
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [bet, setBet] = useState(1);
+  const [betAmount, setBetAmount] = useState(1);
   const [lastResult, setLastResult] = useState<any>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [spinning, setSpinning] = useState(false);
   const [error, setError] = useState('');
 
   const { data: game, isLoading } = useQuery({
@@ -26,111 +26,157 @@ export default function GamePlayPage() {
     queryFn: () => api<any>(`/games/${slug}`),
   });
 
-  const startMutation = useMutation({
-    mutationFn: () => api<any>(`/games/${game.id}/start`, { method: 'POST', token: token! }),
-    onSuccess: (res) => setSessionId(res.sessionId),
+  const startSession = useMutation({
+    mutationFn: () =>
+      api<{ sessionId: string; minBet: number; maxBet: number }>(`/games/${game.id}/start`, {
+        method: 'POST',
+        token: token!,
+      }),
+    onSuccess: (data) => {
+      setError('');
+      setSessionId(data.sessionId);
+      setBetAmount(data.minBet ?? 1);
+    },
+    onError: (err: any) => setError(err?.message || 'Could not start session'),
   });
 
-  const playMutation = useMutation({
+  const play = useMutation({
     mutationFn: () =>
       api<any>(`/games/${game.id}/play`, {
         method: 'POST',
         token: token!,
         body: JSON.stringify({
           sessionId,
-          betAmount: bet,
-          idempotencyKey: uuid(),
+          betAmount,
+          idempotencyKey: randomUUID(),
         }),
       }),
-    onSuccess: (res) => {
-      setLastResult(res);
+    onSuccess: (data) => {
       setError('');
+      setLastResult(data);
+      setBalance(typeof data.balance === 'number' ? data.balance : null);
       qc.invalidateQueries({ queryKey: ['wallet'] });
+      setSpinning(false);
     },
-    onError: (e: any) => setError(e.message || 'Play failed'),
+    onError: (err: any) => {
+      setSpinning(false);
+      setError(err?.message || 'Play failed');
+    },
   });
 
   if (isLoading) {
-    return <div className="mx-auto max-w-3xl px-4 py-16 text-center text-white/40">Loading game…</div>;
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center text-white/50">Loading game…</div>
+    );
   }
 
   if (!game) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <p className="text-white/40">Game not found</p>
+        <p className="text-white/50">Game not found</p>
         <Link href="/games" className="mt-4 inline-block text-apex-400">Back to lobby</Link>
       </div>
     );
   }
 
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold">{game.name}</h1>
+        <p className="mt-2 text-white/50">Sign in to play with demo credits</p>
+        <button
+          onClick={() => router.push('/login')}
+          className="mt-6 rounded-full bg-apex-500 px-8 py-3 font-semibold"
+        >
+          Log in to play
+        </button>
+      </div>
+    );
+  }
+
+  const winAmount = lastResult?.win ?? lastResult?.winAmount ?? 0;
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <Link href="/games" className="text-sm text-white/50 hover:text-white">← Lobby</Link>
       <h1 className="mt-2 text-3xl font-bold">{game.name}</h1>
-      <p className="text-white/50">{game.category} · {game.provider?.name || 'Apex Studios'}</p>
-      <p className="mt-1 text-xs text-amber-400/80">Demo — virtual credits · server-authoritative outcomes</p>
+      <p className="text-white/50">
+        {game.category} · {game.provider?.name || 'Apex Studios'}
+      </p>
+      <p className="mt-1 text-xs text-amber-400/80">
+        Demo — virtual credits · server-authoritative crypto RNG
+      </p>
 
       <div className="mt-8 glass rounded-3xl p-8">
-        {!user ? (
-          <div className="text-center">
-            <p className="text-white/60">Sign in to play</p>
-            <button onClick={() => router.push('/login')} className="mt-4 rounded-full bg-apex-500 px-6 py-2.5 text-sm font-semibold">
-              Log in
-            </button>
+        {lastResult && (
+          <div
+            className={`mb-6 rounded-2xl px-4 py-3 text-center text-sm ${
+              winAmount > 0
+                ? 'bg-emerald-500/20 text-emerald-300'
+                : 'bg-white/5 text-white/60'
+            }`}
+          >
+            {winAmount > 0
+              ? `You won ${Number(winAmount).toFixed(2)} DEMO!`
+              : 'No win this round'}
+            {typeof lastResult.balance === 'number' &&
+              ` · Balance: ${lastResult.balance.toFixed(2)} DEMO`}
           </div>
-        ) : !sessionId ? (
-          <div className="text-center">
+        )}
+
+        {lastResult?.result && (
+          <pre className="mb-6 max-h-40 overflow-auto rounded-xl bg-black/40 p-3 text-xs text-white/50">
+            {JSON.stringify(lastResult.result, null, 2)}
+          </pre>
+        )}
+
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          {!sessionId ? (
             <button
-              onClick={() => startMutation.mutate()}
-              disabled={startMutation.isPending}
-              className="rounded-full bg-gradient-to-r from-apex-500 to-apex-600 px-8 py-3 font-semibold shadow-glow disabled:opacity-50"
+              onClick={() => startSession.mutate()}
+              disabled={startSession.isPending}
+              className="w-full rounded-xl bg-gradient-to-r from-apex-500 to-apex-600 py-3.5 font-semibold shadow-glow disabled:opacity-50"
             >
-              {startMutation.isPending ? 'Starting…' : 'Start session'}
+              {startSession.isPending ? 'Starting…' : 'Start Session'}
             </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label className="text-xs text-white/50">Bet amount</label>
+          ) : (
+            <>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs text-white/50">Bet amount (DEMO)</label>
                 <input
                   type="number"
-                  min={game.minBet || 0.1}
-                  max={game.maxBet || 100}
-                  step={0.1}
-                  value={bet}
-                  onChange={(e) => setBet(Number(e.target.value))}
-                  className="mt-1 w-32 rounded-xl border border-white/10 bg-surface-800 px-3 py-2 text-sm"
+                  min={game.minBet}
+                  max={game.maxBet}
+                  step="0.1"
+                  value={betAmount}
+                  onChange={(e) => setBetAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500"
                 />
               </div>
               <button
-                onClick={() => playMutation.mutate()}
-                disabled={playMutation.isPending}
-                className="rounded-full bg-gradient-to-r from-apex-500 to-apex-600 px-8 py-2.5 font-semibold shadow-glow disabled:opacity-50"
+                onClick={() => {
+                  setSpinning(true);
+                  play.mutate();
+                }}
+                disabled={play.isPending || spinning}
+                className="rounded-xl bg-gradient-to-r from-gold-500 to-gold-600 px-10 py-3.5 font-bold text-black shadow-glow-gold disabled:opacity-50"
               >
-                {playMutation.isPending ? 'Playing…' : 'Play'}
+                {spinning ? 'Playing…' : 'PLAY'}
               </button>
-            </div>
+            </>
+          )}
+        </div>
 
-            {error && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>
-            )}
-
-            {lastResult && (
-              <div className="rounded-2xl border border-white/10 bg-surface-800/80 p-5 text-sm">
-                <p>
-                  Bet: <strong>{lastResult.betAmount}</strong> · Win:{' '}
-                  <strong className={lastResult.winAmount > 0 ? 'text-emerald-400' : ''}>
-                    {lastResult.winAmount}
-                  </strong>
-                </p>
-                <p className="mt-1 text-white/50">Balance: {lastResult.balance}</p>
-                <pre className="mt-3 overflow-auto rounded-lg bg-black/40 p-3 text-xs text-white/60">
-                  {JSON.stringify(lastResult.result, null, 2)}
-                </pre>
-              </div>
-            )}
+        {error && (
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-300">
+            {error}
           </div>
+        )}
+
+        {balance !== null && (
+          <p className="mt-4 text-center text-sm text-white/40">
+            Current balance: <strong className="text-white">{balance.toFixed(2)}</strong> DEMO
+          </p>
         )}
       </div>
     </div>
