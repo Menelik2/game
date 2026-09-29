@@ -20,6 +20,9 @@ export default function GamePlayPage() {
   const [balance, setBalance] = useState<number | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [error, setError] = useState('');
+  const [betType, setBetType] = useState('red');
+  const [betOn, setBetOn] = useState<'player' | 'banker' | 'tie'>('player');
+  const [autoCashout, setAutoCashout] = useState(1.5);
 
   const { data: game, isLoading } = useQuery({
     queryKey: ['game', slug],
@@ -36,21 +39,28 @@ export default function GamePlayPage() {
       setError('');
       setSessionId(data.sessionId);
       setBetAmount(data.minBet ?? 1);
+      setLastResult(null);
     },
     onError: (err: any) => setError(err?.message || 'Could not start session'),
   });
 
   const play = useMutation({
-    mutationFn: () =>
-      api<any>(`/games/${game.id}/play`, {
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        sessionId,
+        betAmount,
+        idempotencyKey: randomUUID(),
+      };
+      if (game?.category === 'ROULETTE') body.betType = betType;
+      if (game?.category === 'BACCARAT') body.betOn = betOn;
+      if (game?.category === 'CRASH') body.autoCashout = autoCashout;
+      if (game?.category === 'BLACKJACK') body.action = 'auto';
+      return api<any>(`/games/${game.id}/play`, {
         method: 'POST',
         token: token!,
-        body: JSON.stringify({
-          sessionId,
-          betAmount,
-          idempotencyKey: randomUUID(),
-        }),
-      }),
+        body: JSON.stringify(body),
+      });
+    },
     onSuccess: (data) => {
       setError('');
       setLastResult(data);
@@ -65,11 +75,8 @@ export default function GamePlayPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-16 text-center text-white/50">Loading game…</div>
-    );
+    return <div className="mx-auto max-w-3xl px-4 py-16 text-center text-white/50">Loading game…</div>;
   }
-
   if (!game) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
@@ -78,89 +85,121 @@ export default function GamePlayPage() {
       </div>
     );
   }
-
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <h1 className="text-2xl font-bold">{game.name}</h1>
         <p className="mt-2 text-white/50">Sign in to play with demo credits</p>
-        <button
-          onClick={() => router.push('/login')}
-          className="mt-6 rounded-full bg-apex-500 px-8 py-3 font-semibold"
-        >
+        <button onClick={() => router.push('/login')} className="mt-6 rounded-full bg-apex-500 px-8 py-3 font-semibold">
           Log in to play
         </button>
       </div>
     );
   }
 
-  const winAmount = lastResult?.win ?? lastResult?.winAmount ?? 0;
+  const winAmount = Number(lastResult?.win ?? lastResult?.winAmount ?? 0);
+  const result = lastResult?.result;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <Link href="/games" className="text-sm text-white/50 hover:text-white">← Lobby</Link>
       <h1 className="mt-2 text-3xl font-bold">{game.name}</h1>
-      <p className="text-white/50">
-        {game.category} · {game.provider?.name || 'Apex Studios'}
-      </p>
-      <p className="mt-1 text-xs text-amber-400/80">
-        Demo — virtual credits · server-authoritative crypto RNG
-      </p>
+      <p className="text-white/50">{game.category} · {game.provider?.name || 'Apex Studios'}</p>
+      <p className="mt-1 text-xs text-amber-400/80">Demo — virtual credits · crypto RNG</p>
 
       <div className="mt-8 glass rounded-3xl p-8">
         {lastResult && (
-          <div
-            className={`mb-6 rounded-2xl px-4 py-3 text-center text-sm ${
-              winAmount > 0
-                ? 'bg-emerald-500/20 text-emerald-300'
-                : 'bg-white/5 text-white/60'
-            }`}
-          >
-            {winAmount > 0
-              ? `You won ${Number(winAmount).toFixed(2)} DEMO!`
-              : 'No win this round'}
-            {typeof lastResult.balance === 'number' &&
-              ` · Balance: ${lastResult.balance.toFixed(2)} DEMO`}
+          <div className={`mb-6 rounded-2xl px-4 py-3 text-center text-sm ${
+            winAmount > 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-white/60'
+          }`}>
+            {winAmount > 0 ? `You won ${winAmount.toFixed(2)} DEMO!` : 'No win this round'}
+            {typeof lastResult.balance === 'number' && ` · Balance: ${lastResult.balance.toFixed(2)} DEMO`}
           </div>
         )}
 
-        {lastResult?.result && (
-          <pre className="mb-6 max-h-40 overflow-auto rounded-xl bg-black/40 p-3 text-xs text-white/50">
-            {JSON.stringify(lastResult.result, null, 2)}
-          </pre>
+        {result && (
+          <div className="mb-6 space-y-2 rounded-xl bg-black/40 p-4 text-sm text-white/70">
+            {result.type === 'slots' && (
+              <div>
+                <p className="text-xs text-white/40 mb-1">Payline</p>
+                <p className="font-mono text-lg tracking-widest">{(result.symbols as string[])?.join(' · ') || '—'}</p>
+                {result.multiplier != null && <p className="mt-1 text-xs">Multiplier: ×{String(result.multiplier)}</p>}
+              </div>
+            )}
+            {result.type === 'roulette' && (
+              <p>Ball: <strong className="text-white">{String(result.number)}</strong> ({String(result.color)})</p>
+            )}
+            {result.type === 'crash' && (
+              <p>Crash at <strong className="text-white">{String(result.crashPoint)}×</strong>
+                {result.cashedOut ? ' · Cashed out' : ' · Busted'}</p>
+            )}
+            {result.type === 'blackjack' && (
+              <div className="space-y-1">
+                <p>You: {(result.playerCards as string[])?.join(' ')} = <strong>{String(result.playerTotal)}</strong></p>
+                <p>Dealer: {(result.dealerCards as string[])?.join(' ')} = <strong>{String(result.dealerTotal)}</strong></p>
+                <p className="capitalize">Outcome: {String(result.outcome)}</p>
+              </div>
+            )}
+            {result.type === 'baccarat' && (
+              <div className="space-y-1">
+                <p>Player: {(result.playerCards as string[])?.join(' ')} = {String(result.playerTotal)}</p>
+                <p>Banker: {(result.bankerCards as string[])?.join(' ')} = {String(result.bankerTotal)}</p>
+                <p className="capitalize">Winner: {String(result.winner)}</p>
+              </div>
+            )}
+          </div>
         )}
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-4">
           {!sessionId ? (
-            <button
-              onClick={() => startSession.mutate()}
-              disabled={startSession.isPending}
-              className="w-full rounded-xl bg-gradient-to-r from-apex-500 to-apex-600 py-3.5 font-semibold shadow-glow disabled:opacity-50"
-            >
+            <button onClick={() => startSession.mutate()} disabled={startSession.isPending}
+              className="w-full rounded-xl bg-gradient-to-r from-apex-500 to-apex-600 py-3.5 font-semibold disabled:opacity-50">
               {startSession.isPending ? 'Starting…' : 'Start Session'}
             </button>
           ) : (
             <>
-              <div className="flex-1">
+              <div>
                 <label className="mb-1 block text-xs text-white/50">Bet amount (DEMO)</label>
-                <input
-                  type="number"
-                  min={game.minBet}
-                  max={game.maxBet}
-                  step="0.1"
-                  value={betAmount}
+                <input type="number" min={game.minBet} max={game.maxBet} step="0.1" value={betAmount}
                   onChange={(e) => setBetAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500"
-                />
+                  className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500" />
               </div>
-              <button
-                onClick={() => {
-                  setSpinning(true);
-                  play.mutate();
-                }}
+              {game.category === 'ROULETTE' && (
+                <div>
+                  <label className="mb-1 block text-xs text-white/50">Bet on</label>
+                  <select value={betType} onChange={(e) => setBetType(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
+                    <option value="red">Red (1:1)</option>
+                    <option value="black">Black (1:1)</option>
+                    <option value="even">Even (1:1)</option>
+                    <option value="odd">Odd (1:1)</option>
+                    <option value="low">Low 1–18 (1:1)</option>
+                    <option value="high">High 19–36 (1:1)</option>
+                  </select>
+                </div>
+              )}
+              {game.category === 'BACCARAT' && (
+                <div>
+                  <label className="mb-1 block text-xs text-white/50">Bet on</label>
+                  <select value={betOn} onChange={(e) => setBetOn(e.target.value as any)}
+                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm">
+                    <option value="player">Player (1:1)</option>
+                    <option value="banker">Banker (0.95:1)</option>
+                    <option value="tie">Tie (8:1)</option>
+                  </select>
+                </div>
+              )}
+              {game.category === 'CRASH' && (
+                <div>
+                  <label className="mb-1 block text-xs text-white/50">Auto cashout</label>
+                  <input type="number" min={1.01} max={100} step="0.1" value={autoCashout}
+                    onChange={(e) => setAutoCashout(parseFloat(e.target.value) || 1.5)}
+                    className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm outline-none focus:border-apex-500" />
+                </div>
+              )}
+              <button onClick={() => { setSpinning(true); play.mutate(); }}
                 disabled={play.isPending || spinning}
-                className="rounded-xl bg-gradient-to-r from-gold-500 to-gold-600 px-10 py-3.5 font-bold text-black shadow-glow-gold disabled:opacity-50"
-              >
+                className="rounded-xl bg-gradient-to-r from-gold-500 to-gold-600 px-10 py-3.5 font-bold text-black disabled:opacity-50">
                 {spinning ? 'Playing…' : 'PLAY'}
               </button>
             </>
@@ -168,11 +207,8 @@ export default function GamePlayPage() {
         </div>
 
         {error && (
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-300">
-            {error}
-          </div>
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-300">{error}</div>
         )}
-
         {balance !== null && (
           <p className="mt-4 text-center text-sm text-white/40">
             Current balance: <strong className="text-white">{balance.toFixed(2)}</strong> DEMO
