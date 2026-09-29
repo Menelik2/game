@@ -1,0 +1,27 @@
+{
+  "name": "apex-casino",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade casino gaming platform (Demo mode by default)",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm run start:dev --workspace=@apex/api",
+    "dev:web": "npm run dev --workspace=@apex/web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "migration:run": "npm run migration:run --workspace=@apex/api",
+    "seed": "npm run seed --workspace=@apex/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
