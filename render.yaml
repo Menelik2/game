@@ -1,0 +1,53 @@
+# Render.com Blueprint – connect GitHub repo
+# Dashboard → New → Blueprint → Menelik2/game (branch: root)
+services:
+  - type: web
+    name: apex-api
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=@apex/shared --if-present && npm run build --workspace=@apex/api
+    startCommand: npm run migration:run --workspace=@apex/api; npm run start:prod --workspace=@apex/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: REAL_MONEY_ENABLED
+        value: "false"
+      - key: API_PREFIX
+        value: api
+      - key: PORT
+        value: "10000"
+      - key: APP_URL
+        value: https://addisbingo.vercel.app
+      - key: CORS_ORIGINS
+        value: https://addisbingo.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: apex-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: apex-redis
+          type: redis
+          property: connectionString
+
+  - type: redis
+    name: apex-redis
+    plan: free
+    region: oregon
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: apex-postgres
+    plan: free
+    region: oregon
+    databaseName: apex_casino
+    user: apex

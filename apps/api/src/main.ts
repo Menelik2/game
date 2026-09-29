@@ -67,21 +67,17 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Apex Casino API')
-    .setDescription(
-      'Production-grade casino platform API. DEMO MODE by default – virtual credits only.',
-    )
+    .setDescription('Demo mode by default – virtual credits only.')
     .setVersion('1.0')
     .addBearerAuth()
-    .addCookieAuth('access_token')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(`${prefix}/docs`, app, document);
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
-  logger.log(`Apex API running on http://localhost:${port}/${prefix}`);
-  logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`);
+  logger.log(`Apex API on 0.0.0.0:${port}/${prefix}`);
 }
 
 bootstrap();

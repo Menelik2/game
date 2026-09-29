@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = [
+  "npm run build --workspace=@apex/shared --if-present",
+  "npm run build --workspace=@apex/api"
+]
+
+[start]
+cmd = "npm run start:prod --workspace=@apex/api"
