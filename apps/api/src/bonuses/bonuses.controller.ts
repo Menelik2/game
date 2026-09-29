@@ -17,7 +17,7 @@ export class BonusesController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   mine(@Req() req: { user: { id: string } }) {
-    return this.bonuses.myBonuses(req.user.id);
+    return this.bonuses.listMine(req.user.id);
   }
 
   @Post(':id/claim')
