@@ -67,6 +67,11 @@ export class GamesController {
       betAmount: number;
       idempotencyKey: string;
       clientSeed?: string;
+      betType?: string;
+      betValue?: number | string;
+      betOn?: 'player' | 'banker' | 'tie';
+      autoCashout?: number;
+      action?: 'hit' | 'stand' | 'auto';
     },
   ) {
     return this.gamesService.play(req.user.id, gameId, body);
