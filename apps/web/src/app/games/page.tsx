@@ -43,12 +43,12 @@ function GamesContent() {
 
       {usingDemo && !isLoading && (
         <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200/90">
-          Showing demo catalog. Connect and seed the API for live play &amp; balances.
+          Showing demo catalog. Connect and seed the API for live play & balances.
         </p>
       )}
 
       <div className="mt-6 flex flex-wrap gap-2">
-        {['All', 'Popular', 'New', 'Slots', 'Roulette', 'Blackjack', 'Crash', 'Jackpot'].map(
+        {['All', 'Popular', 'New', 'Slots', 'Roulette', 'Blackjack', 'Crash', 'Keno', 'Jackpot'].map(
           (c) => {
             const val = c === 'All' ? undefined : c.toUpperCase();
             const active = (category || undefined) === val;
