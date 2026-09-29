@@ -16,6 +16,18 @@ export type DemoGame = {
 
 export const DEMO_GAMES: DemoGame[] = [
   {
+    id: 'demo-fast-keno',
+    slug: 'fast-keno',
+    name: 'Fast Keno',
+    category: 'KENO',
+    isPopular: true,
+    isNew: true,
+    minBet: 0.2,
+    maxBet: 100,
+    description: 'Pick 1–10 numbers from 1–80. 20 drawn each round.',
+    provider: { name: 'Apex Instant' },
+  },
+  {
     id: 'demo-neon-reels',
     slug: 'neon-reels',
     name: 'Neon Reels',
@@ -115,17 +127,6 @@ export const DEMO_GAMES: DemoGame[] = [
     maxBet: 75,
     description: 'Wheel bonus meets classic reels',
     provider: { name: 'Apex Studios' },
-  },
-  {
-    id: 'demo-high-roller-bj',
-    slug: 'high-roller-blackjack',
-    name: 'High Roller Blackjack',
-    category: 'BLACKJACK',
-    isNew: true,
-    minBet: 10,
-    maxBet: 1000,
-    description: 'Higher limits for the big seats',
-    provider: { name: 'Apex Tables' },
   },
   {
     id: 'demo-lightning-crash',
