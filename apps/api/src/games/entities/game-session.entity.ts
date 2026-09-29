@@ -28,23 +28,24 @@ export class GameSession {
   @Column({ name: 'server_seed_hash', type: 'varchar', length: 128, nullable: true })
   serverSeedHash!: string | null;
 
-  @Column({ name: 'client_seed', type: 'varchar', length: 128, nullable: true })
+  /** Stored server-side only – never expose raw seed to client until session ends */
+  @Column({ name: 'server_seed', type: 'varchar', length: 128, nullable: true })
+  serverSeed!: string | null;
+
+  @Column({ name: 'client_seed', type: 'varchar', length: 64, nullable: true })
   clientSeed!: string | null;
 
-  @Column({ name: 'round_count', type: 'int', default: 0 })
-  roundCount!: number;
+  @Column({ type: 'int', default: 0 })
+  nonce!: number;
 
-  @Column({ name: 'total_wagered', type: 'decimal', precision: 18, scale: 4, default: 0 })
-  totalWagered!: string;
-
-  @Column({ name: 'total_won', type: 'decimal', precision: 18, scale: 4, default: 0 })
-  totalWon!: string;
-
-  @CreateDateColumn({ name: 'started_at', type: 'timestamptz' })
+  @Column({ name: 'started_at', type: 'timestamptz' })
   startedAt!: Date;
 
   @Column({ name: 'ended_at', type: 'timestamptz', nullable: true })
   endedAt!: Date | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
