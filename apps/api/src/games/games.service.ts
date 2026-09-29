@@ -32,12 +32,8 @@ export class GamesService {
   ) {}
 
   async listGames(query: {
-    category?: string;
-    search?: string;
-    page?: number;
-    limit?: number;
-    popular?: boolean;
-    isNew?: boolean;
+    category?: string; search?: string; page?: number; limit?: number;
+    popular?: boolean; isNew?: boolean;
   }) {
     const page = query.page || 1;
     const limit = Math.min(query.limit || 24, 100);
@@ -45,7 +41,6 @@ export class GamesService {
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.provider', 'p')
       .where('g.status = :status', { status: 'ACTIVE' });
-
     if (query.category && query.category !== 'POPULAR' && query.category !== 'NEW') {
       qb.andWhere('g.category = :cat', { cat: query.category });
     }
@@ -54,7 +49,6 @@ export class GamesService {
     if (query.search) {
       qb.andWhere('(g.name ILIKE :q OR g.slug ILIKE :q)', { q: `%${query.search}%` });
     }
-
     qb.orderBy('g.play_count', 'DESC').skip((page - 1) * limit).take(limit);
     const [items, total] = await qb.getManyAndCount();
     return {
@@ -73,23 +67,18 @@ export class GamesService {
 
   async startSession(userId: string, gameId: string) {
     await this.rg.assertCanPlay(userId);
-
     const game = await this.gameRepo.findOne({ where: { id: gameId, status: 'ACTIVE' } });
     if (!game) {
       throw new NotFoundException({ code: 'GAME_UNAVAILABLE', message: 'Game not available' });
     }
-
     await this.sessionRepo.update(
       { userId, gameId, status: 'ACTIVE' },
       { status: 'ENDED', endedAt: new Date() },
     );
-
     const serverSeed = this.engine.generateServerSeed();
     const session = await this.sessionRepo.save(
       this.sessionRepo.create({
-        userId,
-        gameId,
-        status: 'ACTIVE',
+        userId, gameId, status: 'ACTIVE',
         serverSeed,
         serverSeedHash: this.engine.hashServerSeed(serverSeed),
         clientSeed: randomUUID().slice(0, 16),
@@ -97,23 +86,14 @@ export class GamesService {
         startedAt: new Date(),
       }),
     );
-
     await this.audit.log({
-      userId,
-      action: 'GAME_SESSION_STARTED',
-      entity: 'game_session',
-      entityId: session.id,
-      metadata: { gameId, gameSlug: game.slug },
+      userId, action: 'GAME_SESSION_STARTED', entity: 'game_session',
+      entityId: session.id, metadata: { gameId, gameSlug: game.slug },
     });
-
     return {
-      sessionId: session.id,
-      gameId: game.id,
-      gameSlug: game.slug,
-      serverSeedHash: session.serverSeedHash,
-      clientSeed: session.clientSeed,
-      minBet: parseFloat(game.minBet),
-      maxBet: parseFloat(game.maxBet),
+      sessionId: session.id, gameId: game.id, gameSlug: game.slug,
+      serverSeedHash: session.serverSeedHash, clientSeed: session.clientSeed,
+      minBet: parseFloat(game.minBet), maxBet: parseFloat(game.maxBet),
     };
   }
 
@@ -121,10 +101,10 @@ export class GamesService {
     userId: string,
     gameId: string,
     dto: {
-      sessionId: string;
-      betAmount: number;
-      idempotencyKey: string;
-      clientSeed?: string;
+      sessionId: string; betAmount: number; idempotencyKey: string; clientSeed?: string;
+      betType?: string; betValue?: number | string;
+      betOn?: 'player' | 'banker' | 'tie';
+      autoCashout?: number; action?: 'hit' | 'stand' | 'auto';
     },
   ) {
     await this.rg.assertCanPlay(userId);
@@ -134,6 +114,10 @@ export class GamesService {
         code: 'REAL_MONEY_DISABLED',
         message: 'Real-money play is not enabled',
       });
+    }
+
+    if (!Number.isFinite(dto.betAmount) || dto.betAmount <= 0) {
+      throw new BadRequestException({ code: 'INVALID_AMOUNT', message: 'Invalid bet amount' });
     }
 
     const session = await this.sessionRepo.findOne({
@@ -173,9 +157,7 @@ export class GamesService {
     }
 
     const { wallet: afterBet, transaction: betTx } = await this.walletService.placeBet(
-      userId,
-      dto.betAmount,
-      `${dto.idempotencyKey}:bet`,
+      userId, dto.betAmount, `${dto.idempotencyKey}:bet`,
       { gameId, sessionId: session.id },
     );
 
@@ -189,56 +171,47 @@ export class GamesService {
 
     if (game.category === 'ROULETTE') {
       const outcome = this.engine.spinRoulette({
-        serverSeed,
-        clientSeed,
-        nonce,
-        bets: [{ type: 'red', amount: dto.betAmount }],
+        serverSeed, clientSeed, nonce,
+        bets: [{ type: dto.betType || 'red', amount: dto.betAmount, value: dto.betValue }],
       });
       winAmount = outcome.totalWin;
       resultHash = outcome.resultHash;
       resultData = { type: 'roulette', ...outcome };
     } else if (game.category === 'CRASH') {
       const outcome = this.engine.generateCrashPoint({ serverSeed, clientSeed, nonce });
-      const autoCashout = 1.5;
+      const autoCashout = Math.max(1.01, Number(dto.autoCashout) || 1.5);
       winAmount =
         outcome.crashPoint >= autoCashout
           ? Math.round(dto.betAmount * autoCashout * 100) / 100
           : 0;
       resultHash = outcome.resultHash;
       resultData = {
-        type: 'crash',
-        crashPoint: outcome.crashPoint,
-        autoCashout,
+        type: 'crash', crashPoint: outcome.crashPoint, autoCashout,
         cashedOut: winAmount > 0,
       };
     } else if (game.category === 'BLACKJACK') {
       const outcome = this.engine.playBlackjack({
-        serverSeed,
-        clientSeed,
-        nonce,
+        serverSeed, clientSeed, nonce,
         betAmount: dto.betAmount,
-        action: 'stand',
+        action: dto.action || 'auto',
       });
       winAmount = outcome.winAmount;
       resultHash = outcome.resultHash;
       resultData = { type: 'blackjack', ...outcome };
     } else if (game.category === 'BACCARAT') {
       const outcome = this.engine.playBaccarat({
-        serverSeed,
-        clientSeed,
-        nonce,
+        serverSeed, clientSeed, nonce,
         betAmount: dto.betAmount,
-        betOn: 'player',
+        betOn: dto.betOn || 'player',
       });
       winAmount = outcome.winAmount;
       resultHash = outcome.resultHash;
       resultData = { type: 'baccarat', ...outcome };
     } else {
       const outcome = this.engine.spinSlot({
-        serverSeed,
-        clientSeed,
-        nonce,
+        serverSeed, clientSeed, nonce,
         betAmount: dto.betAmount,
+        config: game.configuration as any,
       });
       winAmount = outcome.winAmount;
       resultHash = outcome.resultHash;
@@ -249,9 +222,7 @@ export class GamesService {
     let finalWallet = afterBet;
     if (winAmount > 0) {
       const { wallet, transaction } = await this.walletService.creditWin(
-        userId,
-        winAmount,
-        `${dto.idempotencyKey}:win`,
+        userId, winAmount, `${dto.idempotencyKey}:win`,
         { gameId, sessionId: session.id, roundNonce: nonce },
       );
       finalWallet = wallet;
@@ -260,14 +231,11 @@ export class GamesService {
 
     const savedRound = await this.roundRepo.save(
       this.roundRepo.create({
-        sessionId: session.id,
-        userId,
-        gameId,
+        sessionId: session.id, userId, gameId,
         roundNumber: nonce,
         betAmount: dto.betAmount.toFixed(4),
         winAmount: winAmount.toFixed(4),
-        resultHash,
-        resultData,
+        resultHash, resultData,
         betTransactionId: betTx.id,
         winTransactionId: winTxId,
         idempotencyKey: dto.idempotencyKey,
@@ -299,18 +267,10 @@ export class GamesService {
 
   private serializeGame(g: Game) {
     return {
-      id: g.id,
-      slug: g.slug,
-      name: g.name,
-      category: g.category,
-      status: g.status,
-      thumbnail: g.thumbnail,
-      description: g.description,
-      minBet: parseFloat(g.minBet),
-      maxBet: parseFloat(g.maxBet),
-      isNew: g.isNew,
-      isPopular: g.isPopular,
-      hasJackpot: g.hasJackpot,
+      id: g.id, slug: g.slug, name: g.name, category: g.category,
+      status: g.status, thumbnail: g.thumbnail, description: g.description,
+      minBet: parseFloat(g.minBet), maxBet: parseFloat(g.maxBet),
+      isNew: g.isNew, isPopular: g.isPopular, hasJackpot: g.hasJackpot,
       playCount: g.playCount,
       provider: g.provider
         ? { id: g.provider.id, name: g.provider.name, slug: g.provider.slug }
