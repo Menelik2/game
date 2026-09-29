@@ -1,4 +1,18 @@
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+const RAW_API = (process.env.NEXT_PUBLIC_API_URL || '').trim().replace(/\/$/, '');
+
+/** Resolved API base. Empty = force offline/demo mode. */
+export function getApiBase(): string {
+  if (!RAW_API) return '';
+  if (typeof window !== 'undefined') {
+    try {
+      const apiHost = new URL(RAW_API).hostname;
+      if (apiHost === window.location.hostname) return '';
+    } catch {
+      return '';
+    }
+  }
+  return RAW_API;
+}
 
 export class ApiError extends Error {
   code?: string;
@@ -11,11 +25,12 @@ export class ApiError extends Error {
   }
 }
 
-/** True when browser cannot reach a real API (Vercel without backend, etc.) */
 export function isApiConfigured(): boolean {
+  const base = getApiBase();
+  if (!base) return false;
   if (typeof window === 'undefined') return true;
   try {
-    const u = new URL(API_URL);
+    const u = new URL(base);
     if (
       (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
       window.location.hostname !== 'localhost' &&
@@ -40,6 +55,7 @@ export async function api<T = unknown>(
     });
   }
 
+  const base = getApiBase();
   const { token, ...init } = options;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -49,7 +65,7 @@ export async function api<T = unknown>(
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}/api${path}`, {
+    res = await fetch(`${base}/api${path}`, {
       ...init,
       headers,
       credentials: 'include',
@@ -67,13 +83,14 @@ export async function api<T = unknown>(
     json = text ? JSON.parse(text) : null;
   } catch {
     throw new ApiError(res.ok ? 'Invalid response' : `Request failed (${res.status})`, {
+      code: 'HTTP_ERROR',
       status: res.status,
     });
   }
 
   if (!res.ok || json?.success === false) {
-    throw new ApiError(json?.error?.message || json?.message || 'Request failed', {
-      code: json?.error?.code,
+    throw new ApiError(json?.error?.message || json?.message || `Request failed (${res.status})`, {
+      code: json?.error?.code || 'HTTP_ERROR',
       status: res.status,
     });
   }
@@ -81,4 +98,4 @@ export async function api<T = unknown>(
   return (json?.data !== undefined ? json.data : json) as T;
 }
 
-export { API_URL };
+export const API_URL = RAW_API || 'http://localhost:3001';
