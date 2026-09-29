@@ -5,15 +5,21 @@ import { useAuth } from '@/lib/auth-context';
 import { Wallet, LogOut, User } from 'lucide-react';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, isApiConfigured } from '@/lib/api';
 
 export function Header() {
   const { user, token, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const { data: wallet } = useQuery({
     queryKey: ['wallet'],
-    queryFn: () => api<{ availableBalance: number }>('/wallet', { token: token! }),
+    queryFn: async () => {
+      if (!isApiConfigured() || token === 'demo-offline-token') {
+        return { availableBalance: 1000, currency: 'DEMO' };
+      }
+      return api<{ availableBalance: number }>('/wallet', { token: token! });
+    },
     enabled: !!token,
+    retry: false,
   });
 
   return (
@@ -37,18 +43,36 @@ export function Header() {
             <>
               <Link href="/wallet" className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 text-sm">
                 <Wallet className="h-4 w-4 text-gold-400" />
-                <span>{wallet ? wallet.availableBalance.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'} <span className="text-white/50 text-xs">DEMO</span></span>
+                <span>
+                  {wallet
+                    ? wallet.availableBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                    : '—'}
+                  <span className="text-white/50 text-xs"> DEMO</span>
+                </span>
               </Link>
               <div className="relative">
-                <button onClick={() => setMenuOpen(!menuOpen)} className="flex h-9 w-9 items-center justify-center rounded-full bg-apex-600 text-sm font-bold">
+                <button
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-apex-600 text-sm font-bold"
+                >
                   {user.email[0].toUpperCase()}
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 mt-2 w-48 rounded-xl border border-white/10 bg-surface-800 py-2 shadow-xl">
-                    <Link href="/account" className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-white/5" onClick={() => setMenuOpen(false)}>
+                    <Link
+                      href="/account"
+                      className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-white/5"
+                      onClick={() => setMenuOpen(false)}
+                    >
                       <User className="h-4 w-4" /> Account
                     </Link>
-                    <button onClick={() => { logout(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-white/5">
+                    <button
+                      onClick={() => {
+                        logout();
+                        setMenuOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-white/5"
+                    >
                       <LogOut className="h-4 w-4" /> Logout
                     </button>
                   </div>
@@ -57,8 +81,15 @@ export function Header() {
             </>
           ) : (
             <div className="flex items-center gap-2">
-              <Link href="/login" className="rounded-full px-4 py-2 text-sm text-white/80">Log in</Link>
-              <Link href="/register" className="rounded-full bg-gradient-to-r from-apex-500 to-apex-600 px-4 py-2 text-sm font-semibold shadow-glow">Register</Link>
+              <Link href="/login" className="rounded-full px-4 py-2 text-sm text-white/80">
+                Log in
+              </Link>
+              <Link
+                href="/register"
+                className="rounded-full bg-gradient-to-r from-apex-500 to-apex-600 px-4 py-2 text-sm font-semibold shadow-glow"
+              >
+                Register
+              </Link>
             </div>
           )}
         </div>
