@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -77,16 +76,12 @@ export class GamesService {
         gameId,
         status: 'ACTIVE',
         serverSeedHash: this.engine.hashServerSeed(serverSeed),
-        // store seed hashed only in response seed is internal; production stores encrypted
         clientSeed: null,
         roundCount: 0,
         totalWagered: '0',
         totalWon: '0',
       }),
     );
-
-    // Attach seed for this session lifetime (in-memory / redis in production)
-    (session as any)._serverSeed = serverSeed;
 
     return {
       sessionId: session.id,
@@ -107,7 +102,9 @@ export class GamesService {
   ) {
     await this.rg.assertCanPlay(userId);
 
-    const existingRound = await this.roundRepo.findOne({ where: { idempotencyKey: body.idempotencyKey } });
+    const existingRound = await this.roundRepo.findOne({
+      where: { idempotencyKey: body.idempotencyKey },
+    });
     if (existingRound) {
       return {
         roundId: existingRound.id,
@@ -124,25 +121,27 @@ export class GamesService {
     const session = await this.sessionRepo.findOne({
       where: { id: body.sessionId, userId, gameId, status: 'ACTIVE' },
     });
-    if (!session) throw new BadRequestException({ code: 'INVALID_SESSION', message: 'Invalid session' });
+    if (!session) {
+      throw new BadRequestException({ code: 'SESSION_INVALID', message: 'Invalid session' });
+    }
 
     const minBet = parseFloat(game.minBet);
     const maxBet = parseFloat(game.maxBet);
     if (body.betAmount < minBet || body.betAmount > maxBet) {
       throw new BadRequestException({
-        code: 'INVALID_BET',
+        code: 'BET_LIMIT_EXCEEDED',
         message: `Bet must be between ${minBet} and ${maxBet}`,
       });
     }
 
-    const { wallet, transaction: betTx } = await this.walletService.placeBet(
+    const { transaction: betTx } = await this.walletService.placeBet(
       userId,
       body.betAmount,
       body.idempotencyKey,
       { gameId, sessionId: session.id },
     );
 
-    const serverSeed = this.engine.generateServerSeed(); // simplified: new seed per round
+    const serverSeed = this.engine.generateServerSeed();
     const clientSeed = body.clientSeed || randomUUID();
     const nonce = session.roundCount + 1;
 
@@ -153,7 +152,7 @@ export class GamesService {
       betAmount: body.betAmount,
     });
 
-    const winAmount = (outcome as any).winAmount || 0;
+    const winAmount = (outcome as { winAmount?: number }).winAmount || 0;
     let winTxId: string | null = null;
     if (winAmount > 0) {
       const win = await this.walletService.creditWin(
@@ -162,7 +161,7 @@ export class GamesService {
         `${body.idempotencyKey}-win`,
         { gameId, sessionId: session.id },
       );
-      winTxId = win.transaction.id;
+      winTxId = win.transaction?.id ?? null;
     }
 
     const round = await this.roundRepo.save(
@@ -173,7 +172,7 @@ export class GamesService {
         roundNumber: nonce,
         betAmount: body.betAmount.toFixed(4),
         winAmount: winAmount.toFixed(4),
-        resultHash: (outcome as any).resultHash,
+        resultHash: (outcome as { resultHash?: string }).resultHash ?? null,
         resultData: outcome as unknown as Record<string, unknown>,
         betTransactionId: betTx.id,
         winTransactionId: winTxId,

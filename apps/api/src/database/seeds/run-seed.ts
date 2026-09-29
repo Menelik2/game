@@ -32,7 +32,7 @@ async function run() {
   const gameRepo = ds.getRepository(Game);
   const bonusRepo = ds.getRepository(Bonus);
 
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@apexc casino.com';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@apexcasino.com';
   let admin = await userRepo.findOne({ where: { email: adminEmail } });
   if (!admin) {
     admin = await userRepo.save(
@@ -51,7 +51,7 @@ async function run() {
     console.log('Admin created:', adminEmail);
   }
 
-  const playerEmail = process.env.SEED_PLAYER_EMAIL || 'demo@apexc casino.com';
+  const playerEmail = process.env.SEED_PLAYER_EMAIL || 'demo@apexcasino.com';
   let player = await userRepo.findOne({ where: { email: playerEmail } });
   if (!player) {
     player = await userRepo.save(
@@ -126,8 +126,7 @@ async function run() {
   ];
 
   for (const g of games) {
-    const exists = await gameRepo.findOne({ where: { slug: g.slug } });
-    if (!exists) {
+    if (!(await gameRepo.findOne({ where: { slug: g.slug } }))) {
       await gameRepo.save(
         gameRepo.create({
           ...g,
@@ -142,17 +141,16 @@ async function run() {
     }
   }
 
-  const welcome = await bonusRepo.findOne({ where: { code: 'WELCOME500' } });
-  if (!welcome) {
+  if (!(await bonusRepo.findOne({ where: { name: 'Welcome Demo Credits' } }))) {
     await bonusRepo.save(
       bonusRepo.create({
-        code: 'WELCOME500',
         name: 'Welcome Demo Credits',
         type: 'WELCOME_BONUS',
-        amount: '500',
+        value: '500',
         status: 'ACTIVE',
         wageringRequirement: '1',
-        rules: {},
+        startAt: new Date(),
+        endAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       }),
     );
     console.log('Bonus seeded: Welcome Demo Credits');

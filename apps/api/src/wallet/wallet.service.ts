@@ -2,7 +2,6 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
@@ -110,15 +109,16 @@ export class WalletService {
       });
       const savedTx = await manager.save(tx);
 
-      const entry = manager.create(LedgerEntry, {
-        walletId: wallet.id,
-        transactionId: savedTx.id,
-        entryType: 'DEBIT',
-        amount: amount.toFixed(4),
-        balanceAfter: newAvailable,
-        description: 'Bet placed',
-      });
-      await manager.save(entry);
+      await manager.save(
+        manager.create(LedgerEntry, {
+          walletId: wallet.id,
+          transactionId: savedTx.id,
+          entryType: 'DEBIT',
+          amount: amount.toFixed(4),
+          balanceAfter: newAvailable,
+          description: 'Bet placed',
+        }),
+      );
 
       return { wallet, transaction: savedTx };
     });
@@ -129,7 +129,7 @@ export class WalletService {
     amount: number,
     idempotencyKey: string,
     metadata?: Record<string, unknown>,
-  ): Promise<{ wallet: Wallet; transaction: Transaction }> {
+  ): Promise<{ wallet: Wallet; transaction: Transaction | null }> {
     if (amount < 0) {
       throw new BadRequestException({ code: 'INVALID_AMOUNT', message: 'Win amount cannot be negative' });
     }
@@ -140,9 +140,10 @@ export class WalletService {
       return { wallet, transaction: existing };
     }
 
+    // Zero win: no ledger entry, return current wallet
     if (amount === 0) {
       const wallet = await this.getWallet(userId);
-      return { wallet, transaction: existing as any };
+      return { wallet, transaction: null };
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -172,15 +173,16 @@ export class WalletService {
       });
       const savedTx = await manager.save(tx);
 
-      const entry = manager.create(LedgerEntry, {
-        walletId: wallet.id,
-        transactionId: savedTx.id,
-        entryType: 'CREDIT',
-        amount: amount.toFixed(4),
-        balanceAfter: newAvailable,
-        description: 'Win credited',
-      });
-      await manager.save(entry);
+      await manager.save(
+        manager.create(LedgerEntry, {
+          walletId: wallet.id,
+          transactionId: savedTx.id,
+          entryType: 'CREDIT',
+          amount: amount.toFixed(4),
+          balanceAfter: newAvailable,
+          description: 'Win credited',
+        }),
+      );
 
       return { wallet, transaction: savedTx };
     });
@@ -211,15 +213,16 @@ export class WalletService {
     });
     const savedTx = await manager.save(tx);
 
-    const entry = manager.create(LedgerEntry, {
-      walletId: wallet.id,
-      transactionId: savedTx.id,
-      entryType: 'CREDIT',
-      amount: amount.toFixed(4),
-      balanceAfter: newAvailable,
-      description,
-    });
-    await manager.save(entry);
+    await manager.save(
+      manager.create(LedgerEntry, {
+        walletId: wallet.id,
+        transactionId: savedTx.id,
+        entryType: 'CREDIT',
+        amount: amount.toFixed(4),
+        balanceAfter: newAvailable,
+        description,
+      }),
+    );
   }
 
   async getTransactions(userId: string, page = 1, limit = 20) {

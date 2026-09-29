@@ -3,64 +3,41 @@
 Production-oriented **social / demo casino** (virtual credits only by default).
 
 **Repo:** https://github.com/Menelik2/game  
-**Default branch:** `root`
-
-## Features
-
-- Next.js frontend (premium dark UI)
-- NestJS API: auth (Argon2 + JWT), double-entry wallet, game engine (crypto RNG)
-- Games: slots, roulette, crash (+ blackjack/baccarat categories)
-- Bonuses, favorites, admin dashboard
-- Responsible gaming (limits + self-exclusion)
-- WebSocket wallet updates
-- TypeORM migration + seed
-- Docker Compose (Postgres, Redis, API, web)
-- GitHub Actions CI
+**Branch:** `root`
 
 ## Demo accounts (after seed)
 
-| Role   | Email                    | Password  |
-|--------|--------------------------|-----------|
-| Player | demo@apexc casino.com    | Demo123!  |
-| Admin  | admin@apexc casino.com   | Admin123! |
+| Role   | Email                 | Password  |
+|--------|-----------------------|-----------|
+| Player | demo@apexcasino.com   | Demo123!  |
+| Admin  | admin@apexcasino.com  | Admin123! |
 
 ## Local run
 
 ```bash
-git clone https://github.com/Menelik2/game.git
-cd game
+git clone https://github.com/Menelik2/game.git && cd game
 cp .env.example .env
-
-# Infra
 docker compose up -d postgres redis
 
-# API
-cd apps/api && npm install
-npm run seed          # creates schema (synchronize in seed) + demo data
-npm run start:dev     # http://localhost:3001/api/docs
-
-# Web (another terminal)
-cd apps/web && npm install
-npm run dev           # http://localhost:3000
+cd apps/api && npm install && npm run seed && npm run start:dev
+# other terminal:
+cd apps/web && npm install && npm run dev
 ```
 
-Or full stack: `docker compose up -d --build`
+- Web: http://localhost:3000
+- API docs: http://localhost:3001/api/docs
 
-## Vercel (frontend only)
+## Vercel
 
-1. Import this repo at https://vercel.com/new
-2. **Root Directory:** `apps/web`
-3. Production branch: `root`
-4. Env:
-   - `NEXT_PUBLIC_DEMO_MODE` = `true`
-   - `NEXT_PUBLIC_API_URL` = public API base URL (Railway/Render/Fly/Docker host)
+1. Import repo → **Root Directory:** `apps/web`
+2. Branch: `root`
+3. Env: `NEXT_PUBLIC_DEMO_MODE=true`, `NEXT_PUBLIC_API_URL=<api-url>`
 
-NestJS + Postgres **cannot** run on Vercel serverless as-is. Host the API separately.
+API must be hosted separately (Docker / Railway / Render).
 
-## Safety
+## Bugfixes (latest)
 
-- `REAL_MONEY_ENABLED=false` by default
-- No real deposits/withdrawals in demo mode
-- Payment/KYC are interfaces only until licensed providers are connected
-
-See [DEPLOY.md](./DEPLOY.md) and [docs/](./docs/).
+- Bonus entity uses `value` (aligned service + seed)
+- Full `ERROR_CODES` in `@apex/shared`
+- `creditWin(0)` no longer returns invalid transaction
+- Seed emails: `*@apexcasino.com` (no space)
