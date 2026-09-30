@@ -13,6 +13,7 @@ import { ResponsibleGamingModule } from './responsible-gaming/responsible-gaming
 import { AuditModule } from './audit/audit.module';
 import { BonusesModule } from './bonuses/bonuses.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { EqubModule } from './equb/equb.module';
 import { HealthController } from './common/health.controller';
 import configuration from './config/configuration';
 
@@ -54,6 +55,7 @@ import configuration from './config/configuration';
     AuditModule,
     BonusesModule,
     RealtimeModule,
+    EqubModule,
   ],
   controllers: [HealthController],
   providers: [
