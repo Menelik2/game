@@ -256,8 +256,8 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-4">
       <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-        Offline demo — local updates are instant
+      <div className="rounded-xl border border-equb-500/25 bg-equb-500/10 px-3 py-2 text-xs text-equb-200">
+        Solo demo — fully playable with bots on this device
       </div>
       <div className="glass rounded-3xl p-5">
         <h1 className="text-2xl font-bold">
@@ -302,7 +302,7 @@ export default function RoomDetailPage() {
                   onClick={() => pick != null && setMsg(joinLocal(room.id, pick).message)}
                   className="w-full rounded-2xl bg-equb-500 py-3 text-sm font-bold disabled:opacity-40"
                 >
-                  Join offline
+                  Join · pick number
                 </button>
               )}
               {inRoom && !full && (
@@ -310,7 +310,7 @@ export default function RoomDetailPage() {
                   onClick={() => setMsg(fillSeats(room.id).message)}
                   className="w-full rounded-2xl border border-equb-500/40 py-3 text-sm text-equb-300"
                 >
-                  Fill with demo bots
+                  Fill seats with bots
                 </button>
               )}
               {inRoom && full && (
@@ -324,7 +324,7 @@ export default function RoomDetailPage() {
                   }}
                   className="w-full rounded-2xl bg-gold-500 py-3 text-sm font-bold text-black"
                 >
-                  {drawing ? 'Drawing…' : 'Crypto draw'}
+                  {drawing ? 'Drawing…' : 'Crypto draw — one winner'}
                 </button>
               )}
             </div>
