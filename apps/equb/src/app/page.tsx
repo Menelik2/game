@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect } from 'react';
 import { useEqubStore } from '@/lib/store';
 import { GROUP_SIZES, contributionPerMember } from '@/lib/equb-math';
-import { ArrowRight, Users, Shield, Gift } from 'lucide-react';
+import { ArrowRight, Users, Dices, Gift } from 'lucide-react';
 
 export default function HomePage() {
   const user = useEqubStore((s) => s.user);
@@ -19,18 +19,17 @@ export default function HomePage() {
     <div className="space-y-6">
       <section className="glass rounded-3xl p-6">
         <p className="text-xs font-medium uppercase tracking-wider text-equb-400">
-          Ethiopian Equb · Digital
+          Fast Equb · Number draw
         </p>
         <h1 className="mt-2 text-3xl font-black leading-tight">
-          Save together.
+          Pick a number.
           <br />
-          <span className="text-equb-400">Receive in turn.</span>
+          <span className="text-equb-400">One winner.</span>
         </h1>
         <p className="mt-3 text-sm text-white/60">
-          Fast Equb mirrors traditional Equb: groups contribute equally; one member receives the full
-          pot each round until everyone has received.
+          Join a group, choose a unique number, pay the same entry. The computer draws one number —
+          only that player wins the full pot.
         </p>
-        <p className="mt-2 text-sm text-white/50">እቁብ በቡድን ተቀላቅሎ በተራ የሚከፈል ባህላዊ የቁጠባ ስርዓት ነው።</p>
         {!user ? (
           <button
             onClick={() => loginDemo()}
@@ -50,7 +49,7 @@ export default function HomePage() {
       <section className="grid grid-cols-3 gap-2">
         {[
           { icon: Users, t: 'Groups', d: '5 → 100' },
-          { icon: Shield, t: 'Fair order', d: 'Visible rotation' },
+          { icon: Dices, t: 'One winner', d: 'Computer draw' },
           { icon: Gift, t: 'Referrals', d: '+100 Birr' },
         ].map(({ icon: Icon, t, d }) => (
           <div key={t} className="glass rounded-2xl p-3 text-center">
@@ -61,8 +60,8 @@ export default function HomePage() {
         ))}
       </section>
       <section className="glass rounded-3xl p-5">
-        <h2 className="font-bold">How contribution works</h2>
-        <p className="mt-1 text-xs text-white/50">contribution = prize pot ÷ group size</p>
+        <h2 className="font-bold">Entry fee</h2>
+        <p className="mt-1 text-xs text-white/50">entry = pot ÷ players</p>
         <div className="mt-4 space-y-2">
           {[
             { size: 5, pot: 500 },
