@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
@@ -14,12 +14,14 @@ import {
   getPlayerIdentity,
   type ServerRoom,
 } from '@/lib/multiplayer';
+import { optimisticJoin, mergeRoomState } from '@/lib/optimistic';
 import clsx from 'clsx';
 
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const multiplayer = isMultiplayerEnabled();
+
   const rooms = useEqubStore((s) => s.rooms);
   const ensureRooms = useEqubStore((s) => s.ensureRooms);
   const user = useEqubStore((s) => s.user);
@@ -27,18 +29,27 @@ export default function RoomDetailPage() {
   const fillSeats = useEqubStore((s) => s.fillSeats);
   const runDraw = useEqubStore((s) => s.runDraw);
   const loginDemo = useEqubStore((s) => s.loginDemo);
+
   const [msg, setMsg] = useState('');
   const [pick, setPick] = useState<number | null>(null);
   const [drawing, setDrawing] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [serverRoom, setServerRoom] = useState<ServerRoom | null>(null);
   const [pollError, setPollError] = useState('');
+  const [optimistic, setOptimistic] = useState(false);
+
+  const pendingPlayerId = useRef<string | null>(null);
+  const snapshotRef = useRef<ServerRoom | null>(null);
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
 
   const refreshServer = useCallback(async () => {
     if (!multiplayer || !id) return;
     try {
       if (serverRoom?.id) {
-        setServerRoom(await fetchRoom(serverRoom.id));
+        const r = await fetchRoom(serverRoom.id);
+        setServerRoom((prev) =>
+          mergeRoomState(prev, r, { pendingPlayerId: pendingPlayerId.current }),
+        );
       } else {
         setServerRoom(await openRoom(templateId));
       }
@@ -58,6 +69,54 @@ export default function RoomDetailPage() {
     return () => clearInterval(t);
   }, [multiplayer, ensureRooms, refreshServer]);
 
+  async function handleLiveJoin(room: ServerRoom, selected: number) {
+    if (joining) return;
+    const identity = getPlayerIdentity();
+    snapshotRef.current = room;
+    pendingPlayerId.current = identity.playerId;
+    setJoining(true);
+    setOptimistic(true);
+    setServerRoom(optimisticJoin(room, selected));
+    setMsg(`Joining with #${selected}…`);
+    try {
+      const confirmed = await mpJoin(templateId, selected);
+      setServerRoom(confirmed);
+      setMsg(`Joined with #${selected}`);
+      pendingPlayerId.current = null;
+    } catch (e: any) {
+      setServerRoom(snapshotRef.current);
+      setMsg(e?.message || 'Join failed — rolled back');
+      pendingPlayerId.current = null;
+    } finally {
+      setJoining(false);
+      setOptimistic(false);
+    }
+  }
+
+  async function handleLiveDraw(room: ServerRoom) {
+    if (drawing) return;
+    snapshotRef.current = room;
+    setDrawing(true);
+    setOptimistic(true);
+    setMsg('Drawing…');
+    try {
+      const result = await drawRoom(room.id);
+      setServerRoom(result);
+      const identity = getPlayerIdentity();
+      setMsg(
+        result.winnerId === identity.playerId
+          ? `You won! Number ${result.winningNumber}`
+          : `Winner number ${result.winningNumber}`,
+      );
+    } catch (e: any) {
+      setServerRoom(snapshotRef.current);
+      setMsg(e?.message || 'Draw failed — rolled back');
+    } finally {
+      setDrawing(false);
+      setOptimistic(false);
+    }
+  }
+
   if (multiplayer) {
     const room = serverRoom;
     const identity = getPlayerIdentity();
@@ -71,14 +130,14 @@ export default function RoomDetailPage() {
       <div className="space-y-4">
         <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
         <div className="rounded-xl border border-equb-500/30 bg-equb-500/10 px-3 py-2 text-xs text-equb-300">
-          LIVE multiplayer · shared room · server CSPRNG
+          LIVE · optimistic UI · server CSPRNG{optimistic ? ' · syncing…' : ''}
         </div>
         {pollError && <p className="text-xs text-red-300">{pollError}</p>}
         {!room ? (
           <p className="text-center text-white/50">Connecting…</p>
         ) : (
           <>
-            <div className="glass rounded-3xl p-5">
+            <div className={clsx('glass rounded-3xl p-5', optimistic && 'opacity-90')}>
               <h1 className="text-2xl font-bold">
                 {room.groupSize} players · {room.prizePool.toLocaleString()} Birr
               </h1>
@@ -94,19 +153,23 @@ export default function RoomDetailPage() {
                   </p>
                 </div>
               )}
-              {msg && <p className="mt-3 text-xs text-equb-300">{msg}</p>}
+              {msg && (
+                <p className={clsx('mt-3 text-xs', optimistic ? 'text-white/70' : 'text-equb-300')}>
+                  {msg}
+                </p>
+              )}
               {room.status === 'open' && (
                 <>
                   <div className="mt-4 grid grid-cols-5 gap-2">
                     {Array.from({ length: room.groupSize }, (_, i) => i + 1).map((n) => (
                       <button
                         key={n}
-                        disabled={taken.has(n) || inRoom}
+                        disabled={taken.has(n) || inRoom || joining}
                         onClick={() => setPick(n)}
                         className={clsx(
                           'aspect-square rounded-xl text-sm font-bold',
                           myPick === n && 'bg-equb-500',
-                          pick === n && !inRoom && 'ring-2 ring-equb-400',
+                          pick === n && !inRoom && 'ring-2 ring-equb-400 bg-equb-500/30',
                           taken.has(n) && myPick !== n && 'opacity-30 line-through',
                           !taken.has(n) && 'bg-white/10',
                         )}
@@ -118,37 +181,18 @@ export default function RoomDetailPage() {
                   <div className="mt-4 space-y-2">
                     {!inRoom && (
                       <button
-                        disabled={pick == null}
-                        onClick={async () => {
-                          if (pick == null) return;
-                          try {
-                            setServerRoom(await mpJoin(templateId, pick));
-                            setMsg(`Joined #${pick}`);
-                          } catch (e: any) {
-                            setMsg(e?.message || 'Join failed');
-                          }
-                        }}
+                        disabled={pick == null || joining}
+                        onClick={() => pick != null && void handleLiveJoin(room, pick)}
                         className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-bold disabled:opacity-40"
                       >
-                        {pick == null ? 'Select number' : `Join live #${pick}`}
+                        {joining ? 'Joining…' : pick == null ? 'Select number' : `Join live #${pick}`}
                       </button>
                     )}
                     {inRoom && full && (
                       <button
                         disabled={drawing}
-                        onClick={async () => {
-                          setDrawing(true);
-                          try {
-                            const r = await drawRoom(room.id);
-                            setServerRoom(r);
-                            setMsg(`Winner #${r.winningNumber}`);
-                          } catch (e: any) {
-                            setMsg(e?.message || 'Draw failed');
-                          } finally {
-                            setDrawing(false);
-                          }
-                        }}
-                        className="w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-bold text-black"
+                        onClick={() => void handleLiveDraw(room)}
+                        className="w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-bold text-black disabled:opacity-50"
                       >
                         {drawing ? 'Drawing…' : 'Server draw'}
                       </button>
@@ -169,10 +213,19 @@ export default function RoomDetailPage() {
                   {[...room.members]
                     .sort((a, b) => a.pick - b.pick)
                     .map((m) => (
-                      <li key={m.playerId} className="flex justify-between rounded-xl bg-black/30 px-3 py-2 text-sm">
+                      <li
+                        key={m.playerId}
+                        className={clsx(
+                          'flex justify-between rounded-xl px-3 py-2 text-sm',
+                          m.playerId === identity.playerId && joining
+                            ? 'bg-equb-500/20 ring-1 ring-equb-500/40'
+                            : 'bg-black/30',
+                        )}
+                      >
                         <span>
                           {m.name}
                           {m.playerId === identity.playerId ? ' (you)' : ''}
+                          {m.playerId === identity.playerId && joining ? ' · pending' : ''}
                         </span>
                         <span className="font-mono text-equb-400">#{m.pick}</span>
                       </li>
@@ -204,7 +257,7 @@ export default function RoomDetailPage() {
     <div className="space-y-4">
       <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-        Offline demo — set NEXT_PUBLIC_API_URL for real multiplayer
+        Offline demo — local updates are instant
       </div>
       <div className="glass rounded-3xl p-5">
         <h1 className="text-2xl font-bold">
@@ -265,12 +318,13 @@ export default function RoomDetailPage() {
                   disabled={drawing}
                   onClick={async () => {
                     setDrawing(true);
+                    setMsg('Drawing…');
                     setMsg((await runDraw(room.id)).message);
                     setDrawing(false);
                   }}
                   className="w-full rounded-2xl bg-gold-500 py-3 text-sm font-bold text-black"
                 >
-                  Crypto draw
+                  {drawing ? 'Drawing…' : 'Crypto draw'}
                 </button>
               )}
             </div>
