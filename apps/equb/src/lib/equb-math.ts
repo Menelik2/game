@@ -1,4 +1,4 @@
-/** Fast Equb draw: players pick numbers → computer draws → one winner */
+/** Fast Equb draw: players pick numbers → CSPRNG draws → one winner */
 
 export const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
@@ -89,11 +89,4 @@ export function takenPicks(room: LiveRoom): Set<number> {
   return new Set(room.members.filter((m) => m.pick != null).map((m) => m.pick as number));
 }
 
-export function drawWinningNumber(groupSize: number): number {
-  const arr = new Uint32Array(1);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(arr);
-    return (arr[0] % groupSize) + 1;
-  }
-  return Math.floor(Math.random() * groupSize) + 1;
-}
+/** Use cryptographicDraw from ./crypto-rng for draws. */
