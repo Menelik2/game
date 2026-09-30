@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 export default function WalletPage() {
   const user = useEqubStore((s) => s.user);
+  const history = useEqubStore((s) => s.history);
   const loginDemo = useEqubStore((s) => s.loginDemo);
 
   if (!user) {
@@ -26,12 +27,32 @@ export default function WalletPage() {
       <h1 className="text-2xl font-bold">Wallet</h1>
       <div className="glass rounded-3xl p-6 text-center">
         <p className="text-xs text-white/40">Virtual Birr · Demo</p>
-        <p className="mt-2 text-4xl font-black text-equb-400">{user.balance.toLocaleString()}</p>
+        <p className="mt-2 text-4xl font-black text-equb-400">
+          {user.balance.toLocaleString()}
+        </p>
         <p className="mt-1 text-sm text-white/50">Birr</p>
       </div>
-      <p className="text-xs text-white/40">
-        No real money, deposits, or withdrawals in demo mode.
-      </p>
+      {history && history.length > 0 && (
+        <div className="glass rounded-3xl p-5">
+          <h2 className="font-semibold">Recent payouts</h2>
+          <ul className="mt-3 space-y-2">
+            {history.slice(0, 15).map((h, i) => (
+              <li
+                key={`${h.at}-${i}`}
+                className="flex justify-between rounded-xl bg-black/30 px-3 py-2 text-xs"
+              >
+                <span>
+                  {h.wasYou ? 'You' : h.recipientName}
+                </span>
+                <span className={h.wasYou ? 'font-semibold text-equb-400' : 'text-white/50'}>
+                  {h.wasYou ? '+' : ''}{h.amount.toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="text-xs text-white/40">Demo only — no real money.</p>
       <Link href="/rooms" className="block text-center text-sm text-equb-400">
         Browse rooms →
       </Link>
