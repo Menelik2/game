@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useEqubStore } from '@/lib/store';
+import { setPlayerName, isMultiplayerEnabled } from '@/lib/multiplayer';
 
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
@@ -11,6 +12,7 @@ export default function ProfilePage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
+  const live = typeof window !== 'undefined' && isMultiplayerEnabled();
 
   if (!user) {
     return (
@@ -24,7 +26,10 @@ export default function ProfilePage() {
           className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm"
         />
         <button
-          onClick={() => loginDemo(name || undefined)}
+          onClick={() => {
+            if (name) setPlayerName(name);
+            loginDemo(name || undefined);
+          }}
           className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-bold"
         >
           Enter with 5,000 virtual Birr
@@ -52,6 +57,13 @@ export default function ProfilePage() {
           <br />
           <strong className="font-mono tracking-widest">{user.referralCode}</strong>
         </p>
+        <p>
+          <span className="text-white/40">Mode</span>
+          <br />
+          <strong className={live ? 'text-equb-400' : 'text-white/70'}>
+            {live ? 'LIVE multiplayer' : 'Solo demo (this device)'}
+          </strong>
+        </p>
       </div>
       {!user.referredBy && (
         <div className="glass rounded-3xl p-5">
@@ -74,6 +86,19 @@ export default function ProfilePage() {
           {msg && <p className="mt-2 text-xs text-equb-300">{msg}</p>}
         </div>
       )}
+      <div className="glass rounded-3xl p-5 text-xs text-white/50">
+        <p className="font-semibold text-white/80">How to enable live multiplayer</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-4">
+          <li>Deploy NestJS API (apps/api) to Render or Railway</li>
+          <li>
+            Vercel → Project Settings → Environment Variables → add{' '}
+            <code className="text-equb-400">NEXT_PUBLIC_API_URL</code> ={' '}
+            <code className="text-equb-400">https://your-api.onrender.com</code>
+          </li>
+          <li>Redeploy the frontend</li>
+        </ol>
+        <p className="mt-2">Until then, solo demo is fully playable with bots.</p>
+      </div>
       <button
         onClick={() => logout()}
         className="w-full rounded-xl border border-white/10 py-3 text-sm text-white/50"
