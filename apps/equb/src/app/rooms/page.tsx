@@ -29,7 +29,7 @@ export default function RoomsPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Rooms</h1>
-        <p className="text-sm text-white/50">Join a group · pay contribution · receive in turn</p>
+        <p className="text-sm text-white/50">Pick a number · computer draws · one winner</p>
       </div>
       {!user && (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -95,7 +95,7 @@ export default function RoomsPage() {
                   className={clsx(
                     'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
                     r.status === 'open' && 'bg-equb-500/20 text-equb-400',
-                    r.status === 'active' && 'bg-gold-500/20 text-gold-400',
+                    r.status === 'drawing' && 'bg-gold-500/20 text-gold-400',
                     r.status === 'completed' && 'bg-white/10 text-white/40',
                   )}
                 >
