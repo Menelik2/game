@@ -8,9 +8,9 @@ import {
   type EqubMember,
   isFull,
   takenPicks,
-  drawWinningNumber,
   numberPool,
 } from './equb-math';
+import { cryptographicDraw, type DrawProof } from './crypto-rng';
 
 type User = {
   id: string;
@@ -28,6 +28,8 @@ type HistoryEvent = {
   amount: number;
   wasYou: boolean;
   at: number;
+  entropyHex?: string;
+  commitmentHash?: string;
 };
 
 type State = {
@@ -39,7 +41,7 @@ type State = {
   ensureRooms: () => void;
   joinRoom: (roomId: string, pick: number) => { ok: boolean; message: string };
   fillSeats: (roomId: string) => { ok: boolean; message: string };
-  runDraw: (roomId: string) => { ok: boolean; message: string };
+  runDraw: (roomId: string) => Promise<{ ok: boolean; message: string; proof?: DrawProof }>;
   claimReferral: (code: string) => { ok: boolean; message: string };
   resetRooms: () => void;
 };
@@ -176,7 +178,7 @@ export const useEqubStore = create<State>()(
         return { ok: true, message: `Filled ${need} seats. Ready to draw!` };
       },
 
-      runDraw: (roomId) => {
+      runDraw: async (roomId) => {
         const { user, rooms, history } = get();
         if (!user) return { ok: false, message: 'Sign in first' };
         const room = rooms.find((r) => r.id === roomId);
@@ -188,7 +190,14 @@ export const useEqubStore = create<State>()(
         if (!room.members.some((m) => m.id === user.id))
           return { ok: false, message: 'Members only' };
 
-        const winningNumber = drawWinningNumber(room.groupSize);
+        let proof: DrawProof;
+        try {
+          proof = await cryptographicDraw(room.groupSize);
+        } catch (e: any) {
+          return { ok: false, message: e?.message || 'Crypto RNG failed' };
+        }
+
+        const winningNumber = proof.winningNumber;
         const winner = room.members.find((m) => m.pick === winningNumber);
         if (!winner) return { ok: false, message: 'Draw error' };
 
@@ -207,7 +216,9 @@ export const useEqubStore = create<State>()(
               winnerName: winner.name,
               amount: room.prizePool,
               wasYou,
-              at: Date.now(),
+              at: proof.drawnAt,
+              entropyHex: proof.entropyHex,
+              commitmentHash: proof.commitmentHash,
             },
             ...history,
           ].slice(0, 50),
@@ -225,6 +236,7 @@ export const useEqubStore = create<State>()(
 
         return {
           ok: true,
+          proof,
           message: wasYou
             ? `Winning number ${winningNumber} — YOU win ${room.prizePool.toLocaleString()} Birr!`
             : `Winning number ${winningNumber} — ${winner.name} wins ${room.prizePool.toLocaleString()} Birr.`,
