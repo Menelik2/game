@@ -7,6 +7,9 @@ import {
   type LiveRoom,
   type EqubMember,
   isFull,
+  takenPicks,
+  drawWinningNumber,
+  numberPool,
 } from './equb-math';
 
 type User = {
@@ -18,25 +21,25 @@ type User = {
   referredBy?: string;
 };
 
-type PayoutEvent = {
+type HistoryEvent = {
   roomId: string;
-  recipientName: string;
+  winningNumber: number;
+  winnerName: string;
   amount: number;
-  at: number;
   wasYou: boolean;
+  at: number;
 };
 
 type State = {
   user: User | null;
   rooms: LiveRoom[];
-  history: PayoutEvent[];
+  history: HistoryEvent[];
   loginDemo: (name?: string) => void;
   logout: () => void;
   ensureRooms: () => void;
-  joinRoom: (roomId: string) => { ok: boolean; message: string };
+  joinRoom: (roomId: string, pick: number) => { ok: boolean; message: string };
   fillSeats: (roomId: string) => { ok: boolean; message: string };
-  advanceRound: (roomId: string) => { ok: boolean; message: string };
-  finishCycle: (roomId: string) => { ok: boolean; message: string };
+  runDraw: (roomId: string) => { ok: boolean; message: string };
   claimReferral: (code: string) => { ok: boolean; message: string };
   resetRooms: () => void;
 };
@@ -45,27 +48,11 @@ function uid() {
   return `u_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function shufflePositions(n: number): number[] {
-  const arr = Array.from({ length: n }, (_, i) => i + 1);
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
 const BOT_NAMES = [
   'Abebe', 'Tigist', 'Dawit', 'Hanna', 'Yonas', 'Meron', 'Samuel', 'Liya',
   'Kidus', 'Sara', 'Biniyam', 'Rahel', 'Nahom', 'Betty', 'Elias', 'Mekdes',
   'Abel', 'Selam', 'Fikru', 'Hiwot',
 ];
-
-function lockRoom(members: EqubMember[]): EqubMember[] {
-  const positions = shufflePositions(members.length);
-  const next = members.map((m, i) => ({ ...m, position: positions[i] }));
-  next.sort((a, b) => a.position - b.position);
-  return next;
-}
 
 const STARTER_BALANCE = 5000;
 
@@ -100,7 +87,8 @@ export const useEqubStore = create<State>()(
             ...t,
             members: [],
             status: 'open' as const,
-            currentRound: 1,
+            winningNumber: null,
+            winnerId: null,
             createdAt: Date.now(),
           })),
         });
@@ -113,61 +101,45 @@ export const useEqubStore = create<State>()(
             ...t,
             members: [],
             status: 'open' as const,
-            currentRound: 1,
+            winningNumber: null,
+            winnerId: null,
             createdAt: Date.now(),
           })),
         });
       },
 
-      joinRoom: (roomId) => {
+      joinRoom: (roomId, pick) => {
         const { user, rooms } = get();
         if (!user) return { ok: false, message: 'Please sign in first' };
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: 'Room not found' };
-        if (room.status === 'completed') return { ok: false, message: 'Room completed' };
-        if (room.status === 'active') return { ok: false, message: 'Room already started' };
+        if (room.status !== 'open') return { ok: false, message: 'Room closed' };
         if (room.members.some((m) => m.id === user.id))
-          return { ok: false, message: 'You are already in this room' };
+          return { ok: false, message: 'You already joined' };
         if (isFull(room)) return { ok: false, message: 'Room is full' };
-
+        if (!numberPool(room.groupSize).includes(pick))
+          return { ok: false, message: `Pick 1 to ${room.groupSize}` };
+        if (takenPicks(room).has(pick))
+          return { ok: false, message: `Number ${pick} taken` };
         const fee = room.contribution;
         if (user.balance < fee)
-          return { ok: false, message: `Need ${fee} virtual Birr (you have ${user.balance})` };
-
-        const member: EqubMember = {
-          id: user.id,
-          name: user.name,
-          position: room.members.length + 1,
-          hasReceived: false,
-        };
-        const newMembers = [...room.members, member];
-        let status: LiveRoom['status'] = 'open';
-        let currentRound = room.currentRound;
-        let finalMembers = newMembers;
-
-        if (newMembers.length >= room.groupSize) {
-          finalMembers = lockRoom(newMembers);
-          status = 'active';
-          currentRound = 1;
-        }
+          return { ok: false, message: `Need ${fee} Birr (have ${user.balance})` };
 
         set({
           user: { ...user, balance: Math.round((user.balance - fee) * 100) / 100 },
           rooms: rooms.map((r) =>
             r.id === roomId
-              ? { ...r, members: finalMembers, status, currentRound }
+              ? {
+                  ...r,
+                  members: [
+                    ...r.members,
+                    { id: user.id, name: user.name, pick, isBot: false },
+                  ],
+                }
               : r,
           ),
         });
-
-        const me = finalMembers.find((m) => m.id === user.id);
-        return {
-          ok: true,
-          message:
-            status === 'active'
-              ? `Room full! You are #${me?.position}. Use Next payout.`
-              : `Joined · paid ${fee} Birr · ${room.groupSize - finalMembers.length} seats left.`,
-        };
+        return { ok: true, message: `Joined with #${pick}. Paid ${fee} Birr.` };
       },
 
       fillSeats: (roomId) => {
@@ -177,70 +149,50 @@ export const useEqubStore = create<State>()(
         if (!room) return { ok: false, message: 'Room not found' };
         if (room.status !== 'open') return { ok: false, message: 'Room not open' };
         if (!room.members.some((m) => m.id === user.id))
-          return { ok: false, message: 'Join the room first' };
-
+          return { ok: false, message: 'Join and pick a number first' };
         const need = room.groupSize - room.members.length;
         if (need <= 0) return { ok: false, message: 'Already full' };
 
-        const usedNames = new Set(room.members.map((m) => m.name));
+        const taken = takenPicks(room);
+        const free = numberPool(room.groupSize).filter((n) => !taken.has(n));
+        for (let i = free.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [free[i], free[j]] = [free[j], free[i]];
+        }
         const bots: EqubMember[] = [];
-        for (const name of BOT_NAMES) {
-          if (bots.length >= need) break;
-          if (usedNames.has(name)) continue;
+        for (let i = 0; i < need; i++) {
           bots.push({
             id: `bot_${uid()}`,
-            name,
-            position: room.members.length + bots.length + 1,
-            hasReceived: false,
+            name: BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? String(i) : ''),
+            pick: free[i],
+            isBot: true,
           });
         }
-        while (bots.length < need) {
-          bots.push({
-            id: `bot_${uid()}`,
-            name: `Player ${room.members.length + bots.length + 1}`,
-            position: room.members.length + bots.length + 1,
-            hasReceived: false,
-          });
-        }
-
-        const finalMembers = lockRoom([...room.members, ...bots]);
         set({
           rooms: rooms.map((r) =>
-            r.id === roomId
-              ? { ...r, members: finalMembers, status: 'active' as const, currentRound: 1 }
-              : r,
+            r.id === roomId ? { ...r, members: [...r.members, ...bots] } : r,
           ),
         });
-        const me = finalMembers.find((m) => m.id === user.id);
-        return {
-          ok: true,
-          message: `Filled ${need} seats. You are #${me?.position} of ${room.groupSize}.`,
-        };
+        return { ok: true, message: `Filled ${need} seats. Ready to draw!` };
       },
 
-      advanceRound: (roomId) => {
+      runDraw: (roomId) => {
         const { user, rooms, history } = get();
         if (!user) return { ok: false, message: 'Sign in first' };
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: 'Room not found' };
-        if (room.status !== 'active') return { ok: false, message: 'Room is not active yet' };
+        if (room.status === 'completed') return { ok: false, message: 'Already drawn' };
+        if (!isFull(room)) return { ok: false, message: 'Room must be full' };
+        if (!room.members.every((m) => m.pick != null))
+          return { ok: false, message: 'Everyone needs a number' };
+        if (!room.members.some((m) => m.id === user.id))
+          return { ok: false, message: 'Members only' };
 
-        const sorted = [...room.members].sort((a, b) => a.position - b.position);
-        const recipient = sorted.find((m) => !m.hasReceived);
-        if (!recipient) {
-          set({
-            rooms: rooms.map((r) =>
-              r.id === roomId ? { ...r, status: 'completed' as const } : r,
-            ),
-          });
-          return { ok: true, message: 'Cycle complete — everyone received once.' };
-        }
+        const winningNumber = drawWinningNumber(room.groupSize);
+        const winner = room.members.find((m) => m.pick === winningNumber);
+        if (!winner) return { ok: false, message: 'Draw error' };
 
-        const updatedMembers = room.members.map((m) =>
-          m.id === recipient.id ? { ...m, hasReceived: true } : m,
-        );
-        const allDone = updatedMembers.every((m) => m.hasReceived);
-        const wasYou = recipient.id === user.id;
+        const wasYou = winner.id === user.id;
         let newBalance = user.balance;
         if (wasYou) {
           newBalance = Math.round((user.balance + room.prizePool) * 100) / 100;
@@ -251,10 +203,11 @@ export const useEqubStore = create<State>()(
           history: [
             {
               roomId,
-              recipientName: recipient.name,
+              winningNumber,
+              winnerName: winner.name,
               amount: room.prizePool,
-              at: Date.now(),
               wasYou,
+              at: Date.now(),
             },
             ...history,
           ].slice(0, 50),
@@ -262,9 +215,9 @@ export const useEqubStore = create<State>()(
             r.id === roomId
               ? {
                   ...r,
-                  members: updatedMembers,
-                  currentRound: r.currentRound + 1,
-                  status: allDone ? ('completed' as const) : ('active' as const),
+                  status: 'completed' as const,
+                  winningNumber,
+                  winnerId: winner.id,
                 }
               : r,
           ),
@@ -273,29 +226,18 @@ export const useEqubStore = create<State>()(
         return {
           ok: true,
           message: wasYou
-            ? `You received ${room.prizePool.toLocaleString()} Birr!`
-            : `${recipient.name} received ${room.prizePool.toLocaleString()} Birr.`,
+            ? `Winning number ${winningNumber} — YOU win ${room.prizePool.toLocaleString()} Birr!`
+            : `Winning number ${winningNumber} — ${winner.name} wins ${room.prizePool.toLocaleString()} Birr.`,
         };
-      },
-
-      finishCycle: (roomId) => {
-        let last = { ok: true, message: '' };
-        for (let i = 0; i < 120; i++) {
-          const room = get().rooms.find((r) => r.id === roomId);
-          if (!room || room.status !== 'active') break;
-          last = get().advanceRound(roomId);
-          if (!last.ok) break;
-        }
-        return { ok: true, message: last.message || 'Cycle finished.' };
       },
 
       claimReferral: (code) => {
         const { user } = get();
         if (!user) return { ok: false, message: 'Sign in first' };
-        if (user.referredBy) return { ok: false, message: 'Referral already applied' };
-        if (!code || code.length < 4) return { ok: false, message: 'Invalid code' };
+        if (user.referredBy) return { ok: false, message: 'Already used' };
+        if (!code || code.length < 4) return { ok: false, message: 'Invalid' };
         if (code.toUpperCase() === user.referralCode)
-          return { ok: false, message: 'Cannot use your own code' };
+          return { ok: false, message: 'Own code' };
         set({
           user: {
             ...user,
@@ -303,9 +245,9 @@ export const useEqubStore = create<State>()(
             balance: user.balance + 100,
           },
         });
-        return { ok: true, message: '+100 virtual Birr referral bonus!' };
+        return { ok: true, message: '+100 virtual Birr!' };
       },
     }),
-    { name: 'fast-equb-demo-v2' },
+    { name: 'fast-equb-draw-v1' },
   ),
 );
