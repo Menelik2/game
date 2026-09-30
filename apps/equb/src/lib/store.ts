@@ -10,7 +10,7 @@ import {
   takenPicks,
   numberPool,
 } from './equb-math';
-import { cryptographicDraw, type DrawProof } from './crypto-rng';
+import { cryptographicDraw, secureRandomInt, type DrawProof } from './crypto-rng';
 
 type User = {
   id: string;
@@ -28,6 +28,7 @@ type HistoryEvent = {
   amount: number;
   wasYou: boolean;
   at: number;
+  groupSize?: number;
   entropyHex?: string;
   commitmentHash?: string;
 };
@@ -158,7 +159,7 @@ export const useEqubStore = create<State>()(
         const taken = takenPicks(room);
         const free = numberPool(room.groupSize).filter((n) => !taken.has(n));
         for (let i = free.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
+          const j = secureRandomInt(i + 1);
           [free[i], free[j]] = [free[j], free[i]];
         }
         const bots: EqubMember[] = [];
@@ -217,6 +218,7 @@ export const useEqubStore = create<State>()(
               amount: room.prizePool,
               wasYou,
               at: proof.drawnAt,
+              groupSize: room.groupSize,
               entropyHex: proof.entropyHex,
               commitmentHash: proof.commitmentHash,
             },
