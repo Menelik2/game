@@ -1,4 +1,4 @@
-/** Fast Equb rules — contribution = prize ÷ group size */
+/** Fast Equb draw: players pick numbers → computer draws → one winner */
 
 export const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
@@ -15,8 +15,7 @@ export const PRIZE_POOLS = buildPrizePools();
 
 export function contributionPerMember(prizePool: number, groupSize: number): number {
   if (groupSize <= 0) throw new Error('Invalid group size');
-  const raw = prizePool / groupSize;
-  return Math.round(raw * 100) / 100;
+  return Math.round((prizePool / groupSize) * 100) / 100;
 }
 
 export function roomId(groupSize: number, prizePool: number): string {
@@ -59,17 +58,22 @@ export function buildRoomCatalog(opts?: { maxPrize?: number }): RoomTemplate[] {
   return out;
 }
 
+export function numberPool(groupSize: number): number[] {
+  return Array.from({ length: groupSize }, (_, i) => i + 1);
+}
+
 export type EqubMember = {
   id: string;
   name: string;
-  position: number;
-  hasReceived: boolean;
+  pick: number | null;
+  isBot?: boolean;
 };
 
 export type LiveRoom = RoomTemplate & {
   members: EqubMember[];
-  status: 'open' | 'locked' | 'active' | 'completed';
-  currentRound: number;
+  status: 'open' | 'drawing' | 'completed';
+  winningNumber: number | null;
+  winnerId: string | null;
   createdAt: number;
 };
 
@@ -79,4 +83,17 @@ export function seatsLeft(room: LiveRoom): number {
 
 export function isFull(room: LiveRoom): boolean {
   return room.members.length >= room.groupSize;
+}
+
+export function takenPicks(room: LiveRoom): Set<number> {
+  return new Set(room.members.filter((m) => m.pick != null).map((m) => m.pick as number));
+}
+
+export function drawWinningNumber(groupSize: number): number {
+  const arr = new Uint32Array(1);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+    return (arr[0] % groupSize) + 1;
+  }
+  return Math.floor(Math.random() * groupSize) + 1;
 }
