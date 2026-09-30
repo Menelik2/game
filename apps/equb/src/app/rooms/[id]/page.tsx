@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
-import { seatsLeft } from '@/lib/equb-math';
+import { seatsLeft, numberPool, takenPicks, isFull } from '@/lib/equb-math';
+import clsx from 'clsx';
 
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -14,9 +15,9 @@ export default function RoomDetailPage() {
   const user = useEqubStore((s) => s.user);
   const joinRoom = useEqubStore((s) => s.joinRoom);
   const fillSeats = useEqubStore((s) => s.fillSeats);
-  const advanceRound = useEqubStore((s) => s.advanceRound);
-  const finishCycle = useEqubStore((s) => s.finishCycle);
+  const runDraw = useEqubStore((s) => s.runDraw);
   const [msg, setMsg] = useState('');
+  const [pick, setPick] = useState<number | null>(null);
 
   useEffect(() => {
     ensureRooms();
@@ -27,23 +28,20 @@ export default function RoomDetailPage() {
     return (
       <div className="py-12 text-center text-white/50">
         Room not found.{' '}
-        <Link href="/rooms" className="text-equb-400">
-          Back
-        </Link>
+        <Link href="/rooms" className="text-equb-400">Back</Link>
       </div>
     );
   }
 
-  const sorted = [...room.members].sort((a, b) => a.position - b.position);
+  const taken = takenPicks(room);
   const inRoom = !!(user && room.members.some((m) => m.id === user.id));
-  const nextUp = sorted.find((m) => !m.hasReceived);
-  const receivedCount = room.members.filter((m) => m.hasReceived).length;
+  const myPick = room.members.find((m) => m.id === user?.id)?.pick;
+  const full = isFull(room);
+  const winner = room.members.find((m) => m.id === room.winnerId);
 
   return (
     <div className="space-y-4">
-      <button onClick={() => router.back()} className="text-sm text-white/50">
-        ← Rooms
-      </button>
+      <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
 
       <div className="glass rounded-3xl p-5">
         <p className="text-xs uppercase tracking-wide text-equb-400">{room.tier} tier</p>
@@ -51,20 +49,23 @@ export default function RoomDetailPage() {
           {room.groupSize} players · {room.prizePool.toLocaleString()} Birr
         </h1>
         <p className="mt-2 text-sm text-white/60">
-          Each pays <strong className="text-white">{room.contribution} Birr</strong>
-          {' '}({room.prizePool} ÷ {room.groupSize})
+          Entry <strong className="text-white">{room.contribution} Birr</strong>
+          {' '}· pick a number · computer draws · <strong>one winner</strong>
         </p>
         <p className="mt-1 text-xs text-white/40">
-          Status: {room.status} · {room.members.length}/{room.groupSize}
-          {room.status === 'open' ? ` · ${seatsLeft(room)} left` : ''}
-          {room.status === 'active' ? ` · ${receivedCount}/${room.groupSize} paid out` : ''}
+          {room.members.length}/{room.groupSize} joined
+          {room.status === 'open' && !full ? ` · ${seatsLeft(room)} left` : ''}
         </p>
 
-        {nextUp && room.status === 'active' && (
-          <p className="mt-3 rounded-xl bg-gold-500/10 px-3 py-2 text-sm text-gold-400">
-            Next: <strong>#{nextUp.position} {nextUp.name}</strong>
-            {user?.id === nextUp.id ? ' (you)' : ''}
-          </p>
+        {room.status === 'completed' && room.winningNumber != null && (
+          <div className="mt-4 rounded-2xl bg-gold-500/15 p-4 text-center ring-1 ring-gold-500/30">
+            <p className="text-xs text-gold-400">Winning number</p>
+            <p className="mt-1 text-5xl font-black text-gold-400">{room.winningNumber}</p>
+            <p className="mt-2 text-sm">
+              Winner: <strong>{winner?.name}{winner?.id === user?.id ? ' (you)' : ''}</strong>
+              {' · '}{room.prizePool.toLocaleString()} Birr
+            </p>
+          </div>
         )}
 
         {msg && (
@@ -72,83 +73,98 @@ export default function RoomDetailPage() {
         )}
 
         {room.status === 'open' && (
+          <div className="mt-5">
+            <p className="mb-2 text-xs font-medium text-white/50">
+              {inRoom ? `Your number: ${myPick}` : `Select number (1–${room.groupSize})`}
+            </p>
+            <div className="grid grid-cols-5 gap-2">
+              {numberPool(room.groupSize).map((n) => {
+                const isTaken = taken.has(n);
+                const isMine = myPick === n;
+                const isSelected = pick === n && !inRoom;
+                return (
+                  <button
+                    key={n}
+                    disabled={isTaken || inRoom}
+                    onClick={() => setPick(n)}
+                    className={clsx(
+                      'aspect-square rounded-xl text-sm font-bold transition',
+                      isMine && 'bg-equb-500 text-white ring-2 ring-equb-300',
+                      isSelected && 'bg-equb-500/40 text-white ring-2 ring-equb-400',
+                      isTaken && !isMine && 'bg-white/5 text-white/25 line-through',
+                      !isTaken && !isMine && !isSelected && 'bg-white/10 hover:bg-white/20',
+                    )}
+                  >
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {room.status === 'open' && (
           <div className="mt-5 space-y-2">
-            <button
-              disabled={!user || inRoom}
-              onClick={() => setMsg(joinRoom(room.id).message)}
-              className="w-full rounded-2xl bg-gradient-to-r from-equb-500 to-equb-600 py-3.5 text-sm font-bold disabled:opacity-40"
-            >
-              {inRoom ? 'Already joined' : user ? `1. Join · pay ${room.contribution} Birr` : 'Sign in to join'}
-            </button>
-            {inRoom && seatsLeft(room) > 0 && (
+            {!inRoom && (
+              <button
+                disabled={!user || pick == null}
+                onClick={() => pick != null && setMsg(joinRoom(room.id, pick).message)}
+                className="w-full rounded-2xl bg-gradient-to-r from-equb-500 to-equb-600 py-3.5 text-sm font-bold disabled:opacity-40"
+              >
+                {!user ? 'Sign in to join' : pick == null ? 'Select a number' : `Join with #${pick} · pay ${room.contribution}`}
+              </button>
+            )}
+            {inRoom && !full && (
               <button
                 onClick={() => setMsg(fillSeats(room.id).message)}
                 className="w-full rounded-2xl border border-equb-500/40 bg-equb-500/10 py-3.5 text-sm font-bold text-equb-300"
               >
-                2. Fill remaining seats (demo players)
+                Fill empty seats (demo players)
+              </button>
+            )}
+            {inRoom && full && (
+              <button
+                onClick={() => setMsg(runDraw(room.id).message)}
+                className="w-full rounded-2xl bg-gradient-to-r from-gold-500 to-gold-400 py-3.5 text-sm font-bold text-black"
+              >
+                Computer draw — one winner
               </button>
             )}
           </div>
         )}
-
-        {room.status === 'active' && inRoom && (
-          <div className="mt-5 space-y-2">
-            <button
-              onClick={() => setMsg(advanceRound(room.id).message)}
-              className="w-full rounded-2xl bg-gradient-to-r from-gold-500 to-gold-400 py-3.5 text-sm font-bold text-black"
-            >
-              Next payout
-            </button>
-            <button
-              onClick={() => setMsg(finishCycle(room.id).message)}
-              className="w-full rounded-2xl border border-white/15 py-3 text-sm text-white/70"
-            >
-              Run full cycle
-            </button>
-          </div>
-        )}
-
-        {room.status === 'completed' && (
-          <p className="mt-5 text-center text-sm text-equb-400">
-            Cycle complete. Everyone received once.
-          </p>
-        )}
       </div>
 
-      {sorted.length > 0 && (
+      {room.members.length > 0 && (
         <div className="glass rounded-3xl p-5">
-          <h2 className="font-bold">Rotation order</h2>
+          <h2 className="font-bold">Players and numbers</h2>
           <ul className="mt-3 space-y-2">
-            {sorted.map((m) => (
-              <li
-                key={m.id}
-                className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm ${
-                  nextUp?.id === m.id && !m.hasReceived
-                    ? 'bg-gold-500/15 ring-1 ring-gold-500/30'
-                    : 'bg-black/30'
-                }`}
-              >
-                <span>
-                  <span className="mr-2 font-mono text-equb-400">#{m.position}</span>
-                  {m.name}
-                  {user?.id === m.id ? ' (you)' : ''}
-                </span>
-                <span className="text-xs text-white/40">
-                  {m.hasReceived ? 'Received' : nextUp?.id === m.id ? 'Next' : 'Waiting'}
-                </span>
-              </li>
-            ))}
+            {[...room.members]
+              .sort((a, b) => (a.pick ?? 0) - (b.pick ?? 0))
+              .map((m) => (
+                <li
+                  key={m.id}
+                  className={clsx(
+                    'flex justify-between rounded-xl px-3 py-2 text-sm',
+                    room.winnerId === m.id ? 'bg-gold-500/20 ring-1 ring-gold-500/40' : 'bg-black/30',
+                  )}
+                >
+                  <span>
+                    {m.name}{user?.id === m.id ? ' (you)' : ''}{m.isBot ? ' · demo' : ''}
+                  </span>
+                  <span className="font-mono font-bold text-equb-400">#{m.pick}</span>
+                </li>
+              ))}
           </ul>
         </div>
       )}
 
       <div className="rounded-2xl border border-white/10 p-4 text-xs text-white/45">
-        <p className="font-semibold text-white/70">How to play</p>
+        <p className="font-semibold text-white/70">Rules</p>
         <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Sign in → 5,000 virtual Birr</li>
-          <li>Join room (pays contribution)</li>
-          <li>Fill seats with demo players</li>
-          <li>Next payout until everyone received</li>
+          <li>Everyone pays the same entry (pot ÷ players)</li>
+          <li>Each player picks a unique number</li>
+          <li>Computer randomly draws one number</li>
+          <li>Only that player wins the full pot</li>
         </ol>
       </div>
     </div>
