@@ -18,6 +18,7 @@ export default function RoomDetailPage() {
   const runDraw = useEqubStore((s) => s.runDraw);
   const [msg, setMsg] = useState('');
   const [pick, setPick] = useState<number | null>(null);
+  const [drawing, setDrawing] = useState(false);
 
   useEffect(() => {
     ensureRooms();
@@ -50,7 +51,7 @@ export default function RoomDetailPage() {
         </h1>
         <p className="mt-2 text-sm text-white/60">
           Entry <strong className="text-white">{room.contribution} Birr</strong>
-          {' '}· pick a number · computer draws · <strong>one winner</strong>
+          {' '}· pick a number · <strong>CSPRNG draw</strong> · one winner
         </p>
         <p className="mt-1 text-xs text-white/40">
           {room.members.length}/{room.groupSize} joined
@@ -59,11 +60,14 @@ export default function RoomDetailPage() {
 
         {room.status === 'completed' && room.winningNumber != null && (
           <div className="mt-4 rounded-2xl bg-gold-500/15 p-4 text-center ring-1 ring-gold-500/30">
-            <p className="text-xs text-gold-400">Winning number</p>
+            <p className="text-xs text-gold-400">Winning number (cryptographic)</p>
             <p className="mt-1 text-5xl font-black text-gold-400">{room.winningNumber}</p>
             <p className="mt-2 text-sm">
               Winner: <strong>{winner?.name}{winner?.id === user?.id ? ' (you)' : ''}</strong>
               {' · '}{room.prizePool.toLocaleString()} Birr
+            </p>
+            <p className="mt-2 text-[10px] text-white/35">
+              Web Crypto getRandomValues · rejection sampling · SHA-256 proof
             </p>
           </div>
         )}
@@ -124,10 +128,19 @@ export default function RoomDetailPage() {
             )}
             {inRoom && full && (
               <button
-                onClick={() => setMsg(runDraw(room.id).message)}
-                className="w-full rounded-2xl bg-gradient-to-r from-gold-500 to-gold-400 py-3.5 text-sm font-bold text-black"
+                disabled={drawing}
+                onClick={async () => {
+                  setDrawing(true);
+                  try {
+                    const res = await runDraw(room.id);
+                    setMsg(res.message);
+                  } finally {
+                    setDrawing(false);
+                  }
+                }}
+                className="w-full rounded-2xl bg-gradient-to-r from-gold-500 to-gold-400 py-3.5 text-sm font-bold text-black disabled:opacity-50"
               >
-                Computer draw — one winner
+                {drawing ? 'Drawing…' : 'Cryptographic draw — one winner'}
               </button>
             )}
           </div>
@@ -157,16 +170,6 @@ export default function RoomDetailPage() {
           </ul>
         </div>
       )}
-
-      <div className="rounded-2xl border border-white/10 p-4 text-xs text-white/45">
-        <p className="font-semibold text-white/70">Rules</p>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Everyone pays the same entry (pot ÷ players)</li>
-          <li>Each player picks a unique number</li>
-          <li>Computer randomly draws one number</li>
-          <li>Only that player wins the full pot</li>
-        </ol>
-      </div>
     </div>
   );
 }
