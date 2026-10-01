@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install && npm run build --workspace=@apex/shared --if-present && npm run build --workspace=@apex/api"
+  },
+  "deploy": {
+    "startCommand": "npm run start:prod --workspace=@apex/api",
+    "healthcheckPath": "/api/health",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
