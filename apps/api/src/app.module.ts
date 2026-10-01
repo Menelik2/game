@@ -14,6 +14,7 @@ import { AuditModule } from './audit/audit.module';
 import { BonusesModule } from './bonuses/bonuses.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { HealthController } from './common/health.controller';
+import { KenoRoundsModule } from './keno-rounds/keno-rounds.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -54,6 +55,7 @@ import configuration from './config/configuration';
     AuditModule,
     BonusesModule,
     RealtimeModule,
+    KenoRoundsModule,
   ],
   controllers: [HealthController],
   providers: [
