@@ -7,23 +7,44 @@
 }
 
 body {
-  @apply min-h-screen bg-[#070b0a] text-white antialiased;
+  @apply min-h-screen text-white antialiased;
+  background-color: #050a08;
   background-image:
-    radial-gradient(ellipse 90% 60% at 50% -30%, rgba(16, 185, 129, 0.18), transparent),
-    radial-gradient(ellipse 50% 40% at 100% 0%, rgba(245, 158, 11, 0.08), transparent),
-    radial-gradient(ellipse 40% 30% at 0% 100%, rgba(16, 185, 129, 0.06), transparent);
+    radial-gradient(ellipse 100% 70% at 50% -25%, rgba(16, 185, 129, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 10%, rgba(245, 158, 11, 0.1), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 0% 90%, rgba(16, 185, 129, 0.08), transparent 45%);
   min-height: 100dvh;
 }
 
 .glass {
-  @apply border border-white/10 bg-[#0c1412]/80 backdrop-blur-xl;
+  @apply border border-white/[0.08] bg-[#0c1412]/75 backdrop-blur-xl;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.04), 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.glass-strong {
+  @apply border border-white/10 bg-[#0e1815]/90 backdrop-blur-2xl;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
 .keno-title {
-  @apply text-xl font-black tracking-wide text-gold-400;
+  @apply bg-gradient-to-r from-gold-400 via-amber-300 to-gold-500 bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl;
 }
 
-/* Mobile safe areas */
+.btn-gold {
+  @apply rounded-2xl bg-gradient-to-b from-gold-400 to-gold-500 py-3.5 text-center text-sm font-black text-black shadow-lg shadow-gold-500/25 transition active:scale-[0.98] hover:brightness-110;
+}
+
+.btn-equb {
+  @apply rounded-2xl bg-gradient-to-b from-equb-400 to-equb-600 py-3.5 text-center text-sm font-black text-white shadow-lg shadow-equb-500/30 transition active:scale-[0.98] hover:brightness-110;
+}
+
+.chip {
+  @apply rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition;
+}
+.chip-active {
+  @apply border-equb-500/50 bg-equb-500/20 text-equb-300 shadow-sm shadow-equb-500/20;
+}
+
 .safe-top {
   padding-top: max(0.5rem, env(safe-area-inset-top));
 }
@@ -31,7 +52,9 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-input, select, textarea {
+input,
+select,
+textarea {
   font-size: 16px;
 }
 
@@ -40,4 +63,30 @@ input, select, textarea {
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: contain;
   }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+.animate-soft-pulse {
+  animation: soft-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%,
+  100% {
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(16, 185, 129, 0.45);
+  }
+}
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
 }
