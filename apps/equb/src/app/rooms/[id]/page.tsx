@@ -17,6 +17,7 @@ import {
 import { optimisticJoin } from '@/lib/optimistic';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { EqubTable, type TablePlayer, type TableResult } from '@/components/EqubTable';
+import { useAutoCryptoDraw, useDemoCountdown } from '@/lib/use-auto-draw';
 
 function PlayBackBar() {
   const { t } = useI18n();
@@ -77,16 +78,22 @@ export default function RoomDetailPage() {
     return () => clearInterval(iv);
   }, [multiplayer, ensureRooms, refreshServer]);
 
+  useDemoCountdown(tick, setTick, multiplayer && serverRoom?.secondsLeft != null);
   useEffect(() => {
     if (multiplayer && serverRoom?.secondsLeft != null) {
       setTick(Number(serverRoom.secondsLeft));
-      return;
     }
-    const iv = setInterval(() => {
-      setTick((s) => (s <= 0 ? 60 : s - 1));
-    }, 1000);
-    return () => clearInterval(iv);
   }, [multiplayer, serverRoom?.secondsLeft]);
+
+  useAutoCryptoDraw({
+    roomId: id,
+    tick,
+    setTick,
+    setMsg,
+    setDrawing,
+    enabled: !multiplayer,
+    locale,
+  });
 
   const historyResults: TableResult[] = useMemo(
     () =>
@@ -146,7 +153,10 @@ export default function RoomDetailPage() {
             locale={locale}
             onSelect={setPick}
             onBet={async () => {
-              if (pick == null) return;
+              if (pick == null) {
+                setMsg(locale === 'am' ? 'መጀመሪያ ቁጥር ይምረጡ' : 'Select a number first');
+                return;
+              }
               setJoining(true);
               setServerRoom(optimisticJoin(room, pick));
               try {
@@ -228,13 +238,25 @@ export default function RoomDetailPage() {
         disabled={inRoom || room.status !== 'open'}
         joining={joining}
         drawing={drawing}
-        canBet={!!user && room.status === 'open' && !inRoom && pick != null}
+        canBet={room.status === 'open' && !inRoom && pick != null}
         canFillBots={inRoom && !full && room.status === 'open'}
         canDraw={inRoom && full && room.status === 'open'}
         locale={locale}
         onSelect={setPick}
         onBet={() => {
-          if (pick == null) return;
+          if (!user) {
+            loginDemo();
+            setMsg(
+              locale === 'am'
+                ? 'ተመዝግበዋል — ቁጥር ይምረጡና እንደገና ውርርድ'
+                : 'Signed in — pick a number and BET again',
+            );
+            return;
+          }
+          if (pick == null) {
+            setMsg(locale === 'am' ? 'መጀመሪያ ቁጥር ይምረጡ' : 'Select a number first');
+            return;
+          }
           setMsg(joinLocal(room.id, pick).message);
         }}
         onFillBots={() => setMsg(fillSeats(room.id).message)}
@@ -246,6 +268,7 @@ export default function RoomDetailPage() {
         onPlayAgain={() => {
           setMsg(reopenRoom(room.id).message);
           setPick(null);
+          setTick(60);
         }}
       />
       {msg && (
