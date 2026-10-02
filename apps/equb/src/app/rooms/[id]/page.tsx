@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { useEqubStore } from '@/lib/store';
 import { takenPicks, isFull } from '@/lib/equb-math';
 import {
@@ -10,16 +11,34 @@ import {
   joinRoom as mpJoin,
   openRoom,
   fetchRoom,
-  drawRoom,
   getPlayerIdentity,
   type ServerRoom,
 } from '@/lib/multiplayer';
 import { optimisticJoin } from '@/lib/optimistic';
-import { EqubBoard, EqubRulesCard, EqubResultBanner } from '@/components/EqubBoard';
+import {
+  EqubBoard,
+  EqubRulesCard,
+  EqubResultBanner,
+  EqubCountdown,
+} from '@/components/EqubBoard';
+
+function PlayBackBar() {
+  return (
+    <div className="sticky top-[4.5rem] z-20 flex items-center gap-3 rounded-xl border border-equb-500/30 bg-equb-500/10 px-3 py-2.5 backdrop-blur">
+      <Link
+        href="/rooms"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-equb-500 px-3 py-2 text-sm font-bold text-white shadow-lg shadow-equb-500/20"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </Link>
+      <span className="text-xs text-white/50">Return to room setup</span>
+    </div>
+  );
+}
 
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const multiplayer = isMultiplayerEnabled();
 
   const rooms = useEqubStore((s) => s.rooms);
@@ -65,18 +84,15 @@ export default function RoomDetailPage() {
     const yourPick =
       room?.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
     const inRoom = yourPick != null;
-    const full = room ? room.members.length >= room.groupSize : false;
     const winner = room?.members.find((m) => m.playerId === room.winnerId);
 
     return (
       <div className="space-y-4">
-        <button type="button" onClick={() => router.back()} className="text-sm text-white/40">
-          ← Rooms
-        </button>
+        <PlayBackBar />
         <div className="flex items-center justify-between">
           <div>
             <h1 className="keno-title">FAST EQUB</h1>
-            <p className="text-[11px] text-white/40">Pick 1 · computer draws · one winner</p>
+            <p className="text-[11px] text-white/40">Play · multiplayer</p>
           </div>
           {room && (
             <div className="text-right">
@@ -87,9 +103,9 @@ export default function RoomDetailPage() {
             </div>
           )}
         </div>
-        <p className="rounded-xl border border-equb-500/25 bg-equb-500/10 px-3 py-2 text-[11px] text-equb-300">
-          LIVE multiplayer
-        </p>
+        {room && room.status === 'open' && (
+          <EqubCountdown secondsLeft={Number(room.secondsLeft ?? 60)} />
+        )}
         {!room ? (
           <p className="py-8 text-center text-white/40">Connecting…</p>
         ) : (
@@ -105,7 +121,6 @@ export default function RoomDetailPage() {
                 <span>
                   Entry <b className="text-equb-400">{room.contribution}</b>
                 </span>
-                <span className="uppercase">{room.status}</span>
               </div>
               {room.status === 'completed' && room.winningNumber != null && (
                 <div className="mb-4">
@@ -132,7 +147,9 @@ export default function RoomDetailPage() {
               contribution={room.contribution}
               prizePool={room.prizePool}
             />
-            {msg && <p className="rounded-xl bg-white/5 px-3 py-2 text-xs text-equb-300">{msg}</p>}
+            {msg && (
+              <p className="rounded-xl bg-white/5 px-3 py-2 text-xs text-equb-300">{msg}</p>
+            )}
             {room.status === 'open' && !inRoom && (
               <button
                 type="button"
@@ -156,25 +173,6 @@ export default function RoomDetailPage() {
                 {joining ? 'JOINING…' : 'CONFIRM PICK · JOIN'}
               </button>
             )}
-            {inRoom && full && room.status === 'open' && (
-              <button
-                type="button"
-                disabled={drawing}
-                onClick={async () => {
-                  setDrawing(true);
-                  try {
-                    setServerRoom(await drawRoom(room.id));
-                  } catch (e: any) {
-                    setMsg(e?.message || 'Draw failed');
-                  } finally {
-                    setDrawing(false);
-                  }
-                }}
-                className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-black disabled:opacity-40"
-              >
-                {drawing ? 'DRAWING…' : 'RUN CRYPTO DRAW'}
-              </button>
-            )}
           </>
         )}
       </div>
@@ -184,8 +182,12 @@ export default function RoomDetailPage() {
   const room = rooms.find((r) => r.id === id);
   if (!room) {
     return (
-      <div className="py-12 text-center text-white/50">
-        Room not found. <Link href="/rooms" className="text-equb-400">Back</Link>
+      <div className="space-y-4 py-8 text-center">
+        <PlayBackBar />
+        <p className="text-white/50">Room not found.</p>
+        <Link href="/rooms" className="text-equb-400 underline">
+          Back to rooms
+        </Link>
       </div>
     );
   }
@@ -198,13 +200,11 @@ export default function RoomDetailPage() {
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={() => router.back()} className="text-sm text-white/40">
-        ← Rooms
-      </button>
+      <PlayBackBar />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="keno-title">FAST EQUB</h1>
-          <p className="text-[11px] text-white/40">Pick 1 · computer draws · one winner</p>
+          <p className="text-[11px] text-white/40">Play · demo</p>
         </div>
         <div className="text-right">
           <p className="text-[10px] text-white/40">Balance</p>
@@ -213,9 +213,6 @@ export default function RoomDetailPage() {
           </p>
         </div>
       </div>
-      <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/45">
-        DEMO · bots on this device · virtual Birr only
-      </p>
       <div className="glass rounded-2xl p-4">
         <div className="mb-3 flex flex-wrap justify-between gap-2 text-xs text-white/50">
           <span>
@@ -226,9 +223,6 @@ export default function RoomDetailPage() {
           </span>
           <span>
             Entry <b className="text-equb-400">{room.contribution}</b>
-          </span>
-          <span>
-            Pot <b className="text-gold-400">{room.prizePool.toLocaleString()}</b>
           </span>
         </div>
         {room.status === 'completed' && room.winningNumber != null && (
@@ -301,6 +295,13 @@ export default function RoomDetailPage() {
           </button>
         )}
       </div>
+      <Link
+        href="/rooms"
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 py-3 text-sm font-medium text-white/70"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to rooms
+      </Link>
     </div>
   );
 }
