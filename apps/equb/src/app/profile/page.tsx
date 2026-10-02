@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useEqubStore } from '@/lib/store';
-import { setPlayerName, isMultiplayerEnabled } from '@/lib/multiplayer';
+import { useI18n } from '@/lib/i18n/LanguageContext';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
@@ -12,59 +13,65 @@ export default function ProfilePage() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
-  const live = typeof window !== 'undefined' && isMultiplayerEnabled();
+  const { t } = useI18n();
 
   if (!user) {
     return (
-      <div className="space-y-4 py-8">
-        <h1 className="text-2xl font-bold">Welcome</h1>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-          className="w-full rounded-xl border border-white/10 bg-surface-800 px-4 py-3 text-sm"
-        />
-        <button
-          onClick={() => {
-            if (name) setPlayerName(name);
-            loginDemo(name || undefined);
-          }}
-          className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-bold"
-        >
-          Enter with 5,000 virtual Birr
-        </button>
+      <div className="space-y-5">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">{t.profile.title}</h1>
+          <LanguageSwitcher />
+        </div>
+        <div className="glass rounded-3xl p-6">
+          <p className="text-lg font-semibold">{t.profile.guest}</p>
+          <p className="mt-1 text-sm text-white/50">{t.profile.guestHint}</p>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t.profile.name}
+            className="mt-4 w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => loginDemo(name || undefined)}
+            className="mt-3 w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-black text-black"
+          >
+            {t.common.startDemo}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Profile</h1>
-      <div className="glass space-y-2 rounded-3xl p-5 text-sm">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{t.profile.title}</h1>
+        <LanguageSwitcher />
+      </div>
+      <div className="glass space-y-3 rounded-3xl p-5 text-sm">
         <p>
-          <span className="text-white/40">Name</span>
+          <span className="text-white/40">{t.profile.name}</span>
           <br />
           <strong>{user.name}</strong>
         </p>
         <p>
-          <span className="text-white/40">Balance</span>
+          <span className="text-white/40">{t.profile.balance}</span>
           <br />
-          <strong className="text-equb-400">{user.balance.toLocaleString()} Birr</strong>
+          <strong className="text-equb-400">
+            {user.balance.toLocaleString()} {t.common.birr}
+          </strong>
         </p>
         <p>
-          <span className="text-white/40">Invite code</span>
+          <span className="text-white/40">{t.profile.inviteCode}</span>
           <br />
           <strong className="font-mono tracking-widest">{user.referralCode}</strong>
-        </p>
-        <p>
-          <span className="text-white/40">Mode</span>
-          <br />
-          <strong>{live ? 'LIVE multiplayer' : 'Solo demo'}</strong>
         </p>
       </div>
       {!user.referredBy && (
         <div className="glass rounded-3xl p-5">
-          <h2 className="font-semibold">Invite code?</h2>
+          <h2 className="font-semibold">{t.profile.haveCode}</h2>
+          <p className="text-xs text-white/40">{t.profile.haveCodeHint}</p>
           <div className="mt-3 flex gap-2">
             <input
               value={code}
@@ -73,18 +80,30 @@ export default function ProfilePage() {
               className="flex-1 rounded-xl border border-white/10 bg-surface-800 px-3 py-2 text-sm uppercase"
             />
             <button
-              onClick={() => setMsg(claimReferral(code).message)}
+              type="button"
+              onClick={() => {
+                const r = claimReferral(code);
+                setMsg(r.message);
+              }}
               className="rounded-xl bg-equb-600 px-4 text-sm font-semibold"
             >
-              Apply
+              {t.profile.apply}
             </button>
           </div>
           {msg && <p className="mt-2 text-xs text-equb-300">{msg}</p>}
         </div>
       )}
-      <button onClick={() => logout()} className="w-full rounded-xl border border-white/10 py-3 text-sm text-white/50">
-        Sign out
+      <button
+        type="button"
+        onClick={() => logout()}
+        className="w-full rounded-xl border border-white/10 py-3 text-sm text-white/50"
+      >
+        {t.common.signOut}
       </button>
+      <div className="glass rounded-3xl p-5 text-xs text-white/50">
+        <p className="font-semibold text-white/80">{t.profile.liveTitle}</p>
+        <p className="mt-2">{t.profile.liveHint}</p>
+      </div>
     </div>
   );
 }
