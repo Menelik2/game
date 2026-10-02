@@ -14,9 +14,9 @@ import {
   contributionOf,
   ROUND_MS,
 } from './equb.types';
-import { cryptographicDraw } from './equb-crypto';
+import { cryptographicDraw, secureRandomInt } from './equb-crypto';
 
-/** Multiplayer Equb — unlimited successive rounds (balance checked on client/wallet). */
+/** Multiplayer Equb — unlimited successive rounds. */
 @Injectable()
 export class EqubService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EqubService.name);
@@ -122,7 +122,6 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
 
     let room = this.ensureOpenRoom(template);
 
-    // Unlimited play: if current instance full, open a brand-new round
     if (room.members.length >= room.groupSize) {
       room.status = 'completed';
       this.instances.set(room.id, room);
@@ -164,36 +163,28 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     return this.withTimer(this.executeDraw(room));
   }
 
+  /** Fair draw: uniform among members who actually joined (their picks only). */
   private executeDraw(room: EqubRoom): EqubRoom {
     room.status = 'drawing';
-    const taken = new Set(room.members.map((m) => m.pick));
-
-    let proof = cryptographicDraw(room.groupSize);
-    let guard = 0;
-    while (!taken.has(proof.winningNumber) && guard < 200) {
-      proof = cryptographicDraw(room.groupSize);
-      guard++;
-    }
-    if (!taken.has(proof.winningNumber)) {
-      const picks = [...taken];
-      const idx = proof.winningNumber % picks.length;
-      proof = { ...proof, winningNumber: picks[idx]! };
+    const members = room.members;
+    if (members.length < 1) {
+      throw new BadRequestException('No members');
     }
 
-    const winner = room.members.find((m) => m.pick === proof.winningNumber)!;
+    const idx = secureRandomInt(members.length);
+    const winner = members[idx]!;
+    const proof = cryptographicDraw(room.groupSize);
+
     room.status = 'completed';
-    room.winningNumber = proof.winningNumber;
+    room.winningNumber = winner.pick;
     room.winnerId = winner.playerId;
     room.entropyHex = proof.entropyHex;
     room.commitmentHash = proof.commitmentHash;
     room.updatedAt = Date.now();
     room.secondsLeft = 0;
     this.instances.set(room.id, room);
-    this.logger.log(
-      `Draw ${room.id}: #${proof.winningNumber} → ${winner.name}`,
-    );
+    this.logger.log(`Draw ${room.id}: #${winner.pick} → ${winner.name}`);
     this.broadcast?.(room.id);
-    // Always open next 60s round for unlimited play
     this.ensureOpenRoom(room.templateId || room.id.match(/^equb-\d+-\d+/)![0]);
     return room;
   }
