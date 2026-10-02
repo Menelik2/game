@@ -16,10 +16,7 @@ import {
 } from './equb.types';
 import { cryptographicDraw } from './equb-crypto';
 
-/**
- * Multiplayer Equb: every 60s, rooms with 2+ players get a random winning number.
- * Winner = player who picked that number.
- */
+/** Multiplayer Equb — unlimited successive rounds (balance checked on client/wallet). */
 @Injectable()
 export class EqubService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EqubService.name);
@@ -123,13 +120,17 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
       : templateId.match(/^equb-\d+-\d+/)?.[0];
     if (!template) throw new BadRequestException('Invalid template');
 
-    const room = this.ensureOpenRoom(template);
-    if (room.status !== 'open') throw new ConflictException('Room is closed');
-    if (room.members.some((m) => m.playerId === player.playerId)) {
-      throw new ConflictException('Already joined');
-    }
+    let room = this.ensureOpenRoom(template);
+
+    // Unlimited play: if current instance full, open a brand-new round
     if (room.members.length >= room.groupSize) {
-      throw new ConflictException('Room is full');
+      room.status = 'completed';
+      this.instances.set(room.id, room);
+      room = this.ensureOpenRoom(template);
+    }
+
+    if (room.members.some((m) => m.playerId === player.playerId)) {
+      throw new ConflictException('Already joined this round — wait for draw');
     }
     if (pick < 1 || pick > room.groupSize) {
       throw new BadRequestException(`Pick must be 1..${room.groupSize}`);
@@ -189,9 +190,10 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     room.secondsLeft = 0;
     this.instances.set(room.id, room);
     this.logger.log(
-      `Draw ${room.id}: #${proof.winningNumber} → ${winner.name} (${room.members.length} players)`,
+      `Draw ${room.id}: #${proof.winningNumber} → ${winner.name}`,
     );
     this.broadcast?.(room.id);
+    // Always open next 60s round for unlimited play
     this.ensureOpenRoom(room.templateId || room.id.match(/^equb-\d+-\d+/)![0]);
     return room;
   }
