@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
-import { numberPool, takenPicks, isFull } from '@/lib/equb-math';
+import { takenPicks, isFull } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
   joinRoom as mpJoin,
@@ -15,7 +15,7 @@ import {
   type ServerRoom,
 } from '@/lib/multiplayer';
 import { optimisticJoin } from '@/lib/optimistic';
-import clsx from 'clsx';
+import { EqubBoard, EqubRulesCard, EqubResultBanner } from '@/components/EqubBoard';
 
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,125 +38,144 @@ export default function RoomDetailPage() {
 
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
 
+  const refreshServer = useCallback(async () => {
+    if (!multiplayer || !id) return;
+    try {
+      if (serverRoom?.id) setServerRoom(await fetchRoom(serverRoom.id));
+      else setServerRoom(await openRoom(templateId!));
+    } catch {
+      /* offline */
+    }
+  }, [multiplayer, id, templateId, serverRoom?.id]);
+
   useEffect(() => {
     if (!multiplayer) {
       ensureRooms();
       return;
     }
-    let stop = false;
-    const tick = async () => {
-      try {
-        if (serverRoom?.id) {
-          const r = await fetchRoom(serverRoom.id);
-          if (!stop) setServerRoom(r);
-        } else {
-          const r = await openRoom(templateId!);
-          if (!stop) setServerRoom(r);
-        }
-      } catch {
-        /* offline */
-      }
-    };
-    void tick();
-    const t = setInterval(() => void tick(), 2500);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [multiplayer, ensureRooms, templateId, serverRoom?.id]);
+    void refreshServer();
+    const t = setInterval(() => void refreshServer(), 2500);
+    return () => clearInterval(t);
+  }, [multiplayer, ensureRooms, refreshServer]);
 
   if (multiplayer) {
     const room = serverRoom;
     const identity = getPlayerIdentity();
     const taken = new Set(room?.members.map((m) => m.pick) || []);
-    const inRoom = !!room?.members.some((m) => m.playerId === identity.playerId);
+    const yourPick =
+      room?.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
+    const inRoom = yourPick != null;
     const full = room ? room.members.length >= room.groupSize : false;
     const winner = room?.members.find((m) => m.playerId === room.winnerId);
 
     return (
       <div className="space-y-4">
-        <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
-        <div className="rounded-xl border border-equb-500/30 bg-equb-500/10 px-3 py-2 text-xs text-equb-300">
-          LIVE multiplayer
-        </div>
-        {!room ? (
-          <p className="text-center text-white/50">Connecting…</p>
-        ) : (
-          <div className="glass rounded-3xl p-5">
-            <h1 className="text-2xl font-bold">
-              {room.groupSize} · {room.prizePool.toLocaleString()} Birr
-            </h1>
-            <p className="text-sm text-white/60">
-              {room.members.length}/{room.groupSize} · entry {room.contribution}
-            </p>
-            {room.status === 'completed' && room.winningNumber != null && (
-              <div className="mt-4 text-center">
-                <p className="text-5xl font-black text-gold-400">{room.winningNumber}</p>
-                <p className="text-sm">Winner: {winner?.name}</p>
-              </div>
-            )}
-            {msg && <p className="mt-2 text-xs text-equb-300">{msg}</p>}
-            {room.status === 'open' && (
-              <>
-                <div className="mt-4 grid grid-cols-5 gap-2">
-                  {Array.from({ length: room.groupSize }, (_, i) => i + 1).map((n) => (
-                    <button
-                      key={n}
-                      disabled={taken.has(n) || inRoom || joining}
-                      onClick={() => setPick(n)}
-                      className={clsx(
-                        'aspect-square rounded-xl text-sm font-bold',
-                        pick === n && 'ring-2 ring-equb-400 bg-equb-500/30',
-                        taken.has(n) && 'opacity-30',
-                        !taken.has(n) && 'bg-white/10',
-                      )}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-                {!inRoom && (
-                  <button
-                    disabled={pick == null || joining}
-                    onClick={async () => {
-                      if (pick == null) return;
-                      setJoining(true);
-                      setServerRoom(optimisticJoin(room, pick));
-                      try {
-                        setServerRoom(await mpJoin(templateId!, pick));
-                        setMsg(`Joined #${pick}`);
-                      } catch (e: any) {
-                        setMsg(e?.message || 'Join failed');
-                      } finally {
-                        setJoining(false);
-                      }
-                    }}
-                    className="mt-4 w-full rounded-2xl bg-equb-500 py-3 font-bold disabled:opacity-40"
-                  >
-                    {joining ? 'Joining…' : 'Join live'}
-                  </button>
-                )}
-                {inRoom && full && (
-                  <button
-                    disabled={drawing}
-                    onClick={async () => {
-                      setDrawing(true);
-                      try {
-                        setServerRoom(await drawRoom(room.id));
-                      } catch (e: any) {
-                        setMsg(e?.message || 'Draw failed');
-                      } finally {
-                        setDrawing(false);
-                      }
-                    }}
-                    className="mt-4 w-full rounded-2xl bg-gold-500 py-3 font-bold text-black"
-                  >
-                    {drawing ? 'Drawing…' : 'Server draw'}
-                  </button>
-                )}
-              </>
-            )}
+        <button type="button" onClick={() => router.back()} className="text-sm text-white/40">
+          ← Rooms
+        </button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="keno-title">FAST EQUB</h1>
+            <p className="text-[11px] text-white/40">Pick 1 · computer draws · one winner</p>
           </div>
+          {room && (
+            <div className="text-right">
+              <p className="text-[10px] text-white/40">Pot</p>
+              <p className="font-mono text-sm font-bold text-gold-400">
+                {room.prizePool.toLocaleString()}
+              </p>
+            </div>
+          )}
+        </div>
+        <p className="rounded-xl border border-equb-500/25 bg-equb-500/10 px-3 py-2 text-[11px] text-equb-300">
+          LIVE multiplayer
+        </p>
+        {!room ? (
+          <p className="py-8 text-center text-white/40">Connecting…</p>
+        ) : (
+          <>
+            <div className="glass rounded-2xl p-4">
+              <div className="mb-3 flex flex-wrap justify-between gap-2 text-xs text-white/50">
+                <span>
+                  Seats{' '}
+                  <b className="text-white">
+                    {room.members.length}/{room.groupSize}
+                  </b>
+                </span>
+                <span>
+                  Entry <b className="text-equb-400">{room.contribution}</b>
+                </span>
+                <span className="uppercase">{room.status}</span>
+              </div>
+              {room.status === 'completed' && room.winningNumber != null && (
+                <div className="mb-4">
+                  <EqubResultBanner
+                    winningNumber={room.winningNumber}
+                    winnerName={winner?.name || '—'}
+                    prizePool={room.prizePool}
+                    wasYou={winner?.playerId === identity.playerId}
+                  />
+                </div>
+              )}
+              <EqubBoard
+                groupSize={room.groupSize}
+                taken={taken}
+                selected={pick}
+                winningNumber={room.winningNumber}
+                yourPick={yourPick}
+                disabled={inRoom || room.status !== 'open' || joining}
+                onSelect={setPick}
+              />
+            </div>
+            <EqubRulesCard
+              groupSize={room.groupSize}
+              contribution={room.contribution}
+              prizePool={room.prizePool}
+            />
+            {msg && <p className="rounded-xl bg-white/5 px-3 py-2 text-xs text-equb-300">{msg}</p>}
+            {room.status === 'open' && !inRoom && (
+              <button
+                type="button"
+                disabled={pick == null || joining}
+                onClick={async () => {
+                  if (pick == null) return;
+                  setJoining(true);
+                  setServerRoom(optimisticJoin(room, pick));
+                  try {
+                    setServerRoom(await mpJoin(templateId!, pick));
+                    setMsg(`Joined #${String(pick).padStart(2, '0')}`);
+                  } catch (e: any) {
+                    setMsg(e?.message || 'Join failed');
+                    void refreshServer();
+                  } finally {
+                    setJoining(false);
+                  }
+                }}
+                className="w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-black text-black disabled:opacity-40"
+              >
+                {joining ? 'JOINING…' : 'CONFIRM PICK · JOIN'}
+              </button>
+            )}
+            {inRoom && full && room.status === 'open' && (
+              <button
+                type="button"
+                disabled={drawing}
+                onClick={async () => {
+                  setDrawing(true);
+                  try {
+                    setServerRoom(await drawRoom(room.id));
+                  } catch (e: any) {
+                    setMsg(e?.message || 'Draw failed');
+                  } finally {
+                    setDrawing(false);
+                  }
+                }}
+                className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-black disabled:opacity-40"
+              >
+                {drawing ? 'DRAWING…' : 'RUN CRYPTO DRAW'}
+              </button>
+            )}
+          </>
         )}
       </div>
     );
@@ -172,84 +191,114 @@ export default function RoomDetailPage() {
   }
 
   const taken = takenPicks(room);
-  const inRoom = !!(user && room.members.some((m) => m.id === user.id));
+  const yourPick = user ? room.members.find((m) => m.id === user.id)?.pick ?? null : null;
+  const inRoom = yourPick != null;
   const full = isFull(room);
   const winner = room.members.find((m) => m.id === room.winnerId);
 
   return (
     <div className="space-y-4">
-      <button onClick={() => router.back()} className="text-sm text-white/50">← Rooms</button>
-      <div className="rounded-xl border border-equb-500/25 bg-equb-500/10 px-3 py-2 text-xs text-equb-200">
-        Solo demo — bots on this device
+      <button type="button" onClick={() => router.back()} className="text-sm text-white/40">
+        ← Rooms
+      </button>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="keno-title">FAST EQUB</h1>
+          <p className="text-[11px] text-white/40">Pick 1 · computer draws · one winner</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] text-white/40">Balance</p>
+          <p className="font-mono text-sm font-bold text-equb-400">
+            {user ? user.balance.toLocaleString() : '—'}
+          </p>
+        </div>
       </div>
-      <div className="glass rounded-3xl p-5">
-        <h1 className="text-2xl font-bold">
-          {room.groupSize} · {room.prizePool.toLocaleString()} Birr
-        </h1>
-        {room.status === 'completed' && (
-          <div className="mt-4 text-center">
-            <p className="text-5xl font-black text-gold-400">{room.winningNumber}</p>
-            <p className="text-sm">Winner: {winner?.name}</p>
+      <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/45">
+        DEMO · bots on this device · virtual Birr only
+      </p>
+      <div className="glass rounded-2xl p-4">
+        <div className="mb-3 flex flex-wrap justify-between gap-2 text-xs text-white/50">
+          <span>
+            Seats{' '}
+            <b className="text-white">
+              {room.members.length}/{room.groupSize}
+            </b>
+          </span>
+          <span>
+            Entry <b className="text-equb-400">{room.contribution}</b>
+          </span>
+          <span>
+            Pot <b className="text-gold-400">{room.prizePool.toLocaleString()}</b>
+          </span>
+        </div>
+        {room.status === 'completed' && room.winningNumber != null && (
+          <div className="mb-4">
+            <EqubResultBanner
+              winningNumber={room.winningNumber}
+              winnerName={winner?.name || '—'}
+              prizePool={room.prizePool}
+              wasYou={!!(user && winner?.id === user.id)}
+            />
           </div>
         )}
-        {msg && <p className="mt-2 text-xs text-equb-300">{msg}</p>}
-        {room.status === 'open' && (
-          <>
-            <div className="mt-4 grid grid-cols-5 gap-2">
-              {numberPool(room.groupSize).map((n) => (
-                <button
-                  key={n}
-                  disabled={taken.has(n) || inRoom}
-                  onClick={() => setPick(n)}
-                  className={clsx(
-                    'aspect-square rounded-xl text-sm font-bold',
-                    pick === n && 'ring-2 ring-equb-400',
-                    taken.has(n) && 'opacity-30',
-                    !taken.has(n) && 'bg-white/10',
-                  )}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="mt-4 space-y-2">
-              {!user && (
-                <button onClick={() => loginDemo()} className="w-full rounded-2xl bg-equb-600 py-3 font-bold">
-                  Sign in (demo)
-                </button>
-              )}
-              {user && !inRoom && (
-                <button
-                  disabled={pick == null}
-                  onClick={() => pick != null && setMsg(joinLocal(room.id, pick).message)}
-                  className="w-full rounded-2xl bg-equb-500 py-3 font-bold disabled:opacity-40"
-                >
-                  Join · pick number
-                </button>
-              )}
-              {inRoom && !full && (
-                <button
-                  onClick={() => setMsg(fillSeats(room.id).message)}
-                  className="w-full rounded-2xl border border-equb-500/40 py-3 text-equb-300"
-                >
-                  Fill seats with bots
-                </button>
-              )}
-              {inRoom && full && (
-                <button
-                  disabled={drawing}
-                  onClick={async () => {
-                    setDrawing(true);
-                    setMsg((await runDraw(room.id)).message);
-                    setDrawing(false);
-                  }}
-                  className="w-full rounded-2xl bg-gold-500 py-3 font-bold text-black"
-                >
-                  {drawing ? 'Drawing…' : 'Crypto draw'}
-                </button>
-              )}
-            </div>
-          </>
+        <EqubBoard
+          groupSize={room.groupSize}
+          taken={taken}
+          selected={pick}
+          winningNumber={room.winningNumber}
+          yourPick={yourPick}
+          disabled={inRoom || room.status !== 'open'}
+          onSelect={setPick}
+        />
+      </div>
+      <EqubRulesCard
+        groupSize={room.groupSize}
+        contribution={room.contribution}
+        prizePool={room.prizePool}
+      />
+      {msg && <p className="rounded-xl bg-white/5 px-3 py-2 text-xs text-equb-300">{msg}</p>}
+      <div className="space-y-2">
+        {!user && (
+          <button
+            type="button"
+            onClick={() => loginDemo()}
+            className="w-full rounded-2xl bg-equb-600 py-3.5 text-sm font-black"
+          >
+            SIGN IN · 5,000 DEMO BIRR
+          </button>
+        )}
+        {user && !inRoom && room.status === 'open' && (
+          <button
+            type="button"
+            disabled={pick == null}
+            onClick={() => pick != null && setMsg(joinLocal(room.id, pick).message)}
+            className="w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-black text-black disabled:opacity-40"
+          >
+            CONFIRM PICK · JOIN
+          </button>
+        )}
+        {inRoom && !full && room.status === 'open' && (
+          <button
+            type="button"
+            onClick={() => setMsg(fillSeats(room.id).message)}
+            className="w-full rounded-2xl border border-equb-500/40 py-3 text-sm font-semibold text-equb-300"
+          >
+            FILL SEATS WITH BOTS
+          </button>
+        )}
+        {inRoom && full && room.status === 'open' && (
+          <button
+            type="button"
+            disabled={drawing}
+            onClick={async () => {
+              setDrawing(true);
+              setMsg((await runDraw(room.id)).message);
+              setDrawing(false);
+            }}
+            className="w-full rounded-2xl bg-equb-500 py-3.5 text-sm font-black disabled:opacity-40"
+          >
+            {drawing ? 'DRAWING…' : 'RUN CRYPTO DRAW'}
+          </button>
         )}
       </div>
     </div>
