@@ -23,6 +23,7 @@ export function isMultiplayerEnabled(): boolean {
 
 export type ServerRoom = {
   id: string;
+  templateId?: string;
   groupSize: number;
   prizePool: number;
   contribution: number;
@@ -33,6 +34,10 @@ export type ServerRoom = {
   winnerId: string | null;
   entropyHex?: string | null;
   commitmentHash?: string | null;
+  /** Unix ms when auto-draw fires */
+  drawAt?: number;
+  /** Seconds until next draw (from API) */
+  secondsLeft?: number;
   updatedAt?: number;
 };
 
@@ -65,7 +70,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.message || json?.error?.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const msg =
+      (Array.isArray(json?.message) ? json.message.join(', ') : json?.message) ||
+      json?.error?.message ||
+      `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
   return (json?.data !== undefined ? json.data : json) as T;
 }
 
