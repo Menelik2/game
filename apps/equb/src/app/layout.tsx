@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Shell } from '@/components/Shell';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 export const metadata: Metadata = {
-  title: 'Fast Equb · ፋስት እቁብ',
-  description: 'Digital Equb groups. Demo with virtual Birr.',
+  title: 'ፋስት እቁብ · Fast Equb',
+  description:
+    'ዲጂታል እቁብ — ከኢትዮጵያ ባህላዊ ቁጠባ ክበቦች የተነሳሳ። ምናባዊ ብር ዲሞ። Digital Equb with virtual Birr demo.',
 };
 
 export const viewport: Viewport = {
@@ -16,9 +18,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="am" className="dark">
       <body>
-        <Shell>{children}</Shell>
+        <LanguageProvider>
+          <Shell>{children}</Shell>
+        </LanguageProvider>
       </body>
     </html>
   );
