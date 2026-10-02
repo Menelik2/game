@@ -16,6 +16,7 @@ import {
 } from '@/lib/multiplayer';
 import { optimisticJoin } from '@/lib/optimistic';
 import { useI18n } from '@/lib/i18n/LanguageContext';
+import { interpolate } from '@/lib/i18n/dictionaries';
 import { EqubTable, type TablePlayer, type TableResult } from '@/components/EqubTable';
 import { useAutoCryptoDraw, useDemoCountdown } from '@/lib/use-auto-draw';
 
@@ -154,7 +155,7 @@ export default function RoomDetailPage() {
             onSelect={setPick}
             onBet={async () => {
               if (pick == null) {
-                setMsg(locale === 'am' ? 'መጀመሪያ ቁጥር ይምረጡ' : 'Select a number first');
+                setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
                 return;
               }
               setJoining(true);
@@ -246,15 +247,11 @@ export default function RoomDetailPage() {
         onBet={() => {
           if (!user) {
             loginDemo();
-            setMsg(
-              locale === 'am'
-                ? 'ተመዝግበዋል — ቁጥር ይምረጡና እንደገና ውርርድ'
-                : 'Signed in — pick a number and BET again',
-            );
+            setMsg(t.common.startDemo);
             return;
           }
           if (pick == null) {
-            setMsg(locale === 'am' ? 'መጀመሪያ ቁጥር ይምረጡ' : 'Select a number first');
+            setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
             return;
           }
           setMsg(joinLocal(room.id, pick).message);
