@@ -1,62 +1,150 @@
-# Deploy Apex Casino to GitHub + Vercel
+# Deploy Apex Casino + Equb (Ekub)
 
-## 1. Push the FULL codebase (required)
+## Important: where each part runs
 
-This environment can only upload some files via the GitHub API.
-Your complete platform (API + web + Docker + tests) lives in the local sandbox history.
+| Part | Can run on Vercel? | Host on |
+|------|--------------------|---------|
+| **Frontend** (`apps/web` Next.js) | Yes | **Vercel** |
+| **API + Equb** (`apps/api` NestJS) | **No** | **Render / Railway / Docker VPS** |
 
-### Option A — You already have the local `game` folder with all commits
+**Why Equb cannot run on Vercel**
 
-```bash
-cd game
-git remote set-url origin https://github.com/Menelik2/game.git
-git push -u origin root --force
+- Equb uses **Socket.IO** (`/equb` WebSocket namespace)
+- Equb uses an **in-memory room store** + `setInterval` scheduler (live rounds)
+- NestJS is a **long-running** Node server, not a serverless function
+
+Vercel is for the **UI only**. The backend (login, wallet, games, **Equb**) must be a separate always-on service.
+
+---
+
+## Architecture
+
+```
+Browser  →  Vercel (Next.js UI)
+                │
+                │  NEXT_PUBLIC_API_URL=https://your-api.onrender.com
+                ▼
+         Render / Railway (NestJS API + Equb + Postgres)
 ```
 
-`--force` is OK if you own the repo and want the full local history to replace the partial API uploads.
+Equb HTTP routes (under API prefix `api`):
 
-Also publish `main` for Vercel defaults:
+- `GET  /api/equb/templates`
+- `GET  /api/equb/rooms`
+- `GET  /api/equb/rooms/:id`
+- `POST /api/equb/rooms/:templateId/join`
+- `POST /api/equb/rooms/:roomId/draw`
+- `POST /api/equb/rooms/:templateId/open`
+
+Equb realtime: Socket.IO namespace **`/equb`** on the same API host.
+
+---
+
+## Step 1 — Host the API (includes Equb) on Render
+
+1. Open https://dashboard.render.com → **New** → **Blueprint**
+2. Connect GitHub repo **Menelik2/game**, branch **main**
+3. Render reads `render.yaml` and creates **apex-api** + Postgres
+4. After deploy, copy the API URL, e.g.  
+   `https://apex-api-xxxx.onrender.com`
+5. In Render → **apex-api** → **Shell**, run seed once:
 
 ```bash
-git branch -M main   # or: git checkout -b main
-git push -u origin main --force
+npm run seed --workspace=@apex/api
 ```
 
-### Option B — Clone and you need the files from elsewhere
+6. Set env on the API service (if not already from blueprint):
 
-Ask the assistant to continue uploading remaining batches, or copy the project from the development machine that built it.
+| Key | Value |
+|-----|--------|
+| `DEMO_MODE` | `true` |
+| `REAL_MONEY_ENABLED` | `false` |
+| `APP_URL` | your Vercel URL, e.g. `https://addisbingo.vercel.app` |
+| `CORS_ORIGINS` | same Vercel URL (comma-separated if multiple) |
+| `JWT_SECRET` | long random string |
+| `JWT_REFRESH_SECRET` | another long random string |
+| `DATABASE_URL` | (from Render Postgres) |
 
-## 2. Vercel (frontend only)
+Health check: `GET https://YOUR-API/api/health`  
+Equb templates: `GET https://YOUR-API/api/equb/templates`
 
-**Vercel cannot host the NestJS API + Postgres.** Only the Next.js app in `apps/web`.
+### Alternative: Railway or Docker VPS
 
-1. Open https://vercel.com/new
-2. Import **Menelik2/game**
-3. Set **Root Directory** to: `apps/web`
-4. Framework: **Next.js**
+```bash
+git clone https://github.com/Menelik2/game.git && cd game
+cp .env.example .env   # set secrets + APP_URL / CORS_ORIGINS
+docker compose up -d postgres redis
+docker compose up -d --build api
+docker compose exec api npm run seed --workspace=@apex/api
+```
+
+---
+
+## Step 2 — Host the frontend on Vercel
+
+1. https://vercel.com/new → Import **Menelik2/game**
+2. **Root Directory:** `apps/web`
+3. **Framework:** Next.js
+4. **Production Branch:** `main`
 5. Environment variables:
-   - `NEXT_PUBLIC_API_URL` = public URL of your API (must use HTTPS in production)
-   - `NEXT_PUBLIC_DEMO_MODE` = `true`
+
+| Key | Value |
+|-----|--------|
+| `NEXT_PUBLIC_API_URL` | `https://YOUR-API-HOST` (no trailing slash) |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` |
+
 6. Deploy
 
-Production branch: set to `root` or `main` (whichever you pushed).
+Example:
 
-## 3. Host the API separately
-
-Examples: Railway, Render, Fly.io, or any VPS with Docker:
-
-```bash
-docker compose up -d postgres redis api
-docker compose exec api npm run migration:run
-docker compose exec api npm run seed
+```
+NEXT_PUBLIC_API_URL=https://apex-api-xxxx.onrender.com
+NEXT_PUBLIC_DEMO_MODE=true
 ```
 
-Then set `NEXT_PUBLIC_API_URL` on Vercel to that API’s public URL.
+Redeploy after changing env vars.
+
+---
+
+## Step 3 — Connect frontend ↔ API (checklist)
+
+1. API is up: open `https://YOUR-API/api/health` → `{ "status": "ok", ... }`
+2. Equb is up: open `https://YOUR-API/api/equb/templates` → list of rooms
+3. On **Render API**: `APP_URL` / `CORS_ORIGINS` = your exact Vercel origin  
+   (e.g. `https://addisbingo.vercel.app` — no trailing slash)
+4. On **Vercel**: `NEXT_PUBLIC_API_URL` = API origin only (no `/api` path)
+5. Browser: hard refresh; Network tab should call  
+   `https://YOUR-API/api/auth/login`, `.../api/equb/...`
+
+CORS already allows `*.vercel.app` in the Nest bootstrap, but set `CORS_ORIGINS` to your production domain explicitly.
+
+---
 
 ## Demo logins (after API seed)
 
-- Player: `demo@apexc casino.com` / `Demo123!`
-- Admin: `admin@apexc casino.com` / `Admin123!`
+| Role | Email | Password |
+|------|-------|----------|
+| Player | demo@apexcasino.com | Demo123! |
+| Admin | admin@apexcasino.com | Admin123! |
+
+---
+
+## Local development
+
+```bash
+git clone https://github.com/Menelik2/game.git && cd game
+cp .env.example .env
+docker compose up -d postgres redis
+npm install
+npm run seed --workspace=@apex/api
+npm run dev
+```
+
+- Web: http://localhost:3000  
+- API: http://localhost:3001/api/docs  
+- Equb: http://localhost:3001/api/equb/templates  
+
+---
 
 ## Repo
 
