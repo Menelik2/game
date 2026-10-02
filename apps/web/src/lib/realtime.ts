@@ -5,8 +5,17 @@
  * Financial truth remains on the server; this is display-only.
  */
 export function getRealtimeUrl() {
-  const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  return api.replace(/\/$/, '');
+  const fromEnv = (process.env.NEXT_PUBLIC_API_URL || '').trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+  }
+
+  return 'http://localhost:3001';
 }
 
 /** Dynamic import socket.io-client in the browser when you add the dependency:
