@@ -1,4 +1,4 @@
-export type EqubRoomStatus = 'open' | 'completed';
+export type EqubRoomStatus = 'open' | 'drawing' | 'completed';
 
 export type EqubMember = {
   playerId: string;
@@ -9,6 +9,7 @@ export type EqubMember = {
 
 export type EqubRoom = {
   id: string;
+  templateId: string;
   groupSize: number;
   prizePool: number;
   contribution: number;
@@ -19,6 +20,8 @@ export type EqubRoom = {
   winnerId: string | null;
   entropyHex: string | null;
   commitmentHash: string | null;
+  drawAt: number;
+  secondsLeft: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -32,6 +35,9 @@ export function contributionOf(prizePool: number, groupSize: number) {
 }
 
 export const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+/** Round length: random winner every 60 seconds */
+export const ROUND_MS = 60_000;
 
 export function buildCatalog(maxPrize = 9000) {
   const pools: number[] = [500];

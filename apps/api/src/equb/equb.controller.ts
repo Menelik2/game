@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { EqubService } from './equb.service';
 import { EqubGateway } from './equb.gateway';
-import { IsInt, IsString, Min, Max, MinLength, MaxLength } from 'class-validator';
+import { IsInt, IsString, Min, Max, MinLength, MaxLength, IsOptional } from 'class-validator';
 
 class JoinDto {
   @IsString()
@@ -21,9 +21,10 @@ class JoinDto {
 }
 
 class DrawDto {
+  @IsOptional()
   @IsString()
   @MinLength(4)
-  playerId!: string;
+  playerId?: string;
 }
 
 @Controller('equb')
@@ -50,7 +51,11 @@ export class EqubController {
 
   @Post('rooms/:templateId/join')
   join(@Param('templateId') templateId: string, @Body() body: JoinDto) {
-    const room = this.equb.join(templateId, { playerId: body.playerId, name: body.name }, body.pick);
+    const room = this.equb.join(
+      templateId,
+      { playerId: body.playerId, name: body.name },
+      body.pick,
+    );
     this.gateway.broadcastRoom(room.id);
     return room;
   }
