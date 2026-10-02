@@ -19,6 +19,7 @@ type Ctx = {
 };
 
 const LanguageContext = createContext<Ctx | null>(null);
+
 const STORAGE_KEY = 'fast-equb-locale';
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
