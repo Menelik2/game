@@ -15,6 +15,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const user = useEqubStore((s) => s.user);
   const { t, locale } = useI18n();
+  const isPlay = path.startsWith('/rooms/');
 
   const nav = [
     { href: '/', label: t.nav.home, icon: Home },
@@ -24,7 +25,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col">
+    <div
+      className={clsx(
+        'mx-auto flex min-h-dvh flex-col',
+        isPlay ? 'max-w-5xl' : 'max-w-lg',
+      )}
+    >
       <header className="sticky top-0 z-30 border-b border-white/10 bg-surface-950/90 px-4 py-3 backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2">
           {path !== '/' && (
@@ -62,10 +68,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-4 pb-24">{children}</main>
+      <main className="flex-1 px-3 py-3 pb-24 sm:px-4">{children}</main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-lg justify-around py-2">
+        <div className="mx-auto flex max-w-5xl justify-around py-2">
           {nav.map(({ href, label, icon: Icon }) => {
             const active = path === href;
             return (
