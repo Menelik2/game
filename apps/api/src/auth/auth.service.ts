@@ -50,7 +50,29 @@ export class AuthService {
       });
     }
 
+    if (!dto.email || !dto.password) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Email and password are required',
+      });
+    }
+
+    if (dto.password.length < 6) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Password must be at least 6 characters',
+      });
+    }
+
+    const email = dto.email.trim().toLowerCase();
+
     const dob = new Date(dto.dateOfBirth);
+    if (Number.isNaN(dob.getTime())) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid date of birth',
+      });
+    }
     const age = this.calculateAge(dob);
     if (age < 18) {
       throw new ForbiddenException({
@@ -59,7 +81,7 @@ export class AuthService {
       });
     }
 
-    const existing = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
+    const existing = await this.userRepo.findOne({ where: { email } });
     if (existing) {
       throw new ConflictException({
         code: 'EMAIL_EXISTS',
@@ -80,10 +102,10 @@ export class AuthService {
 
     try {
       const user = queryRunner.manager.create(User, {
-        email: dto.email.toLowerCase(),
+        email,
         passwordHash,
         dateOfBirth: dto.dateOfBirth,
-        country: dto.country.toUpperCase(),
+        country: (dto.country || 'US').toUpperCase().slice(0, 2),
         status: 'ACTIVE',
         emailVerifiedAt: new Date(),
       });
@@ -120,7 +142,15 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
-    const user = await this.userRepo.findOne({ where: { email: dto.email.toLowerCase() } });
+    const email = (dto.email || '').trim().toLowerCase();
+    if (!email || !dto.password) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'Invalid credentials',
+      });
+    }
+
+    const user = await this.userRepo.findOne({ where: { email } });
     if (!user) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
@@ -142,9 +172,15 @@ export class AuthService {
       });
     }
 
-    const valid = await argon2.verify(user.passwordHash, dto.password);
+    let valid = false;
+    try {
+      valid = await argon2.verify(user.passwordHash, dto.password);
+    } catch {
+      valid = false;
+    }
+
     if (!valid) {
-      user.failedLoginAttempts += 1;
+      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
       if (user.failedLoginAttempts >= 5) {
         user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
       }
@@ -183,14 +219,14 @@ export class AuthService {
     };
 
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.config.get('JWT_SECRET'),
+      secret: this.config.get<string>('JWT_SECRET'),
       expiresIn: this.config.get('JWT_ACCESS_EXPIRES', '15m'),
     });
 
     const refreshToken = await this.jwtService.signAsync(
       { sub: user.id, type: 'refresh', jti: randomUUID() },
       {
-        secret: this.config.get('JWT_REFRESH_SECRET'),
+        secret: this.config.get<string>('JWT_REFRESH_SECRET'),
         expiresIn: this.config.get('JWT_REFRESH_EXPIRES', '7d'),
       },
     );
