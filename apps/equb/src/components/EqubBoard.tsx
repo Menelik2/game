@@ -138,3 +138,52 @@ export function EqubResultBanner({
     </div>
   );
 }
+
+/** 60s countdown until next multiplayer draw */
+export function EqubCountdown({ secondsLeft }: { secondsLeft: number }) {
+  const safe = Math.max(0, Math.floor(secondsLeft));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  const urgent = safe <= 10;
+  return (
+    <div
+      className={
+        urgent
+          ? 'rounded-2xl border border-gold-500/40 bg-gold-500/15 px-4 py-3 text-center'
+          : 'rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center'
+      }
+    >
+      <p className="text-[10px] uppercase tracking-widest text-white/40">Next random draw</p>
+      <p
+        className={
+          'mt-1 font-mono text-3xl font-black tabular-nums ' +
+          (urgent ? 'text-gold-400' : 'text-white')
+        }
+      >
+        {String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
+      </p>
+      <p className="mt-1 text-[11px] text-white/45">
+        Multiple players · every 60s one winning number is chosen
+      </p>
+    </div>
+  );
+}
+
+export function EqubSeatLegend() {
+  return (
+    <div className="flex flex-wrap gap-3 text-[10px] text-white/45">
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-3 w-3 rounded bg-surface-800" /> Free node
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-3 w-3 rounded bg-equb-500" /> Your pick
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-3 w-3 rounded bg-white/20" /> Taken
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-3 w-3 rounded bg-gold-500" /> Winner
+      </span>
+    </div>
+  );
+}
