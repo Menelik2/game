@@ -15,7 +15,8 @@ export default () => ({
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '15m',
   JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '7d',
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
-  COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || 'localhost',
+  // Leave unset for local/dev (host-only cookies). Set only for real shared domain in prod.
+  COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || '',
   COOKIE_SECURE: process.env.COOKIE_SECURE === 'true',
   RATE_LIMIT_TTL: parseInt(process.env.RATE_LIMIT_TTL || '60', 10),
   RATE_LIMIT_LIMIT: parseInt(process.env.RATE_LIMIT_LIMIT || '100', 10),
