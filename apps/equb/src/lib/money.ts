@@ -1,4 +1,6 @@
-/** Ethiopian money unit: Birr (ብር) / ETB — virtual demo credits. */
+/**
+ * Ethiopian money unit: Birr (ብር) / ETB — virtual demo credits.
+ */
 
 export const MONEY_CODE = 'ETB';
 export const MONEY_SYMBOL_AM = 'ብር';
@@ -31,7 +33,8 @@ export function formatBirrCompact(amount: number, locale: MoneyLocale = 'am'): s
 
 export function formatBirrSigned(amount: number, locale: MoneyLocale = 'am'): string {
   const sign = amount > 0 ? '+' : amount < 0 ? '−' : '';
-  return `${sign}${formatBirrCompact(Math.abs(amount), locale)}`;
+  const abs = Math.abs(amount);
+  return `${sign}${formatBirrCompact(abs, locale)}`;
 }
 
 export function moneyUnitLabel(locale: MoneyLocale = 'am'): string {

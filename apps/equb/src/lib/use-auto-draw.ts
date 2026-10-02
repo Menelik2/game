@@ -100,7 +100,7 @@ export function useAutoCryptoDraw(opts: {
 
 /** Demo countdown 60 → 0 */
 export function useDemoCountdown(
-  tick: number,
+  _tick: number,
   setTick: (n: number | ((s: number) => number)) => void,
   paused: boolean,
 ) {

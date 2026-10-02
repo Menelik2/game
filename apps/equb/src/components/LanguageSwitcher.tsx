@@ -1,29 +1,26 @@
 'use client';
 
-import { useI18n } from '@/lib/i18n/LanguageContext';
 import clsx from 'clsx';
+import { useI18n } from '@/lib/i18n/LanguageContext';
 
 export function LanguageSwitcher({ compact }: { compact?: boolean }) {
-  const { locale, setLocale, t } = useI18n();
+  const { locale, setLocale } = useI18n();
 
   return (
     <div
       className={clsx(
-        'inline-flex rounded-xl border border-white/10 bg-black/40 p-0.5',
-        compact && 'text-[10px]',
+        'inline-flex rounded-full border border-white/10 bg-black/30 p-0.5',
+        compact && 'scale-90',
       )}
       role="group"
-      aria-label={t.common.language}
+      aria-label="Language"
     >
       <button
         type="button"
         onClick={() => setLocale('am')}
         className={clsx(
-          'rounded-lg px-2.5 py-1 font-semibold transition',
-          compact ? 'text-[10px]' : 'text-xs',
-          locale === 'am'
-            ? 'bg-equb-500 text-white'
-            : 'text-white/50 hover:text-white',
+          'rounded-full px-2 py-0.5 text-[10px] font-bold transition',
+          locale === 'am' ? 'bg-equb-500 text-white' : 'text-white/45 hover:text-white/70',
         )}
       >
         አማ
@@ -32,11 +29,8 @@ export function LanguageSwitcher({ compact }: { compact?: boolean }) {
         type="button"
         onClick={() => setLocale('en')}
         className={clsx(
-          'rounded-lg px-2.5 py-1 font-semibold transition',
-          compact ? 'text-[10px]' : 'text-xs',
-          locale === 'en'
-            ? 'bg-equb-500 text-white'
-            : 'text-white/50 hover:text-white',
+          'rounded-full px-2 py-0.5 text-[10px] font-bold transition',
+          locale === 'en' ? 'bg-equb-500 text-white' : 'text-white/45 hover:text-white/70',
         )}
       >
         EN
