@@ -6,16 +6,19 @@ import { useEqubStore } from '@/lib/store';
 import { Home, Users, Wallet, User, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { BackButton } from '@/components/BackButton';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useI18n } from '@/lib/i18n/LanguageContext';
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const user = useEqubStore((s) => s.user);
+  const { t } = useI18n();
 
   const nav = [
-    { href: '/', label: 'Home', icon: Home },
-    { href: '/rooms', label: 'Rooms', icon: Users },
-    { href: '/wallet', label: 'Wallet', icon: Wallet },
-    { href: '/profile', label: 'Profile', icon: User },
+    { href: '/', label: t.nav.home, icon: Home },
+    { href: '/rooms', label: t.nav.rooms, icon: Users },
+    { href: '/wallet', label: t.nav.wallet, icon: Wallet },
+    { href: '/profile', label: t.nav.profile, icon: User },
   ];
 
   return (
@@ -25,7 +28,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {path !== '/' && (
             <BackButton
               href={path.startsWith('/rooms/') ? '/rooms' : '/'}
-              label={path.startsWith('/rooms/') ? 'Rooms' : 'Home'}
+              label={path.startsWith('/rooms/') ? t.common.backRooms : t.common.backHome}
               className="shrink-0 !px-2 !py-1.5 text-xs"
             />
           )}
@@ -34,23 +37,25 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <Sparkles className="h-5 w-5 text-white" />
             </span>
             <div>
-              <p className="text-sm font-bold leading-tight">Fast Equb</p>
-              <p className="text-[10px] text-equb-400">ፋስት እቁብ · Demo</p>
+              <p className="text-sm font-bold leading-tight">{t.brand}</p>
+              <p className="text-[10px] text-equb-400">{t.brandSub}</p>
             </div>
           </Link>
-          {user ? (
-            <div className="rounded-full bg-equb-500/15 px-3 py-1 text-xs font-semibold text-equb-400">
-              {user.balance.toLocaleString()} <span className="text-white/40">Birr</span>
-            </div>
-          ) : (
-            <Link href="/profile" className="text-xs font-medium text-equb-400">
-              Sign in
-            </Link>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            <LanguageSwitcher compact />
+            {user ? (
+              <div className="rounded-full bg-equb-500/15 px-2.5 py-1 text-[11px] font-semibold text-equb-400">
+                {user.balance.toLocaleString()}{' '}
+                <span className="text-white/40">{t.common.birr}</span>
+              </div>
+            ) : (
+              <Link href="/profile" className="text-[11px] font-medium text-equb-400">
+                {t.common.signIn}
+              </Link>
+            )}
+          </div>
         </div>
-        <p className="mt-2 text-center text-[10px] text-amber-400/90">
-          DEMO — Virtual Birr only. Not real money. Inspired by traditional Equb.
-        </p>
+        <p className="mt-2 text-center text-[10px] text-amber-400/90">{t.demoBanner}</p>
       </header>
 
       <main className="flex-1 px-4 py-4 pb-24">{children}</main>
