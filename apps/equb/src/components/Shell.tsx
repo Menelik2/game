@@ -16,6 +16,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const user = useEqubStore((s) => s.user);
   const { t, locale } = useI18n();
   const isPlay = path.startsWith('/rooms/');
+  const isRoomsHub = path === '/rooms';
 
   const nav = [
     { href: '/', label: t.nav.home, icon: Home },
@@ -24,58 +25,98 @@ export function Shell({ children }: { children: React.ReactNode }) {
     { href: '/profile', label: t.nav.profile, icon: User },
   ];
 
+  const contentMax = isPlay
+    ? 'max-w-6xl'
+    : isRoomsHub
+      ? 'max-w-5xl'
+      : 'max-w-3xl';
+
   return (
-    <div
-      className={clsx(
-        'mx-auto flex min-h-dvh w-full flex-col',
-        isPlay ? 'max-w-5xl' : 'max-w-lg',
-      )}
-    >
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-surface-950/95 px-3 py-2 backdrop-blur-xl sm:px-4 sm:py-3 safe-top">
-        <div className="flex items-center justify-between gap-1.5 sm:gap-2">
-          {path !== '/' && (
-            <BackButton
-              href={path.startsWith('/rooms/') ? '/rooms' : '/'}
-              label={path.startsWith('/rooms/') ? t.common.backRooms : t.common.backHome}
-              className="shrink-0 !px-2 !py-1.5 text-xs"
-            />
+    <div className="flex min-h-dvh w-full flex-col">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-surface-950/95 backdrop-blur-xl safe-top">
+        <div
+          className={clsx(
+            'mx-auto flex items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8',
+            contentMax,
           )}
-          <Link href="/" className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-equb-500 to-equb-700 shadow-lg shadow-equb-500/20 sm:h-9 sm:w-9">
-              <Sparkles className="h-4 w-4 text-white sm:h-5 sm:w-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-bold leading-tight sm:text-sm">{t.brand}</p>
-              <p className="truncate text-[9px] text-equb-400 sm:text-[10px]">{t.brandSub}</p>
+        >
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            {path !== '/' && (
+              <BackButton
+                href={path.startsWith('/rooms/') ? '/rooms' : '/'}
+                label={path.startsWith('/rooms/') ? t.common.backRooms : t.common.backHome}
+                className="shrink-0 !px-2 !py-1.5 text-xs lg:hidden"
+              />
+            )}
+            <Link href="/" className="flex min-w-0 items-center gap-2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-equb-500 to-equb-700 shadow-lg shadow-equb-500/25 lg:h-10 lg:w-10">
+                <Sparkles className="h-5 w-5 text-white" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold leading-tight lg:text-base">{t.brand}</p>
+                <p className="truncate text-[10px] text-equb-400">{t.brandSub}</p>
+              </div>
+            </Link>
+          </div>
+
+          <nav className="hidden items-center gap-1 lg:flex">
+            {nav.map(({ href, label, icon: Icon }) => {
+              const active =
+                path === href || (href === '/rooms' && path.startsWith('/rooms'));
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={clsx(
+                    'flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition',
+                    active
+                      ? 'bg-equb-500/15 text-equb-300'
+                      : 'text-white/50 hover:bg-white/5 hover:text-white/80',
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="hidden sm:block">
+              <EthDateBadge short />
             </div>
-          </Link>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <LanguageSwitcher compact />
             {user ? (
-              <div className="max-w-[5.5rem] truncate rounded-full bg-equb-500/15 px-2 py-1 text-[10px] font-semibold text-equb-400 sm:max-w-none sm:px-2.5 sm:text-[11px]">
+              <div className="rounded-full bg-equb-500/15 px-3 py-1.5 font-mono text-xs font-bold text-equb-400 sm:text-sm">
                 {formatBirrCompact(user.balance, locale)}
               </div>
             ) : (
-              <Link href="/profile" className="text-[10px] font-medium text-equb-400 sm:text-[11px]">
+              <Link
+                href="/profile"
+                className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-equb-400 hover:bg-white/5"
+              >
                 {t.common.signIn}
               </Link>
             )}
           </div>
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5 sm:mt-2 sm:gap-2">
-          <EthDateBadge short />
-          <p className="text-center text-[9px] leading-snug text-amber-400/90 sm:text-[10px]">
-            {t.demoBanner}
-          </p>
-        </div>
+        <p className="border-t border-white/5 px-4 py-1 text-center text-[9px] text-amber-400/80 sm:text-[10px] lg:hidden">
+          {t.demoBanner}
+        </p>
       </header>
 
-      <main className="flex-1 px-2 py-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:px-4 sm:py-4">
+      <main
+        className={clsx(
+          'mx-auto w-full flex-1 px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8',
+          'pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-10',
+          contentMax,
+        )}
+      >
         {children}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl safe-bottom">
-        <div className="mx-auto flex max-w-5xl justify-around pb-[env(safe-area-inset-bottom)] pt-1">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl safe-bottom lg:hidden">
+        <div className="mx-auto flex max-w-lg justify-around pb-[env(safe-area-inset-bottom)] pt-1">
           {nav.map(({ href, label, icon: Icon }) => {
             const active = path === href;
             return (
