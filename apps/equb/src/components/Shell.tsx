@@ -8,11 +8,13 @@ import clsx from 'clsx';
 import { BackButton } from '@/components/BackButton';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/lib/i18n/LanguageContext';
+import { EthDateBadge } from '@/components/EthDateBadge';
+import { formatBirrCompact } from '@/lib/money';
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const user = useEqubStore((s) => s.user);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const nav = [
     { href: '/', label: t.nav.home, icon: Home },
@@ -45,8 +47,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <LanguageSwitcher compact />
             {user ? (
               <div className="rounded-full bg-equb-500/15 px-2.5 py-1 text-[11px] font-semibold text-equb-400">
-                {user.balance.toLocaleString()}{' '}
-                <span className="text-white/40">{t.common.birr}</span>
+                {formatBirrCompact(user.balance, locale)}
               </div>
             ) : (
               <Link href="/profile" className="text-[11px] font-medium text-equb-400">
@@ -55,7 +56,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </div>
-        <p className="mt-2 text-center text-[10px] text-amber-400/90">{t.demoBanner}</p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <EthDateBadge short />
+          <p className="text-center text-[10px] text-amber-400/90">{t.demoBanner}</p>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-4 pb-24">{children}</main>
