@@ -1,79 +1,72 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { GameCard, GameCardProps } from '@/components/GameCard';
-import { Play, Sparkles, Shield } from 'lucide-react';
+import { useEqubStore } from '@/lib/equb-store';
+import { STARTING_BALANCE } from '@/lib/equb-logic';
 
 export default function HomePage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['games', 'home'],
-    queryFn: () => api<{ items: GameCardProps[] }>('/games?limit=12&popular=true'),
-  });
-  const games = data?.items || [];
+  const { user, lang } = useEqubStore();
+  const t = (am: string, en: string) => (lang === 'am' ? am : en);
 
   return (
-    <div>
-      <section className="relative overflow-hidden bg-hero-glow">
-        <div className="mx-auto max-w-7xl px-4 py-16 md:py-24">
-          <div className="max-w-2xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-apex-500/30 bg-apex-500/10 px-3 py-1 text-xs font-medium text-apex-300">
-              <Sparkles className="h-3.5 w-3.5" /> Premium Social Casino · Demo Mode
-            </div>
-            <h1 className="text-4xl font-black tracking-tight md:text-6xl">
-              Play the house of <span className="text-gradient">tomorrow</span>
-            </h1>
-            <p className="mt-4 text-lg text-white/60">
-              Original games, server-authoritative fairness — virtual credits only.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <Link href="/games" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-apex-500 to-apex-600 px-8 py-3.5 font-semibold shadow-glow">
-                <Play className="h-5 w-5" fill="currentColor" /> Play Now
-              </Link>
-              <Link href="/games" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-8 py-3.5 font-semibold">
-                Explore Games
-              </Link>
-            </div>
-          </div>
+    <div className="mx-auto grid max-w-6xl gap-6 px-4 py-10 lg:grid-cols-[1.2fr_0.8fr]">
+      <section className="rounded-3xl border border-emerald-900/50 bg-gradient-to-b from-emerald-950/80 to-[#0a1210] p-8 shadow-2xl">
+        <div className="mb-4 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+          {t('ዲሞ · ምናባዊ ብር', 'Demo · virtual birr')}
         </div>
-      </section>
+        <h1 className="text-4xl font-black tracking-tight text-amber-300 md:text-5xl">
+          {t('ፋስት እቁብ', 'Fast Equb')}
+        </h1>
+        <p className="mt-2 text-white/60">
+          {t('ፋስት እቁብ · ምረጥ · ዕጣ · አንድ አሸናፊ', 'Pick · draw · one winner')}
+        </p>
+        <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/55">
+          {t(
+            'ከኢትዮጵያ እቁብ ክበቦች የተነሳሳ። ሁሉም ተመሳሳይ መግቢያ ይከፍላሉ። ኮምፒውተሩ አንድ ቁጥር ይመርጣል። ያ ተጫዋች ሙሉ ሽልማቱን ያሸንፋል።',
+            'Inspired by Ethiopian equb circles. Everyone pays the same stake. A fair draw picks one number. That player wins the full pot.',
+          )}
+        </p>
 
-      <section className="mx-auto max-w-7xl px-4 py-12">
-        <h2 className="text-2xl font-bold">Popular Games</h2>
-        {isLoading ? (
-          <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="aspect-[4/3] animate-pulse rounded-2xl bg-surface-700" />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
-            {games.map((g) => (
-              <GameCard key={g.id} {...g} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 py-12">
-        <div className="glass rounded-3xl p-8 flex flex-col md:flex-row gap-6 items-center justify-between">
-          <div className="flex items-start gap-4">
-            <Shield className="h-8 w-8 text-emerald-400 shrink-0" />
-            <div>
-              <h2 className="text-xl font-bold">Play responsibly</h2>
-              <p className="mt-1 text-sm text-white/60">Limits, self-exclusion, and demo-only credits.</p>
-            </div>
-          </div>
-          <Link href="/responsible-gambling" className="rounded-full border border-emerald-500/40 px-6 py-2.5 text-sm font-semibold text-emerald-400">
-            Learn more
-          </Link>
+        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
+          <span className="text-white/50">{t('ቀሪ ሂሳብ', 'Balance')}: </span>
+          <span className="font-bold text-amber-300">
+            {user ? `${user.balance.toLocaleString()} ${t('ብር', 'ETB')}` : '—'}
+          </span>
         </div>
+
+        <Link
+          href={user ? '/rooms' : '/profile'}
+          className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-amber-400 px-6 py-4 text-center text-base font-bold text-black shadow-lg shadow-amber-500/20 transition hover:bg-amber-300 sm:w-auto"
+        >
+          {user
+            ? t('ወደ ክፍሎች', 'Go to rooms')
+            : t(`ጀምር · ${STARTING_BALANCE.toLocaleString()} ምናባዊ ብር`, `Start · ${STARTING_BALANCE.toLocaleString()} virtual birr`)}
+        </Link>
       </section>
 
-      <footer className="border-t border-white/10 py-10 text-center text-sm text-white/40">
-        © {new Date().getFullYear()} Apex Casino. Demo — virtual currency only.
-      </footer>
+      <aside className="space-y-3">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="text-2xl font-bold text-amber-300">5–100</div>
+          <div className="text-sm text-white/50">{t('መቀመጫ', 'Seats')}</div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="text-2xl font-bold text-emerald-300">CSPRNG</div>
+          <div className="text-sm text-white/50">{t('ዕጣ', 'Fair draw')}</div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="text-2xl font-bold text-amber-300">1</div>
+          <div className="text-sm text-white/50">{t('አሸናፊ', 'Winner')}</div>
+        </div>
+        <div className="rounded-2xl border border-emerald-900/40 bg-emerald-950/40 p-5 text-sm text-white/70">
+          <div className="mb-2 font-semibold text-emerald-300">{t('ደንቦች', 'Rules')}</div>
+          <ol className="list-decimal space-y-1 pl-4">
+            <li>{t('ክፍል ይምረጡ (ቁጥር እና ሽልማት)', 'Choose room size and prize')}</li>
+            <li>{t('በሰሌዳው ላይ አንድ ልዩ ቁጥር ይምረጡ', 'Pick a unique number on the board')}</li>
+            <li>{t('መቀመጫዎችን ይሙሉ (ጓደኞች ወይም ዲሞ ቦቶች)', 'Fill seats (friends or demo bots)')}</li>
+            <li>{t('ክሪፕቶ ዕጣ → የሚመሳሰል ቁጥር ሽልማቱን ያሸንፋል', 'Crypto draw → matching number wins the pot')}</li>
+          </ol>
+        </div>
+      </aside>
     </div>
   );
 }
