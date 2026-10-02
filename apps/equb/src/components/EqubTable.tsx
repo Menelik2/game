@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
-import type { Locale } from '@/lib/i18n/dictionaries';
+import { interpolate, type Locale } from '@/lib/i18n/dictionaries';
 
 export type TablePlayer = {
   id: string;
@@ -90,7 +90,7 @@ export function EqubTable({
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-2 sm:space-y-3">
-      <div className="rounded-xl border border-white/10 bg-[#0a1210] px-2.5 py-2 sm:px-3">
+      <div className="rounded-2xl border border-white/10 bg-gradient-to-r from-[#0a1210] via-[#0c1613] to-[#0a1210] px-2.5 py-2.5 sm:px-3">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
             <span className="inline-block rounded bg-equb-600/30 px-2 py-0.5 text-[10px] font-bold uppercase text-equb-300">
@@ -124,18 +124,14 @@ export function EqubTable({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 sm:gap-3 lg:grid lg:grid-cols-[minmax(140px,1fr)_minmax(0,2.2fr)_minmax(140px,1fr)]">
+      <div className="flex flex-col gap-2 sm:gap-3 lg:grid lg:grid-cols-[minmax(180px,1fr)_minmax(0,2.4fr)_minmax(180px,1fr)] lg:gap-4">
         <section className="order-1 lg:order-2">
-          <div className="rounded-2xl border border-white/10 bg-[#0c1412] p-2.5 sm:p-4">
+          <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1815] to-[#0a1210] p-2.5 shadow-soft sm:p-4">
             <div className="mb-2 text-center sm:mb-3">
               <p className="text-xs font-semibold text-white/90 sm:text-sm">
-                {locale === 'am'
-                  ? `1 ቁጥር ይምረጡ (1–${groupSize})`
-                  : `Choose 1 number · 1 to ${groupSize}`}
+                {interpolate(t.board.chooseOneShort, { size: groupSize })}
               </p>
-              <p className="text-[10px] text-white/40 sm:text-[11px]">
-                {locale === 'am' ? 'አንድ አሸናፊ · ሙሉ ሽልማት' : 'One winner · full pot'}
-              </p>
+              <p className="text-[10px] text-white/40 sm:text-[11px]">{t.board.oneWinner}</p>
             </div>
 
             {status === 'completed' && winningNumber != null && (
@@ -153,7 +149,7 @@ export function EqubTable({
               className="mx-auto grid w-full gap-1 sm:gap-1.5"
               style={{
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                maxWidth: groupSize <= 20 ? '22rem' : '100%',
+                maxWidth: groupSize <= 20 ? '26rem' : '100%',
               }}
             >
               {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
@@ -213,18 +209,12 @@ export function EqubTable({
                       : 'bg-equb-600/80 text-white/90',
                   )}
                 >
-                  {joining
-                    ? t.common.joining
-                    : locale === 'am'
-                      ? 'ውርርድ · BET'
-                      : 'BET'}
+                  {joining ? t.common.joining : t.board.bet}
                 </button>
               )}
               {status === 'open' && !canBet && (
                 <p className="text-center text-[11px] text-amber-400/90">
-                  {locale === 'am'
-                    ? 'ቁጥር ይምረጡ ከዚያ ውርርድ ይጫኑ'
-                    : 'Select a number, then press BET'}
+                  {t.board.selectThenBet}
                 </p>
               )}
             </div>
@@ -291,14 +281,14 @@ export function EqubTable({
                       p.status === 'lost' && 'text-white/30',
                     )}
                   >
-                    {p.status === 'waiting' && (locale === 'am' ? 'በመጠባበቅ' : 'Wait')}
-                    {p.status === 'won' && (locale === 'am' ? 'አሸናፊ' : 'Won')}
+                    {p.status === 'waiting' && t.board.waitShort}
+                    {p.status === 'won' && t.board.won}
                     {p.status === 'lost' && '—'}
                   </span>
                 </li>
               ))}
             </ul>
-            <ul className="hidden max-h-72 space-y-1 overflow-y-auto lg:block">
+            <ul className="hidden max-h-[28rem] space-y-1.5 overflow-y-auto lg:block">
               {players.length === 0 && (
                 <li className="px-2 py-3 text-center text-xs text-white/30">—</li>
               )}
@@ -326,8 +316,8 @@ export function EqubTable({
                       p.status === 'lost' && 'text-white/30',
                     )}
                   >
-                    {p.status === 'waiting' && (locale === 'am' ? 'በመጠባበቅ' : 'Waiting')}
-                    {p.status === 'won' && (locale === 'am' ? 'አሸናፊ' : 'Won')}
+                    {p.status === 'waiting' && t.board.waiting}
+                    {p.status === 'won' && t.board.won}
                     {p.status === 'lost' && '—'}
                   </span>
                 </li>
@@ -339,13 +329,11 @@ export function EqubTable({
         <aside className="order-3">
           <div className="rounded-xl border border-white/10 bg-[#0a1210] p-2">
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-equb-400">
-              {locale === 'am' ? 'ውጤቶች' : 'Results'}
+              {t.board.results}
             </p>
             <ul className="flex max-h-28 gap-1.5 overflow-x-auto pb-1 font-mono text-[10px] lg:max-h-72 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:overflow-x-hidden">
               {results.length === 0 && (
-                <li className="px-2 py-2 text-white/30">
-                  {locale === 'am' ? 'ገና ውጤት የለም' : 'No results yet'}
-                </li>
+                <li className="px-2 py-2 text-white/30">{t.board.noResults}</li>
               )}
               {results.slice(0, 12).map((r) => (
                 <li
