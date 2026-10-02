@@ -49,6 +49,7 @@ export default function ProfilePage() {
         <h1 className="text-2xl font-bold">{t.profile.title}</h1>
         <LanguageSwitcher />
       </div>
+
       <div className="glass space-y-3 rounded-3xl p-5 text-sm">
         <p>
           <span className="text-white/40">{t.profile.name}</span>
@@ -68,6 +69,7 @@ export default function ProfilePage() {
           <strong className="font-mono tracking-widest">{user.referralCode}</strong>
         </p>
       </div>
+
       {!user.referredBy && (
         <div className="glass rounded-3xl p-5">
           <h2 className="font-semibold">{t.profile.haveCode}</h2>
@@ -93,6 +95,7 @@ export default function ProfilePage() {
           {msg && <p className="mt-2 text-xs text-equb-300">{msg}</p>}
         </div>
       )}
+
       <button
         type="button"
         onClick={() => logout()}
@@ -100,6 +103,7 @@ export default function ProfilePage() {
       >
         {t.common.signOut}
       </button>
+
       <div className="glass rounded-3xl p-5 text-xs text-white/50">
         <p className="font-semibold text-white/80">{t.profile.liveTitle}</p>
         <p className="mt-2">{t.profile.liveHint}</p>
