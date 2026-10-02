@@ -229,21 +229,39 @@ export function EqubTable({
               })}
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5">
-                <span className="text-[10px] text-white/40">{t.common.entry}</span>
-                <span className="px-2 font-mono text-sm font-bold text-equb-300">
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/50 px-3 py-2">
+                <span className="text-xs text-white/50">{t.common.entry}</span>
+                <span className="font-mono text-base font-black text-equb-300">
                   {formatBirrCompact(contribution, locale)}
                 </span>
               </div>
-              <button
-                type="button"
-                disabled={!canBet || joining}
-                onClick={onBet}
-                className="min-w-[7rem] rounded-lg bg-equb-600 px-6 py-2.5 text-sm font-black uppercase tracking-wide text-white shadow-lg shadow-equb-600/30 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {joining ? t.common.joining : locale === 'am' ? 'ውርርድ' : 'BET'}
-              </button>
+              {status === 'open' && (
+                <button
+                  type="button"
+                  disabled={joining}
+                  onClick={onBet}
+                  className={
+                    'w-full rounded-xl py-4 text-base font-black uppercase tracking-wide shadow-lg transition ' +
+                    (canBet
+                      ? 'bg-equb-500 text-white shadow-equb-500/40 hover:bg-equb-400'
+                      : 'bg-equb-600/80 text-white/90')
+                  }
+                >
+                  {joining
+                    ? t.common.joining
+                    : locale === 'am'
+                      ? 'ውርርድ · BET'
+                      : 'BET'}
+                </button>
+              )}
+              {status === 'open' && !canBet && (
+                <p className="text-center text-[11px] text-amber-400/90">
+                  {locale === 'am'
+                    ? 'ቁጥር ይምረጡ ከዚያ ውርርድ ይጫኑ'
+                    : 'Select a number, then press BET'}
+                </p>
+              )}
             </div>
 
             {canFillBots && onFillBots && (
