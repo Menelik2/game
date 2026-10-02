@@ -20,6 +20,7 @@ import {
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { interpolate } from '@/lib/i18n/dictionaries';
 import { formatBirrCompact } from '@/lib/money';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import clsx from 'clsx';
 import { ChevronRight } from 'lucide-react';
 
@@ -90,17 +91,23 @@ export default function RoomsPage() {
 
   return (
     <div className="space-y-5 lg:space-y-6">
-      <div>
-        <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl lg:text-3xl">
-          {t.rooms.title}
-        </h1>
-        <p className="mt-1 text-xs text-white/45 sm:text-sm">{t.rooms.subtitle}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl lg:text-3xl">
+            {t.rooms.title}
+          </h1>
+          <p className="mt-1 text-xs text-white/45 sm:text-sm">{t.rooms.subtitle}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="mb-1 text-[10px] text-white/40">{t.common.language}</p>
+          <LanguageSwitcher />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-5 lg:gap-8">
         <div className="space-y-5 lg:col-span-3">
           <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-1 flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
                 1
               </span>
@@ -108,6 +115,7 @@ export default function RoomsPage() {
                 {t.rooms.step1}
               </p>
             </div>
+            <p className="mb-3 text-[11px] text-white/40">{t.rooms.step1Hint}</p>
             <div className="flex flex-wrap gap-2">
               {GROUP_SIZES.map((g) => (
                 <button
@@ -126,7 +134,7 @@ export default function RoomsPage() {
           </section>
 
           <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-1 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
                   2
@@ -137,10 +145,13 @@ export default function RoomsPage() {
               </div>
               {pick != null && (
                 <span className="rounded-full bg-equb-500/20 px-2.5 py-1 font-mono text-xs font-bold text-equb-300">
-                  #{String(pick).padStart(2, '0')}
+                  {t.common.selected} · #{String(pick).padStart(2, '0')}
                 </span>
               )}
             </div>
+            <p className="mb-3 text-[11px] text-white/40">
+              {interpolate(t.rooms.step2Hint, { size: String(groupSize).padStart(2, '0') })}
+            </p>
             <div
               className="grid gap-1.5"
               style={{
@@ -159,14 +170,14 @@ export default function RoomsPage() {
                       : 'bg-[#151c1a] text-white/75 hover:bg-white/10',
                   )}
                 >
-                  {n}
+                  {String(n).padStart(2, '0')}
                 </button>
               ))}
             </div>
           </section>
 
           <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-1 flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold-500/25 text-[11px] font-bold text-gold-400">
                 3
               </span>
@@ -174,6 +185,7 @@ export default function RoomsPage() {
                 {t.rooms.step3}
               </p>
             </div>
+            <p className="mb-3 text-[11px] text-white/40">{t.rooms.choosePot}</p>
             <div className="flex flex-wrap gap-2">
               {PRIZES.map((p) => (
                 <button
@@ -225,14 +237,17 @@ export default function RoomsPage() {
           >
             {busy ? t.common.opening : t.common.openRoom}
           </button>
+          {pick == null && (
+            <p className="text-center text-[11px] text-amber-400/90">{t.rooms.needPick}</p>
+          )}
         </div>
 
         <div className="lg:col-span-2">
-          {openRooms.length > 0 ? (
-            <div className="lg:sticky lg:top-24">
-              <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">
-                {t.rooms.openRooms}
-              </p>
+          <div className="lg:sticky lg:top-24">
+            <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">
+              {t.rooms.openRooms}
+            </p>
+            {openRooms.length > 0 ? (
               <div className="space-y-2">
                 {openRooms.map((r: LiveRoom) => (
                   <Link
@@ -257,12 +272,12 @@ export default function RoomsPage() {
                   </Link>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="glass hidden rounded-2xl p-8 text-center text-sm text-white/35 lg:block">
-              {t.rooms.openRooms}
-            </div>
-          )}
+            ) : (
+              <div className="glass rounded-2xl p-6 text-center text-sm text-white/35">
+                {t.rooms.emptyOpen}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
