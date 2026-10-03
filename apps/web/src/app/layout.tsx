@@ -5,11 +5,11 @@ import { EqubNav } from '@/components/EqubNav';
 
 export const metadata: Metadata = {
   title: {
-    default: 'ፋስት እቁብ · Fast Equb',
-    template: '%s | Fast Equb',
+    default: 'እቁብ · Equb',
+    template: '%s | እቁብ',
   },
   description:
-    'Demo Fast Equb — virtual birr only. Inspired by traditional Ethiopian equb circles.',
+    'Digital Ethiopian Equb — traditional rotating savings circles. Demo uses virtual birr only.',
   manifest: '/manifest.json',
 };
 

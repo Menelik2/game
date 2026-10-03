@@ -6,8 +6,8 @@ import { useEqubStore } from '@/lib/equb-store';
 
 const links = [
   { href: '/', am: 'መነሻ', en: 'Home' },
-  { href: '/rooms', am: 'ክፍሎች', en: 'Rooms' },
-  { href: '/wallet', am: 'ዋሌት', en: 'Wallet' },
+  { href: '/rooms', am: 'ክበቦች', en: 'Circles' },
+  { href: '/wallet', am: 'ቁጠባ', en: 'Savings' },
   { href: '/profile', am: 'መገለጫ', en: 'Profile' },
 ];
 
@@ -25,8 +25,10 @@ export function EqubNav() {
               እ
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-bold text-emerald-300">{t('ፋስት እቁብ', 'Fast Equb')}</div>
-              <div className="text-[10px] text-white/40">{t('ዲሞ · ምናባዊ ብር', 'Demo · virtual birr')}</div>
+              <div className="text-sm font-bold text-emerald-300">{t('እቁብ', 'Equb')}</div>
+              <div className="text-[10px] text-white/40">
+                {t('ባህላዊ ቁጠባ · ዲሞ', 'Traditional savings · demo')}
+              </div>
             </div>
           </Link>
 
@@ -49,7 +51,7 @@ export function EqubNav() {
           <div className="flex items-center gap-2">
             {user && (
               <div className="hidden rounded-full border border-emerald-800/60 bg-emerald-950/50 px-3 py-1 text-xs sm:block">
-                <span className="text-white/50">{t('ቀሪ', 'Bal')} </span>
+                <span className="text-white/50">{t('ቁጠባ', 'Saved')} </span>
                 <span className="font-semibold text-amber-300">
                   {user.balance.toLocaleString()} {t('ብር', 'ETB')}
                 </span>
