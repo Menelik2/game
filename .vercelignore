@@ -1,4 +1,4 @@
-# Keep Vercel focused; Root Directory should still be apps/equb
 apps/web
-**/node_modules
+apps/api/node_modules
 **/.next
+**/node_modules

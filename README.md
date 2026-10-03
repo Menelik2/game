@@ -2,25 +2,23 @@
 
 **Only game:** Ethiopian Equb-style number rooms.
 
-- Virtual Birr demo credits
-- Group sizes 5–100
-- Crypto random draw · one winner per round
-- Amharic + English
-- Ethiopian calendar + Birr unit
+| Path | Role |
+|------|------|
+| `apps/equb` | **Frontend** (Vercel Root Directory) |
+| `apps/api` | **Backend** API (Vercel / Render) |
+| `frontend/` | Deploy notes for frontend |
+| `backend/` | Deploy notes for backend |
+| `supabase/` | Optional Postgres schema |
 
-Keno, Blackjack, slots, baccarat and other casino games are **out of product scope**.
+## Deploy both on Vercel
 
-## Deploy (Vercel)
+See **[DEPLOY_FRONTEND_BACKEND.md](./DEPLOY_FRONTEND_BACKEND.md)**
 
-| Setting | Value |
-|---------|--------|
-| Root Directory | `apps/equb` |
-| Framework | Next.js |
-| Build | `npm run build` |
+1. **Frontend** project → Root: `apps/equb` → Next.js  
+2. **Backend** project → Root: `apps/api` → Other  
+3. Link with env: `NEXT_PUBLIC_API_URL` + `CORS_ORIGINS`
 
-Optional env: `NEXT_PUBLIC_DEMO_MODE=true`
-
-## Local
+## Local frontend
 
 ```bash
 cd apps/equb && npm install && npm run dev

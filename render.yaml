@@ -1,13 +1,11 @@
-# Full backend deploy: Nest API + Postgres (Equb, auth, wallet, games)
-# Dashboard: https://dashboard.render.com → New → Blueprint → Menelik2/game
 services:
   - type: web
-    name: apex-api
+    name: equb-api
     runtime: node
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build --workspace=@apex/api
+    buildCommand: npm install && npm run build --workspace=@apex/shared --if-present && npm run build --workspace=@apex/api
     startCommand: npm run start:prod --workspace=@apex/api
     healthCheckPath: /api/health
     envVars:
@@ -21,26 +19,22 @@ services:
         value: api
       - key: PORT
         value: "10000"
-      - key: DATABASE_SSL
-        value: "true"
-      - key: SYNC_DB
-        value: "true"
       - key: APP_URL
         value: https://abelgame.vercel.app
       - key: CORS_ORIGINS
-        value: https://abelgame.vercel.app,https://*.vercel.app,http://localhost:3000
+        value: https://abelgame.vercel.app,https://*.vercel.app
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
       - key: DATABASE_URL
         fromDatabase:
-          name: apex-postgres
+          name: equb-postgres
           property: connectionString
 
 databases:
-  - name: apex-postgres
+  - name: equb-postgres
     plan: free
     region: oregon
-    databaseName: apex_casino
-    user: apex
+    databaseName: equb
+    user: equb
