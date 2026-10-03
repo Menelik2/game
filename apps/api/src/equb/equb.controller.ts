@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { EqubService } from './equb.service';
 import { EqubGateway } from './equb.gateway';
 import { IsInt, IsString, Min, Max, MinLength, MaxLength, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
 
 class JoinDto {
   @IsString()
@@ -25,6 +26,15 @@ class DrawDto {
   @IsString()
   @MinLength(4)
   playerId?: string;
+}
+
+class FillBotsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  count?: number;
 }
 
 @Controller('equb')
@@ -60,6 +70,13 @@ export class EqubController {
     return room;
   }
 
+  @Post('rooms/:roomId/fill-bots')
+  fillBots(@Param('roomId') roomId: string, @Body() body: FillBotsDto) {
+    const room = this.equb.fillBots(roomId, body?.count);
+    this.gateway.broadcastRoom(room.id);
+    return room;
+  }
+
   @Post('rooms/:roomId/draw')
   draw(@Param('roomId') roomId: string, @Body() body: DrawDto) {
     const room = this.equb.draw(roomId, body.playerId);
@@ -70,5 +87,11 @@ export class EqubController {
   @Post('rooms/:templateId/open')
   open(@Param('templateId') templateId: string) {
     return this.equb.ensureOpenRoom(templateId);
+  }
+
+  /** Health-style ping for frontend live detection */
+  @Get('ping')
+  ping(@Query('t') _t?: string) {
+    return { ok: true, ts: Date.now() };
   }
 }

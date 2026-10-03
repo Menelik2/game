@@ -16,6 +16,11 @@ import {
 } from './equb.types';
 import { cryptographicDraw, secureRandomInt } from './equb-crypto';
 
+const BOT_NAMES = [
+  'Abebe', 'Tigist', 'Yonas', 'Hanna', 'Dawit', 'Meron', 'Kaleb', 'Sara',
+  'Biruk', 'Selam', 'Nahom', 'Rahel', 'Elias', 'Kidist', 'Samuel', 'Bethlehem',
+];
+
 /** Multiplayer Equb — unlimited successive rounds. */
 @Injectable()
 export class EqubService implements OnModuleInit, OnModuleDestroy {
@@ -150,6 +155,45 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     return this.withTimer(room);
   }
 
+  /** Fill empty seats with demo bots (for solo testing / demos). */
+  fillBots(roomId: string, count?: number): EqubRoom {
+    const room = this.instances.get(roomId);
+    if (!room) throw new NotFoundException('Room not found');
+    if (room.status !== 'open') throw new ConflictException('Room not open');
+
+    const taken = new Set(room.members.map((m) => m.pick));
+    const available: number[] = [];
+    for (let n = 1; n <= room.groupSize; n++) {
+      if (!taken.has(n)) available.push(n);
+    }
+    for (let i = available.length - 1; i > 0; i--) {
+      const j = secureRandomInt(i + 1);
+      [available[i], available[j]] = [available[j]!, available[i]!];
+    }
+
+    const need = Math.min(
+      count ?? available.length,
+      available.length,
+      room.groupSize - room.members.length,
+    );
+
+    for (let i = 0; i < need; i++) {
+      const name =
+        BOT_NAMES[secureRandomInt(BOT_NAMES.length)]! +
+        (100 + secureRandomInt(900));
+      room.members.push({
+        playerId: `bot-${Date.now()}-${i}-${secureRandomInt(1e6)}`,
+        name,
+        pick: available[i]!,
+        joinedAt: Date.now(),
+      });
+    }
+    room.updatedAt = Date.now();
+    this.instances.set(room.id, room);
+    this.broadcast?.(room.id);
+    return this.withTimer(room);
+  }
+
   draw(roomId: string, playerId?: string): EqubRoom {
     const room = this.instances.get(roomId);
     if (!room) throw new NotFoundException('Room not found');
@@ -173,7 +217,7 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
 
     const idx = secureRandomInt(members.length);
     const winner = members[idx]!;
-    const proof = cryptographicDraw(room.groupSize);
+    const proof = cryptographicDraw(Math.max(2, room.groupSize));
 
     room.status = 'completed';
     room.winningNumber = winner.pick;
