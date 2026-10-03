@@ -1,7 +1,4 @@
-**/node_modules
+apps/web
+apps/api/node_modules
 **/.next
-**/dist
-**/.env
-**/.env.*
-coverage
-*.log
+**/node_modules
