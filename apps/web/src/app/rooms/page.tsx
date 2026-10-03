@@ -7,6 +7,8 @@ import { GROUP_SIZES, contributionOf, roomIdOf } from '@/lib/equb-logic';
 
 const PRIZES = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000];
 
+type Step = 1 | 2 | 3;
+
 export default function RoomsPage() {
   const {
     user,
@@ -20,21 +22,24 @@ export default function RoomsPage() {
     refreshLive,
     syncLiveRoom,
   } = useEqubStore();
-  const [groupSize, setGroupSize] = useState(10);
-  const [prize, setPrize] = useState(500);
+
+  const [step, setStep] = useState<Step>(1);
+  const [groupSize, setGroupSize] = useState<number | null>(null);
+  const [prize, setPrize] = useState<number | null>(null);
   const [pick, setPick] = useState<number | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const t = (am: string, en: string) => (lang === 'am' ? am : en);
 
-  const templateId = roomIdOf(groupSize, prize);
+  const size = groupSize ?? 10;
+  const pot = prize ?? 500;
+  const templateId = roomIdOf(size, pot);
   const room = useMemo(() => rooms.find((r) => r.id === templateId), [rooms, templateId]);
-  const contribution = contributionOf(prize, groupSize);
+  const contribution = contributionOf(pot, size);
   const taken = new Set(room?.members.map((m) => m.pick) || []);
   const myPick = room?.members.find((m) => m.playerId === user?.playerId)?.pick;
   const instanceId = liveRoomIds[templateId];
 
-  // Detect Nest API + poll active room
   useEffect(() => {
     refreshLive();
     const id = setInterval(() => {
@@ -44,14 +49,49 @@ export default function RoomsPage() {
     return () => clearInterval(id);
   }, [templateId, instanceId, myPick, refreshLive, syncLiveRoom]);
 
+  // If already joined this room, jump to play actions
+  useEffect(() => {
+    if (myPick && step < 3) {
+      setPick(myPick);
+      setStep(3);
+    }
+  }, [myPick, step]);
+
+  const goStep1 = () => {
+    setStep(1);
+    setGroupSize(null);
+    setPick(null);
+    setPrize(null);
+    setMsg('');
+  };
+
+  const onSelectSize = (s: number) => {
+    setGroupSize(s);
+    setPick(null);
+    setPrize(null);
+    setMsg('');
+    setStep(2);
+  };
+
+  const onSelectNumber = (n: number) => {
+    setPick(n);
+    setMsg('');
+    setStep(3);
+  };
+
+  const onSelectPrize = (p: number) => {
+    setPrize(p);
+    setMsg('');
+  };
+
   const onJoin = async () => {
     setMsg('');
     if (!user) {
       setMsg(t('መጀመሪያ ይመዝገቡ', 'Register first'));
       return;
     }
-    if (pick == null) {
-      setMsg(t('ቁጥር ይምረጡ', 'Pick a number'));
+    if (groupSize == null || pick == null || prize == null) {
+      setMsg(t('ሁሉንም ደረጃዎች ይምረጡ', 'Complete all steps'));
       return;
     }
     setBusy(true);
@@ -60,9 +100,9 @@ export default function RoomsPage() {
     if (!res.ok) setMsg(res.error);
     else
       setMsg(
-        live || useEqubStore.getState().live
-          ? t('ተቀላቅለዋል · ላይቭ ሰርቨር', 'Joined · live server')
-          : t('ተቀላቅለዋል · ኦፍላይን', 'Joined · offline'),
+        useEqubStore.getState().live
+          ? t('ተቀላቅለዋል!', 'Joined!')
+          : t('ተቀላቅለዋል · ዲሞ', 'Joined · demo'),
       );
   };
 
@@ -85,6 +125,14 @@ export default function RoomsPage() {
     }
   };
 
+  const onNewRound = () => {
+    resetRoom(templateId);
+    setPick(null);
+    setPrize(null);
+    setMsg('');
+    setStep(groupSize ? 2 : 1);
+  };
+
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
@@ -99,51 +147,96 @@ export default function RoomsPage() {
     );
   }
 
+  const stepLabel = (n: Step, am: string, en: string, done: boolean, active: boolean) => (
+    <button
+      type="button"
+      onClick={() => {
+        if (done || active) setStep(n);
+      }}
+      className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+        active
+          ? 'bg-emerald-600 text-white'
+          : done
+            ? 'bg-emerald-500/20 text-emerald-300'
+            : 'bg-white/5 text-white/35'
+      }`}
+    >
+      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-black/20 text-[10px]">
+        {done && !active ? '✓' : n}
+      </span>
+      {t(am, en)}
+    </button>
+  );
+
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 lg:grid-cols-[1.4fr_0.9fr]">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-emerald-200">{t('ፋስት እቁብ', 'Fast Equb')}</h1>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-              live
-                ? 'bg-emerald-500/20 text-emerald-300'
-                : 'bg-white/10 text-white/40'
-            }`}
-          >
-            {live ? t('ላይቭ API', 'LIVE API') : t('ኦፍላይን', 'OFFLINE')}
+    <div className="mx-auto max-w-lg px-4 py-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-bold text-emerald-200">{t('ፋስት እቁብ', 'Fast Equb')}</h1>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+            live ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/40'
+          }`}
+        >
+          {live ? 'LIVE' : t('ዲሞ', 'DEMO')}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-white/45">
+        {t('ደረጃ በደረጃ ይጫወቱ', 'Play step by step')}
+      </p>
+
+      {/* Progress chips */}
+      <div className="mt-5 flex flex-wrap gap-2">
+        {stepLabel(1, 'ተጫዋቾች', 'Players', groupSize != null, step === 1)}
+        {stepLabel(2, 'ቁጥርዎ', 'Your number', pick != null || !!myPick, step === 2)}
+        {stepLabel(3, 'ሽልማት', 'Prize', prize != null, step === 3)}
+      </div>
+
+      {/* Summary bar when past step 1 */}
+      {groupSize != null && (
+        <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/50">
+          <span className="rounded-full bg-white/5 px-2.5 py-1">
+            {groupSize} {t('ተጫዋቾች', 'players')}
           </span>
-        </div>
-        <p className="text-sm text-white/45">
-          {t('መጠን ምረጥ · ቁጥር ምረጥ · ዕጣ አድርግ', 'Pick size · pick number · draw')}
-          {instanceId && (
-            <span className="ml-2 font-mono text-[10px] text-white/25">
-              {instanceId.slice(0, 28)}…
+          {(pick != null || myPick) && (
+            <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-emerald-300">
+              #{String(myPick ?? pick).padStart(2, '0')}
             </span>
           )}
-        </p>
+          {prize != null && (
+            <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-amber-300">
+              {prize.toLocaleString()} {t('ብር', 'ETB')}
+            </span>
+          )}
+          {step > 1 && !myPick && room?.status !== 'completed' && (
+            <button type="button" onClick={goStep1} className="underline text-white/35">
+              {t('እንደገና ጀምር', 'Start over')}
+            </button>
+          )}
+        </div>
+      )}
 
-        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs">
+      {/* STEP 1 — Players */}
+      {step === 1 && (
+        <section className="mt-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-5">
+          <div className="mb-1 flex items-center gap-2 text-base font-bold text-emerald-200">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-sm">
               1
             </span>
-            {t('በስንት መቀመጫ ተጫዋቾች', 'How many seats')}
+            {t('በክፍሉ ውስጥ ስንት ተጫዋቾች?', 'How many players in the room?')}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <p className="mb-4 text-sm text-white/45">
+            {t('መቀመጫ ብዛት ይምረጡ', 'Choose the number of seats')}
+          </p>
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
             {GROUP_SIZES.map((s) => (
               <button
                 key={s}
                 type="button"
-                onClick={() => {
-                  setGroupSize(s);
-                  setPick(null);
-                  setMsg('');
-                }}
-                className={`h-10 min-w-10 rounded-full px-3 text-sm font-semibold ${
+                onClick={() => onSelectSize(s)}
+                className={`rounded-2xl py-4 text-lg font-bold transition ${
                   groupSize === s
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-white/5 text-white/70 hover:bg-white/10'
+                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+                    : 'bg-white/5 text-white/80 hover:bg-white/10'
                 }`}
               >
                 {s}
@@ -151,18 +244,24 @@ export default function RoomsPage() {
             ))}
           </div>
         </section>
+      )}
 
-        <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs">
+      {/* STEP 2 — Your number */}
+      {step === 2 && groupSize != null && (
+        <section className="mt-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-5">
+          <div className="mb-1 flex items-center gap-2 text-base font-bold text-emerald-200">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-sm">
               2
             </span>
-            {t(
-              `የእርስዎ ቁጥር — ከ 01 እስከ ${String(groupSize).padStart(2, '0')}`,
-              `Your number — 01 to ${String(groupSize).padStart(2, '0')}`,
-            )}
+            {t('የእርስዎ ቁጥር', 'Your number')}
           </div>
-          <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10">
+          <p className="mb-4 text-sm text-white/45">
+            {t(
+              `ከ 01 እስከ ${String(groupSize).padStart(2, '0')} አንድ ቁጥር ይምረጡ`,
+              `Pick one number from 01 to ${String(groupSize).padStart(2, '0')}`,
+            )}
+          </p>
+          <div className="grid grid-cols-5 gap-2">
             {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
               const isTaken = taken.has(n) && myPick !== n;
               const isMine = myPick === n || pick === n;
@@ -171,13 +270,13 @@ export default function RoomsPage() {
                   key={n}
                   type="button"
                   disabled={isTaken || room?.status === 'completed' || !!myPick}
-                  onClick={() => setPick(n)}
-                  className={`rounded-xl py-3 text-sm font-bold tabular-nums ${
+                  onClick={() => onSelectNumber(n)}
+                  className={`rounded-xl py-3.5 text-sm font-bold tabular-nums transition ${
                     isMine
                       ? 'bg-emerald-500 text-black'
                       : isTaken
                         ? 'cursor-not-allowed bg-white/5 text-white/25'
-                        : 'bg-white/5 text-white/80 hover:bg-white/10'
+                        : 'bg-white/5 text-white/85 hover:bg-emerald-500/30'
                   }`}
                 >
                   {String(n).padStart(2, '0')}
@@ -185,8 +284,67 @@ export default function RoomsPage() {
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={() => setStep(1)}
+            className="mt-4 text-xs text-white/40 underline"
+          >
+            {t('← ተጫዋቾችን ቀይር', '← Change players')}
+          </button>
+        </section>
+      )}
+
+      {/* STEP 3 — Prize pot + play */}
+      {step === 3 && groupSize != null && (pick != null || myPick) && (
+        <section className="mt-6 rounded-2xl border border-amber-900/30 bg-gradient-to-b from-amber-950/40 to-emerald-950/20 p-5">
+          <div className="mb-1 flex items-center gap-2 text-base font-bold text-amber-200">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-sm text-black">
+              3
+            </span>
+            {t('የሽልማት ገንዘብ', 'Prize pot')}
+          </div>
+          <p className="mb-4 text-sm text-white/45">
+            {t('ሽልማት ይምረጡ ከዚያ ይጫወቱ', 'Choose the pot, then play')}
+          </p>
+
+          {!myPick && (
+            <div className="flex flex-wrap gap-2">
+              {PRIZES.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onSelectPrize(p)}
+                  className={`rounded-full px-4 py-2.5 text-sm font-semibold transition ${
+                    prize === p
+                      ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/20'
+                      : 'bg-white/5 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  {p.toLocaleString()}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {prize != null && (
+            <div className="mt-5 grid grid-cols-3 gap-2 rounded-xl bg-black/30 p-4 text-center text-sm">
+              <div>
+                <div className="text-white/40">{t('አስተዋጽኦ', 'Stake')}</div>
+                <div className="font-bold text-emerald-300">{contribution}</div>
+              </div>
+              <div>
+                <div className="text-white/40">{t('ቁጥር', 'Number')}</div>
+                <div className="font-bold">#{String(myPick ?? pick).padStart(2, '0')}</div>
+              </div>
+              <div>
+                <div className="text-white/40">{t('ሽልማት', 'Prize')}</div>
+                <div className="font-bold text-amber-300">{prize.toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+
           {room && room.members.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/50">
+            <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-white/45">
               {room.members.map((m) => (
                 <span
                   key={m.playerId}
@@ -202,52 +360,6 @@ export default function RoomsPage() {
               ))}
             </div>
           )}
-        </section>
-
-        <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs">
-              3
-            </span>
-            {t('የሽልማት ገንዘብ', 'Prize pool')}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {PRIZES.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => {
-                  setPrize(p);
-                  setPick(null);
-                  setMsg('');
-                }}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                  prize === p
-                    ? 'bg-amber-400 text-black'
-                    : 'bg-white/5 text-white/70 hover:bg-white/10'
-                }`}
-              >
-                {p.toLocaleString()} {t('ብር', 'ETB')}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-5 grid grid-cols-3 gap-3 rounded-xl bg-black/30 p-4 text-center text-sm">
-            <div>
-              <div className="text-white/40">{t('አስተዋጽኦ', 'Stake')}</div>
-              <div className="font-bold text-emerald-300">{contribution}</div>
-            </div>
-            <div>
-              <div className="text-white/40">{t('ተጫዋቾች', 'Players')}</div>
-              <div className="font-bold">
-                {room?.members.length ?? 0}/{groupSize}
-              </div>
-            </div>
-            <div>
-              <div className="text-white/40">{t('ሽልማት', 'Prize')}</div>
-              <div className="font-bold text-amber-300">{prize}</div>
-            </div>
-          </div>
 
           {msg && (
             <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
@@ -262,29 +374,20 @@ export default function RoomsPage() {
               {room.winnerId === user.playerId && (
                 <span className="ml-2 text-emerald-400">{t('እርስዎ!', 'You!')}</span>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  resetRoom(templateId);
-                  setPick(null);
-                  setMsg('');
-                }}
-                className="ml-3 text-xs text-white/50 underline"
-              >
-                {t('አዲስ ዙር', 'New round')}
-              </button>
             </div>
           )}
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-5 flex flex-col gap-2">
             {!myPick && room?.status !== 'completed' && (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || prize == null}
                 onClick={onJoin}
-                className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-bold disabled:opacity-50"
+                className="w-full rounded-2xl bg-emerald-500 py-4 text-base font-bold text-black disabled:opacity-40"
               >
-                {t('ተቀላቀል', 'Join')} · {contribution} {t('ብር', 'ETB')}
+                {prize == null
+                  ? t('መጀመሪያ ሽልማት ይምረጡ', 'Pick a prize first')
+                  : `${t('ጫወት', 'Play')} · ${contribution} ${t('ብር', 'ETB')}`}
               </button>
             )}
             {myPick && room?.status !== 'completed' && (
@@ -292,50 +395,32 @@ export default function RoomsPage() {
                 type="button"
                 disabled={busy}
                 onClick={onDraw}
-                className="flex-1 rounded-xl bg-amber-400 py-3 text-sm font-bold text-black disabled:opacity-50"
+                className="w-full rounded-2xl bg-amber-400 py-4 text-base font-bold text-black disabled:opacity-50"
               >
                 {t('ቦቶች ሙላ + ዕጣ', 'Fill bots + draw')}
               </button>
             )}
+            {room?.status === 'completed' && (
+              <button
+                type="button"
+                onClick={onNewRound}
+                className="w-full rounded-2xl border border-white/20 py-3 text-sm font-semibold"
+              >
+                {t('አዲስ ዙር', 'New round')}
+              </button>
+            )}
+            {!myPick && (
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="text-xs text-white/40 underline"
+              >
+                {t('← ቁጥር ቀይር', '← Change number')}
+              </button>
+            )}
           </div>
         </section>
-      </div>
-
-      <aside className="space-y-2">
-        <h2 className="text-sm font-semibold text-white/50">{t('ክፍት ክፍሎች', 'Open rooms')}</h2>
-        {PRIZES.slice(0, 8).map((p) => {
-          const id = roomIdOf(groupSize, p);
-          const r = rooms.find((x) => x.id === id);
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setPrize(p);
-                setPick(null);
-                setMsg('');
-              }}
-              className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm ${
-                prize === p
-                  ? 'border-emerald-500/50 bg-emerald-500/10'
-                  : 'border-white/10 bg-white/[0.03]'
-              }`}
-            >
-              <div>
-                <div className="font-semibold">
-                  {groupSize} {t('ተጫዋቾች', 'players')}
-                </div>
-                <div className="text-amber-300">
-                  {p.toLocaleString()} {t('ብር', 'ETB')}
-                </div>
-              </div>
-              <div className="text-xs text-white/40">
-                {r?.members.length ?? 0}/{groupSize} {t('ቀንድሮች', 'seats')}
-              </div>
-            </button>
-          );
-        })}
-      </aside>
+      )}
     </div>
   );
 }
