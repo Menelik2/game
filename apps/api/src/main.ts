@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -17,7 +17,12 @@ async function bootstrap() {
   const port = config.get<number>('PORT', 3001);
   const prefix = config.get<string>('API_PREFIX', 'api');
 
-  app.setGlobalPrefix(prefix);
+  app.setGlobalPrefix(prefix, {
+    exclude: [
+      { path: '/', method: RequestMethod.GET },
+      { path: 'health', method: RequestMethod.GET },
+    ],
+  });
 
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cookieParser());
@@ -76,7 +81,7 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Fast Equb API')
-    .setDescription('Equb multiplayer — virtual Birr demo. In-memory rooms.')
+    .setDescription('Equb multiplayer — virtual Birr demo.')
     .setVersion('1.0')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -84,9 +89,7 @@ async function bootstrap() {
 
   await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
-  logger.log(`Fast Equb API http://0.0.0.0:${port}/${prefix}`);
-  logger.log(`Health http://0.0.0.0:${port}/${prefix}/health`);
-  logger.log(`Swagger http://0.0.0.0:${port}/${prefix}/docs`);
+  logger.log(`API on :${port} — GET /  /health  /${prefix}/health`);
 }
 
 bootstrap();

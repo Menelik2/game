@@ -1,11 +1,10 @@
 /**
- * Vercel serverless entry for NestJS API.
- * Root Directory on Vercel must be: apps/api
+ * Vercel serverless entry — Root Directory = apps/api
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import express, { Express } from 'express';
 import helmet from 'helmet';
@@ -20,13 +19,30 @@ async function bootstrap(): Promise<Express> {
   if (cached) return cached;
 
   const server = express();
+  server.get('/', (_req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'fast-equb-api',
+      equb: true,
+      docs: '/api/docs',
+      health: '/api/health',
+      templates: '/api/equb/templates',
+    });
+  });
+
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
     logger: ['error', 'warn', 'log'],
   });
 
   const config = app.get(ConfigService);
   const prefix = config.get<string>('API_PREFIX', 'api');
-  app.setGlobalPrefix(prefix);
+
+  app.setGlobalPrefix(prefix, {
+    exclude: [
+      { path: '/', method: RequestMethod.GET },
+      { path: 'health', method: RequestMethod.GET },
+    ],
+  });
 
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cookieParser());
