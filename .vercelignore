@@ -1,8 +1,7 @@
-apps/api
-docker-compose.yml
-Dockerfile
 **/node_modules
 **/.next
 **/dist
 **/.env
 **/.env.*
+coverage
+*.log
