@@ -32,9 +32,7 @@ type EqubState = {
   rooms: EqubRoom[];
   history: EqubHistoryItem[];
   lang: Lang;
-  /** true when Nest /equb responds */
   live: boolean;
-  /** templateId → live Nest instance id */
   liveRoomIds: Record<string, string>;
   register: (name: string) => { ok: true } | { ok: false; error: string };
   logout: () => void;
@@ -62,14 +60,9 @@ function mergeLiveIntoLocal(
   liveRoom: EqubRoom,
   templateId: string,
 ): EqubRoom[] {
-  // Keep template row id as equb-size-prize for UI selection; overlay members from live
   return ensureRooms(local).map((r) => {
     if (r.id === templateId || r.id === liveRoom.id) {
-      return {
-        ...liveRoom,
-        // Preserve template id for picker keys when possible
-        id: templateId,
-      };
+      return { ...liveRoom, id: templateId };
     }
     return r;
   });
@@ -81,6 +74,7 @@ export const useEqubStore = create<EqubState>()(
       user: null,
       rooms: buildTemplates(9000),
       history: [],
+      /** Default UI language: Amharic */
       lang: 'am',
       live: false,
       liveRoomIds: {},
@@ -88,7 +82,7 @@ export const useEqubStore = create<EqubState>()(
       register: (name: string) => {
         const trimmed = name.trim().slice(0, 40);
         if (trimmed.length < 2) {
-          return { ok: false as const, error: 'Name must be at least 2 characters' };
+          return { ok: false as const, error: 'ስም ቢያንስ 2 ፊደል መሆን አለበት' };
         }
         const user: EqubUser = {
           playerId: newPlayerId(),
@@ -102,7 +96,12 @@ export const useEqubStore = create<EqubState>()(
 
       logout: () => set({ user: null }),
 
-      setLang: (lang) => set({ lang }),
+      setLang: (lang) => {
+        set({ lang });
+        if (typeof document !== 'undefined') {
+          document.documentElement.lang = lang === 'am' ? 'am' : 'en';
+        }
+      },
 
       refreshLive: async () => {
         if (!isApiConfigured()) {
@@ -154,17 +153,16 @@ export const useEqubStore = create<EqubState>()(
       },
 
       joinRoom: async (groupSize, prizePool, pick) => {
-        const { user, rooms, liveRoomIds, history } = get();
-        if (!user) return { ok: false, error: 'Register first' };
+        const { user, rooms, liveRoomIds } = get();
+        if (!user) return { ok: false, error: 'መጀመሪያ ይመዝገቡ' };
 
         const templateId = roomIdOf(groupSize, prizePool);
         const contribution = contributionOf(prizePool, groupSize);
 
         if (user.balance < contribution) {
-          return { ok: false, error: 'Insufficient balance' };
+          return { ok: false, error: 'በቂ ቀሪ ሂሳብ የለም' };
         }
 
-        // —— Live Nest path ——
         if (isApiConfigured()) {
           try {
             const liveRoom = await equbJoin(templateId, {
@@ -184,7 +182,6 @@ export const useEqubStore = create<EqubState>()(
             });
             return { ok: true, room: { ...liveRoom, id: templateId } };
           } catch (err) {
-            // fall through to local if network/API offline
             const msg = equbErrorMessage(err);
             if (!/unreachable|offline|Network|API not available/i.test(msg)) {
               return { ok: false, error: msg };
@@ -193,9 +190,8 @@ export const useEqubStore = create<EqubState>()(
           }
         }
 
-        // —— Local offline path ——
         let room = rooms.find((r) => r.id === templateId);
-        if (!room) return { ok: false, error: 'Room not found' };
+        if (!room) return { ok: false, error: 'ክበብ አልተገኘም' };
 
         if (room.status === 'completed') {
           room = {
@@ -210,15 +206,15 @@ export const useEqubStore = create<EqubState>()(
           };
         }
 
-        if (room.status !== 'open') return { ok: false, error: 'Room is not open' };
+        if (room.status !== 'open') return { ok: false, error: 'ክበቡ ክፍት አይደለም' };
         if (pick < 1 || pick > room.groupSize) {
-          return { ok: false, error: `Pick must be 1–${room.groupSize}` };
+          return { ok: false, error: `ቁጥር 1–${room.groupSize} መሆን አለበት` };
         }
         if (room.members.some((m) => m.pick === pick)) {
-          return { ok: false, error: `Number ${pick} is taken` };
+          return { ok: false, error: `ቁጥር ${pick} ተይዟል` };
         }
         if (room.members.some((m) => m.playerId === user.playerId)) {
-          return { ok: false, error: 'You already joined this round' };
+          return { ok: false, error: 'አስቀድመው ተቀላቅለዋል' };
         }
 
         const nextRoom: EqubRoom = {
@@ -249,14 +245,13 @@ export const useEqubStore = create<EqubState>()(
 
       fillAndDraw: async (roomIdOrTemplateId) => {
         const { user, rooms, liveRoomIds, history } = get();
-        if (!user) return { ok: false, error: 'Register first' };
+        if (!user) return { ok: false, error: 'መጀመሪያ ይመዝገቡ' };
 
         const templateId = roomIdOrTemplateId.match(/^equb-\d+-\d+/)
           ? roomIdOrTemplateId.match(/^equb-\d+-\d+/)![0]
           : roomIdOrTemplateId;
         const instanceId = liveRoomIds[templateId] || roomIdOrTemplateId;
 
-        // —— Live Nest path ——
         if (isApiConfigured() && get().live !== false) {
           try {
             let liveRoom =
@@ -265,12 +260,11 @@ export const useEqubStore = create<EqubState>()(
                 : null;
 
             if (!liveRoom) {
-              // try join path id from templates
               liveRoom = await equbGetRoom(instanceId);
             }
 
             if (!liveRoom.members.some((m) => m.playerId === user.playerId)) {
-              return { ok: false, error: 'Join the room first' };
+              return { ok: false, error: 'መጀመሪያ ክበቡን ይቀላቀሉ' };
             }
 
             const need = liveRoom.groupSize - liveRoom.members.length;
@@ -317,18 +311,17 @@ export const useEqubStore = create<EqubState>()(
           }
         }
 
-        // —— Local offline path ——
         let room = rooms.find((r) => r.id === templateId);
-        if (!room) return { ok: false, error: 'Room not found' };
-        if (room.status === 'completed') return { ok: false, error: 'Already drawn' };
+        if (!room) return { ok: false, error: 'ክበብ አልተገኘም' };
+        if (room.status === 'completed') return { ok: false, error: 'ዙሩ ተጠናቋል' };
         if (!room.members.some((m) => m.playerId === user.playerId)) {
-          return { ok: false, error: 'Join the room first' };
+          return { ok: false, error: 'መጀመሪያ ክበቡን ይቀላቀሉ' };
         }
 
         const need = room.groupSize - room.members.length;
         let members = room.members;
         if (need > 0) members = [...room.members, ...fillBots(room, need)];
-        if (members.length < 2) return { ok: false, error: 'Need at least 2 players' };
+        if (members.length < 2) return { ok: false, error: 'ቢያንስ 2 አባላት ያስፈልጋሉ' };
 
         const proof = await fairDrawAmongMembers(members);
         const completed: EqubRoom = {
@@ -396,8 +389,8 @@ export const useEqubStore = create<EqubState>()(
       },
     }),
     {
-      name: 'fast-equb-v2',
-      version: 2,
+      name: 'fast-equb-v3',
+      version: 3,
       partialize: (s) => ({
         user: s.user,
         rooms: s.rooms,
@@ -405,6 +398,14 @@ export const useEqubStore = create<EqubState>()(
         lang: s.lang,
         liveRoomIds: s.liveRoomIds,
       }),
+      migrate: (persisted: unknown) => {
+        const p = (persisted || {}) as Partial<EqubState>;
+        // Always prefer Amharic as default when migrating or missing lang
+        return {
+          ...p,
+          lang: p.lang === 'en' || p.lang === 'am' ? p.lang : 'am',
+        };
+      },
     },
   ),
 );

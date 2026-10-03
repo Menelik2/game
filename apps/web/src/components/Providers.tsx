@@ -1,22 +1,23 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
-import { AuthProvider } from '@/lib/auth-context';
+import { useEffect } from 'react';
+import { useEqubStore } from '@/lib/equb-store';
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: { staleTime: 30_000, retry: 1 },
-        },
-      }),
-  );
+  const lang = useEqubStore((s) => s.lang);
 
-  return (
-    <QueryClientProvider client={client}>
-      <AuthProvider>{children}</AuthProvider>
-    </QueryClientProvider>
-  );
+  // Keep <html lang> in sync; default is Amharic
+  useEffect(() => {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'am';
+  }, [lang]);
+
+  // First paint: if storage empty, ensure Amharic
+  useEffect(() => {
+    const state = useEqubStore.getState();
+    if (state.lang !== 'am' && state.lang !== 'en') {
+      state.setLang('am');
+    }
+  }, []);
+
+  return <>{children}</>;
 }
