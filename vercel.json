@@ -1,6 +1,4 @@
 {
-  "framework": "nextjs",
-  "installCommand": "cd apps/equb && npm install --legacy-peer-deps || npm install",
-  "buildCommand": "cd apps/equb && npm run build",
-  "outputDirectory": "apps/equb/.next"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs"
 }
