@@ -1,14 +1,25 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/equb-store';
-import { GROUP_SIZES, contributionOf } from '@/lib/equb-logic';
+import { GROUP_SIZES, contributionOf, roomIdOf } from '@/lib/equb-logic';
 
 const PRIZES = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000];
 
 export default function RoomsPage() {
-  const { user, rooms, lang, joinRoom, fillAndDraw, resetRoom } = useEqubStore();
+  const {
+    user,
+    rooms,
+    lang,
+    live,
+    liveRoomIds,
+    joinRoom,
+    fillAndDraw,
+    resetRoom,
+    refreshLive,
+    syncLiveRoom,
+  } = useEqubStore();
   const [groupSize, setGroupSize] = useState(10);
   const [prize, setPrize] = useState(500);
   const [pick, setPick] = useState<number | null>(null);
@@ -16,11 +27,22 @@ export default function RoomsPage() {
   const [busy, setBusy] = useState(false);
   const t = (am: string, en: string) => (lang === 'am' ? am : en);
 
-  const roomId = `equb-${groupSize}-${prize}`;
-  const room = useMemo(() => rooms.find((r) => r.id === roomId), [rooms, roomId]);
+  const templateId = roomIdOf(groupSize, prize);
+  const room = useMemo(() => rooms.find((r) => r.id === templateId), [rooms, templateId]);
   const contribution = contributionOf(prize, groupSize);
   const taken = new Set(room?.members.map((m) => m.pick) || []);
   const myPick = room?.members.find((m) => m.playerId === user?.playerId)?.pick;
+  const instanceId = liveRoomIds[templateId];
+
+  // Detect Nest API + poll active room
+  useEffect(() => {
+    refreshLive();
+    const id = setInterval(() => {
+      refreshLive();
+      if (instanceId || myPick) syncLiveRoom(templateId);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [templateId, instanceId, myPick, refreshLive, syncLiveRoom]);
 
   const onJoin = async () => {
     setMsg('');
@@ -36,13 +58,18 @@ export default function RoomsPage() {
     const res = await joinRoom(groupSize, prize, pick);
     setBusy(false);
     if (!res.ok) setMsg(res.error);
-    else setMsg(t('ተቀላቅለዋል!', 'Joined!'));
+    else
+      setMsg(
+        live || useEqubStore.getState().live
+          ? t('ተቀላቅለዋል · ላይቭ ሰርቨር', 'Joined · live server')
+          : t('ተቀላቅለዋል · ኦፍላይን', 'Joined · offline'),
+      );
   };
 
   const onDraw = async () => {
     setMsg('');
     setBusy(true);
-    const res = await fillAndDraw(roomId);
+    const res = await fillAndDraw(templateId);
     setBusy(false);
     if (!res.ok) setMsg(res.error);
     else {
@@ -75,9 +102,25 @@ export default function RoomsPage() {
   return (
     <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 lg:grid-cols-[1.4fr_0.9fr]">
       <div>
-        <h1 className="text-2xl font-bold text-emerald-200">{t('ፋስት እቁብ', 'Fast Equb')}</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold text-emerald-200">{t('ፋስት እቁብ', 'Fast Equb')}</h1>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+              live
+                ? 'bg-emerald-500/20 text-emerald-300'
+                : 'bg-white/10 text-white/40'
+            }`}
+          >
+            {live ? t('ላይቭ API', 'LIVE API') : t('ኦፍላይን', 'OFFLINE')}
+          </span>
+        </div>
         <p className="text-sm text-white/45">
           {t('መጠን ምረጥ · ቁጥር ምረጥ · ዕጣ አድርግ', 'Pick size · pick number · draw')}
+          {instanceId && (
+            <span className="ml-2 font-mono text-[10px] text-white/25">
+              {instanceId.slice(0, 28)}…
+            </span>
+          )}
         </p>
 
         <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
@@ -114,7 +157,10 @@ export default function RoomsPage() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs">
               2
             </span>
-            {t(`የእርስዎ ቁጥር — ከ 01 እስከ ${String(groupSize).padStart(2, '0')}`, `Your number — 01 to ${String(groupSize).padStart(2, '0')}`)}
+            {t(
+              `የእርስዎ ቁጥር — ከ 01 እስከ ${String(groupSize).padStart(2, '0')}`,
+              `Your number — 01 to ${String(groupSize).padStart(2, '0')}`,
+            )}
           </div>
           <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 md:grid-cols-10">
             {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
@@ -139,6 +185,23 @@ export default function RoomsPage() {
               );
             })}
           </div>
+          {room && room.members.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/50">
+              {room.members.map((m) => (
+                <span
+                  key={m.playerId}
+                  className={`rounded-full px-2 py-0.5 ${
+                    m.playerId === user.playerId
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  #{m.pick} {m.name}
+                  {m.isBot ? ' · bot' : ''}
+                </span>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
@@ -202,11 +265,11 @@ export default function RoomsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  resetRoom(roomId);
+                  resetRoom(templateId);
                   setPick(null);
                   setMsg('');
                 }}
-                className="ml-3 text-xs underline text-white/50"
+                className="ml-3 text-xs text-white/50 underline"
               >
                 {t('አዲስ ዙር', 'New round')}
               </button>
@@ -241,7 +304,7 @@ export default function RoomsPage() {
       <aside className="space-y-2">
         <h2 className="text-sm font-semibold text-white/50">{t('ክፍት ክፍሎች', 'Open rooms')}</h2>
         {PRIZES.slice(0, 8).map((p) => {
-          const id = `equb-${groupSize}-${p}`;
+          const id = roomIdOf(groupSize, p);
           const r = rooms.find((x) => x.id === id);
           return (
             <button
@@ -262,7 +325,9 @@ export default function RoomsPage() {
                 <div className="font-semibold">
                   {groupSize} {t('ተጫዋቾች', 'players')}
                 </div>
-                <div className="text-amber-300">{p.toLocaleString()} {t('ብር', 'ETB')}</div>
+                <div className="text-amber-300">
+                  {p.toLocaleString()} {t('ብር', 'ETB')}
+                </div>
               </div>
               <div className="text-xs text-white/40">
                 {r?.members.length ?? 0}/{groupSize} {t('ቀንድሮች', 'seats')}

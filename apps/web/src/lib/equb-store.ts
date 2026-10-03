@@ -12,7 +12,18 @@ import {
   fillBots,
   newPlayerId,
   roomIdOf,
+  contributionOf,
 } from './equb-logic';
+import {
+  equbDraw,
+  equbErrorMessage,
+  equbFillBots,
+  equbGetRoom,
+  equbJoin,
+  equbPing,
+  equbTemplates,
+} from './equb-api';
+import { isApiConfigured } from './api';
 
 type Lang = 'am' | 'en';
 
@@ -21,23 +32,47 @@ type EqubState = {
   rooms: EqubRoom[];
   history: EqubHistoryItem[];
   lang: Lang;
+  /** true when Nest /equb responds */
+  live: boolean;
+  /** templateId → live Nest instance id */
+  liveRoomIds: Record<string, string>;
   register: (name: string) => { ok: true } | { ok: false; error: string };
   logout: () => void;
   setLang: (lang: Lang) => void;
+  refreshLive: () => Promise<void>;
+  syncLiveRoom: (templateId: string) => Promise<EqubRoom | null>;
   joinRoom: (
     groupSize: number,
     prizePool: number,
     pick: number,
   ) => Promise<{ ok: true; room: EqubRoom } | { ok: false; error: string }>;
   fillAndDraw: (
-    roomId: string,
+    roomIdOrTemplateId: string,
   ) => Promise<{ ok: true; room: EqubRoom } | { ok: false; error: string }>;
-  resetRoom: (roomId: string) => void;
+  resetRoom: (roomIdOrTemplateId: string) => void;
 };
 
 function ensureRooms(rooms: EqubRoom[]): EqubRoom[] {
   if (!rooms?.length) return buildTemplates(9000);
   return rooms;
+}
+
+function mergeLiveIntoLocal(
+  local: EqubRoom[],
+  liveRoom: EqubRoom,
+  templateId: string,
+): EqubRoom[] {
+  // Keep template row id as equb-size-prize for UI selection; overlay members from live
+  return ensureRooms(local).map((r) => {
+    if (r.id === templateId || r.id === liveRoom.id) {
+      return {
+        ...liveRoom,
+        // Preserve template id for picker keys when possible
+        id: templateId,
+      };
+    }
+    return r;
+  });
 }
 
 export const useEqubStore = create<EqubState>()(
@@ -47,6 +82,8 @@ export const useEqubStore = create<EqubState>()(
       rooms: buildTemplates(9000),
       history: [],
       lang: 'am',
+      live: false,
+      liveRoomIds: {},
 
       register: (name: string) => {
         const trimmed = name.trim().slice(0, 40);
@@ -67,17 +104,99 @@ export const useEqubStore = create<EqubState>()(
 
       setLang: (lang) => set({ lang }),
 
+      refreshLive: async () => {
+        if (!isApiConfigured()) {
+          set({ live: false });
+          return;
+        }
+        const ok = await equbPing();
+        set({ live: ok });
+        if (!ok) return;
+        try {
+          const templates = await equbTemplates();
+          const { rooms, liveRoomIds } = get();
+          const nextIds = { ...liveRoomIds };
+          const nextRooms = ensureRooms(rooms).map((r) => {
+            const t = templates.find((x) => x.id === r.id);
+            if (!t) return r;
+            if (t.liveRoomId) nextIds[r.id] = t.liveRoomId;
+            return {
+              ...r,
+              status: (t.status as EqubRoom['status']) || r.status,
+              members:
+                t.seatsTaken === 0 && r.status === 'open'
+                  ? []
+                  : r.members.length
+                    ? r.members
+                    : r.members,
+            };
+          });
+          set({ rooms: nextRooms, liveRoomIds: nextIds, live: true });
+        } catch {
+          set({ live: false });
+        }
+      },
+
+      syncLiveRoom: async (templateId: string) => {
+        const { liveRoomIds, rooms } = get();
+        const instanceId = liveRoomIds[templateId];
+        if (!instanceId || !isApiConfigured()) return null;
+        try {
+          const liveRoom = await equbGetRoom(instanceId);
+          set({
+            rooms: mergeLiveIntoLocal(rooms, liveRoom, templateId),
+            live: true,
+          });
+          return liveRoom;
+        } catch {
+          return null;
+        }
+      },
+
       joinRoom: async (groupSize, prizePool, pick) => {
-        const { user, rooms } = get();
+        const { user, rooms, liveRoomIds, history } = get();
         if (!user) return { ok: false, error: 'Register first' };
 
-        const id = roomIdOf(groupSize, prizePool);
-        let room = rooms.find((r) => r.id === id);
-        if (!room) {
-          return { ok: false, error: 'Room not found' };
+        const templateId = roomIdOf(groupSize, prizePool);
+        const contribution = contributionOf(prizePool, groupSize);
+
+        if (user.balance < contribution) {
+          return { ok: false, error: 'Insufficient balance' };
         }
 
-        // Fresh open instance if previous completed
+        // —— Live Nest path ——
+        if (isApiConfigured()) {
+          try {
+            const liveRoom = await equbJoin(templateId, {
+              playerId: user.playerId,
+              name: user.name,
+              pick,
+            });
+            const nextUser: EqubUser = {
+              ...user,
+              balance: Math.round((user.balance - contribution) * 100) / 100,
+            };
+            set({
+              user: nextUser,
+              live: true,
+              liveRoomIds: { ...liveRoomIds, [templateId]: liveRoom.id },
+              rooms: mergeLiveIntoLocal(rooms, liveRoom, templateId),
+            });
+            return { ok: true, room: { ...liveRoom, id: templateId } };
+          } catch (err) {
+            // fall through to local if network/API offline
+            const msg = equbErrorMessage(err);
+            if (!/unreachable|offline|Network|API not available/i.test(msg)) {
+              return { ok: false, error: msg };
+            }
+            set({ live: false });
+          }
+        }
+
+        // —— Local offline path ——
+        let room = rooms.find((r) => r.id === templateId);
+        if (!room) return { ok: false, error: 'Room not found' };
+
         if (room.status === 'completed') {
           room = {
             ...room,
@@ -91,9 +210,7 @@ export const useEqubStore = create<EqubState>()(
           };
         }
 
-        if (room.status !== 'open') {
-          return { ok: false, error: 'Room is not open' };
-        }
+        if (room.status !== 'open') return { ok: false, error: 'Room is not open' };
         if (pick < 1 || pick > room.groupSize) {
           return { ok: false, error: `Pick must be 1–${room.groupSize}` };
         }
@@ -103,69 +220,115 @@ export const useEqubStore = create<EqubState>()(
         if (room.members.some((m) => m.playerId === user.playerId)) {
           return { ok: false, error: 'You already joined this round' };
         }
-        if (user.balance < room.contribution) {
-          return { ok: false, error: 'Insufficient balance' };
-        }
-
-        const member = {
-          playerId: user.playerId,
-          name: user.name,
-          pick,
-          joinedAt: Date.now(),
-          isBot: false,
-        };
 
         const nextRoom: EqubRoom = {
           ...room,
-          members: [...room.members, member],
+          members: [
+            ...room.members,
+            {
+              playerId: user.playerId,
+              name: user.name,
+              pick,
+              joinedAt: Date.now(),
+              isBot: false,
+            },
+          ],
           updatedAt: Date.now(),
         };
 
-        const nextUser: EqubUser = {
-          ...user,
-          balance: Math.round((user.balance - room.contribution) * 100) / 100,
-        };
-
         set({
-          user: nextUser,
-          rooms: ensureRooms(rooms).map((r) => (r.id === id ? nextRoom : r)),
+          user: {
+            ...user,
+            balance: Math.round((user.balance - contribution) * 100) / 100,
+          },
+          rooms: ensureRooms(rooms).map((r) => (r.id === templateId ? nextRoom : r)),
         });
 
         return { ok: true, room: nextRoom };
       },
 
-      fillAndDraw: async (roomId) => {
-        const { user, rooms, history } = get();
+      fillAndDraw: async (roomIdOrTemplateId) => {
+        const { user, rooms, liveRoomIds, history } = get();
         if (!user) return { ok: false, error: 'Register first' };
 
-        let room = rooms.find((r) => r.id === roomId);
+        const templateId = roomIdOrTemplateId.match(/^equb-\d+-\d+/)
+          ? roomIdOrTemplateId.match(/^equb-\d+-\d+/)![0]
+          : roomIdOrTemplateId;
+        const instanceId = liveRoomIds[templateId] || roomIdOrTemplateId;
+
+        // —— Live Nest path ——
+        if (isApiConfigured() && get().live !== false) {
+          try {
+            let liveRoom =
+              instanceId !== templateId
+                ? await equbGetRoom(instanceId).catch(() => null)
+                : null;
+
+            if (!liveRoom) {
+              // try join path id from templates
+              liveRoom = await equbGetRoom(instanceId);
+            }
+
+            if (!liveRoom.members.some((m) => m.playerId === user.playerId)) {
+              return { ok: false, error: 'Join the room first' };
+            }
+
+            const need = liveRoom.groupSize - liveRoom.members.length;
+            if (need > 0) {
+              liveRoom = await equbFillBots(liveRoom.id, need);
+            }
+
+            liveRoom = await equbDraw(liveRoom.id, user.playerId);
+
+            const won = liveRoom.winnerId === user.playerId;
+            const myMember = liveRoom.members.find((m) => m.playerId === user.playerId);
+            let nextBalance = user.balance;
+            if (won) {
+              nextBalance = Math.round((user.balance + liveRoom.prizePool) * 100) / 100;
+            }
+
+            const hist: EqubHistoryItem = {
+              id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              roomId: templateId,
+              groupSize: liveRoom.groupSize,
+              prizePool: liveRoom.prizePool,
+              contribution: liveRoom.contribution,
+              pick: myMember?.pick ?? 0,
+              winningNumber: liveRoom.winningNumber || 0,
+              won,
+              delta: won ? liveRoom.prizePool : -liveRoom.contribution,
+              at: Date.now(),
+            };
+
+            set({
+              user: { ...user, balance: nextBalance },
+              live: true,
+              rooms: mergeLiveIntoLocal(rooms, liveRoom, templateId),
+              history: [hist, ...history].slice(0, 100),
+            });
+
+            return { ok: true, room: { ...liveRoom, id: templateId } };
+          } catch (err) {
+            const msg = equbErrorMessage(err);
+            if (!/unreachable|offline|Network|API not available|not found/i.test(msg)) {
+              return { ok: false, error: msg };
+            }
+            set({ live: false });
+          }
+        }
+
+        // —— Local offline path ——
+        let room = rooms.find((r) => r.id === templateId);
         if (!room) return { ok: false, error: 'Room not found' };
         if (room.status === 'completed') return { ok: false, error: 'Already drawn' };
-
-        // Must have current user in room
         if (!room.members.some((m) => m.playerId === user.playerId)) {
           return { ok: false, error: 'Join the room first' };
         }
 
-        // Fill remaining seats with demo bots
         const need = room.groupSize - room.members.length;
         let members = room.members;
-        if (need > 0) {
-          const bots = fillBots(room, need);
-          members = [...room.members, ...bots];
-        }
-
-        if (members.length < 2) {
-          return { ok: false, error: 'Need at least 2 players' };
-        }
-
-        set({
-          rooms: rooms.map((r) =>
-            r.id === roomId
-              ? { ...r, members, status: 'drawing' as const, updatedAt: Date.now() }
-              : r,
-          ),
-        });
+        if (need > 0) members = [...room.members, ...fillBots(room, need)];
+        if (members.length < 2) return { ok: false, error: 'Need at least 2 players' };
 
         const proof = await fairDrawAmongMembers(members);
         const completed: EqubRoom = {
@@ -182,13 +345,11 @@ export const useEqubStore = create<EqubState>()(
         const myMember = members.find((m) => m.playerId === user.playerId);
         const won = proof.winnerId === user.playerId;
         let nextBalance = user.balance;
-        if (won) {
-          nextBalance = Math.round((user.balance + room.prizePool) * 100) / 100;
-        }
+        if (won) nextBalance = Math.round((user.balance + room.prizePool) * 100) / 100;
 
         const hist: EqubHistoryItem = {
           id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          roomId,
+          roomId: templateId,
           groupSize: room.groupSize,
           prizePool: room.prizePool,
           contribution: room.contribution,
@@ -201,18 +362,24 @@ export const useEqubStore = create<EqubState>()(
 
         set({
           user: { ...user, balance: nextBalance },
-          rooms: rooms.map((r) => (r.id === roomId ? completed : r)),
+          rooms: rooms.map((r) => (r.id === templateId ? completed : r)),
           history: [hist, ...history].slice(0, 100),
         });
 
         return { ok: true, room: completed };
       },
 
-      resetRoom: (roomId) => {
-        const { rooms } = get();
+      resetRoom: (roomIdOrTemplateId) => {
+        const templateId = roomIdOrTemplateId.match(/^equb-\d+-\d+/)
+          ? roomIdOrTemplateId.match(/^equb-\d+-\d+/)![0]
+          : roomIdOrTemplateId;
+        const { rooms, liveRoomIds } = get();
+        const nextIds = { ...liveRoomIds };
+        delete nextIds[templateId];
         set({
+          liveRoomIds: nextIds,
           rooms: rooms.map((r) =>
-            r.id === roomId
+            r.id === templateId
               ? {
                   ...r,
                   status: 'open' as const,
@@ -230,12 +397,13 @@ export const useEqubStore = create<EqubState>()(
     }),
     {
       name: 'fast-equb-v2',
-      version: 1,
+      version: 2,
       partialize: (s) => ({
         user: s.user,
         rooms: s.rooms,
         history: s.history,
         lang: s.lang,
+        liveRoomIds: s.liveRoomIds,
       }),
     },
   ),
