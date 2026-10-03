@@ -10,7 +10,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug'],
+    logger: ['error', 'warn', 'log'],
   });
 
   const config = app.get(ConfigService);
@@ -19,17 +19,14 @@ async function bootstrap() {
 
   app.setGlobalPrefix(prefix);
 
-  app.use(helmet({
-    contentSecurityPolicy: false,
-  }));
+  app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cookieParser());
 
   const corsOrigins = (
     config.get<string>('CORS_ORIGINS') ||
     config.get<string>('APP_URL') ||
     process.env.CORS_ORIGINS ||
-    process.env.APP_URL ||
-    'http://localhost:3000'
+    'http://localhost:3000,http://localhost:3002,https://abelgame.vercel.app'
   )
     .split(',')
     .map((s) => s.trim().replace(/\/$/, ''))
@@ -47,8 +44,7 @@ async function bootstrap() {
         /^http:\/\/localhost(:\d+)?$/i.test(normalized) ||
         /^http:\/\/127\.0\.0\.1(:\d+)?$/i.test(normalized);
       if (allowed) return callback(null, true);
-      const logger = new Logger('CORS');
-      logger.warn(`Blocked origin: ${origin}`);
+      Logger.warn(`CORS blocked: ${origin}`, 'CORS');
       return callback(null, false);
     },
     credentials: true,
@@ -80,20 +76,17 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Fast Equb API')
-    .setDescription('Equb multiplayer API. DEMO MODE by default — virtual Birr only.')
+    .setDescription('Equb multiplayer — virtual Birr demo. In-memory rooms.')
     .setVersion('1.0')
-    .addBearerAuth()
-    .addCookieAuth('access_token')
     .build();
-
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(`${prefix}/docs`, app, document);
 
   await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
-  logger.log(`API running on http://localhost:${port}/${prefix}`);
-  logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`);
-  logger.log(`DEMO_MODE=${config.get('DEMO_MODE')}`);
+  logger.log(`Fast Equb API http://0.0.0.0:${port}/${prefix}`);
+  logger.log(`Health http://0.0.0.0:${port}/${prefix}/health`);
+  logger.log(`Swagger http://0.0.0.0:${port}/${prefix}/docs`);
 }
 
 bootstrap();

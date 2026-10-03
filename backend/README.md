@@ -1,35 +1,43 @@
-# Backend (NestJS API)
+# Backend — Fast Equb API
 
-Source code lives in **`apps/api`**.
+Source: **`apps/api`**
 
-## Vercel — Project B (Backend)
+## What it does
 
-| Setting | Value |
-|---------|--------|
-| **Root Directory** | `apps/api` |
-| Framework | Other |
-| Install | `npm install` |
+- In-memory multiplayer Equb rooms (no Postgres required)
+- Crypto draw every 60s when 2+ players
+- CORS allows `*.vercel.app`
+- Health: `GET /api/health`
+- Equb: `GET/POST /api/equb/...`
 
-Serverless entry: `apps/api/api/index.ts` + `apps/api/vercel.json`
+## Deploy on Render (recommended)
 
-### Environment variables
+1. New Web Service → connect `Menelik2/game`
+2. Root: repo root (or use `render.yaml`)
+3. Build: `npm install && npm run build --workspace=@apex/api`
+4. Start: `npm run start:prod --workspace=@apex/api`
+5. Env:
 
 ```
 DEMO_MODE=true
-CORS_ORIGINS=https://YOUR-FRONTEND.vercel.app,https://abelgame.vercel.app
-APP_URL=https://YOUR-FRONTEND.vercel.app
-DATABASE_URL=postgresql://USER:PASS@HOST/DB
-DATABASE_SSL=true
-JWT_SECRET=long-random-secret
-JWT_REFRESH_SECRET=another-long-random-secret
+CORS_ORIGINS=https://abelgame.vercel.app
+APP_URL=https://abelgame.vercel.app
+PORT=10000
 ```
 
-### Local
+Copy the public URL → set frontend `NEXT_PUBLIC_API_URL` to that URL.
+
+## Deploy on Vercel
+
+Root Directory: `apps/api` · Framework: Other
+
+Env same as above. Serverless cold starts reset in-memory rooms.
+
+## Local
 
 ```bash
 cd apps/api && npm install && npm run start:dev
 ```
 
-API: http://localhost:3001/api
-
-> Note: Full Nest + Postgres + WebSockets is more reliable on **Render** or **Railway**. Vercel serverless works for HTTP Equb routes if DB is configured.
+http://localhost:3001/api/health  
+http://localhost:3001/api/equb/templates
