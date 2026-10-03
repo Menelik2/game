@@ -1,16 +1,16 @@
-# Equb environment variables
+# Frontend env (Vercel)
 
-## Demo only
-Leave Supabase/API empty — local Zustand + bots.
-
-## Nest API
 ```
-NEXT_PUBLIC_API_URL=https://your-api.onrender.com
+NEXT_PUBLIC_DEMO_MODE=true
+NEXT_PUBLIC_API_URL=https://YOUR-BACKEND.vercel.app
 ```
 
-## Supabase full database
+`NEXT_PUBLIC_API_URL` must be the **backend** deployment URL with **no** trailing slash and **no** `/api` suffix.
+
+Example:
+
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+NEXT_PUBLIC_API_URL=https://game-api-xxx.vercel.app
 ```
-Run: `supabase/migrations/20261002_equb_full.sql`
+
+Frontend will call: `https://game-api-xxx.vercel.app/api/equb/...`
