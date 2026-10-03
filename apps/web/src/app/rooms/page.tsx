@@ -40,6 +40,19 @@ export default function RoomsPage() {
   const myPick = room?.members.find((m) => m.playerId === user?.playerId)?.pick;
   const instanceId = liveRoomIds[templateId];
 
+  /** Rooms that already have players (open or in progress) */
+  const openRooms = useMemo(() => {
+    return rooms
+      .filter(
+        (r) =>
+          r.members.length > 0 &&
+          r.status !== 'completed' &&
+          r.members.length < r.groupSize,
+      )
+      .sort((a, b) => b.members.length - a.members.length)
+      .slice(0, 12);
+  }, [rooms]);
+
   useEffect(() => {
     refreshLive();
     const id = setInterval(() => {
@@ -49,7 +62,6 @@ export default function RoomsPage() {
     return () => clearInterval(id);
   }, [templateId, instanceId, myPick, refreshLive, syncLiveRoom]);
 
-  // If already joined this room, jump to play actions
   useEffect(() => {
     if (myPick && step < 3) {
       setPick(myPick);
@@ -82,6 +94,15 @@ export default function RoomsPage() {
   const onSelectPrize = (p: number) => {
     setPrize(p);
     setMsg('');
+  };
+
+  /** Jump into an open room → step 2 (pick number) with size + prize set */
+  const joinOpenRoom = (r: (typeof rooms)[0]) => {
+    setGroupSize(r.groupSize);
+    setPrize(r.prizePool);
+    setPick(null);
+    setMsg('');
+    setStep(2);
   };
 
   const onJoin = async () => {
@@ -184,14 +205,12 @@ export default function RoomsPage() {
         {t('ደረጃ በደረጃ ይጫወቱ', 'Play step by step')}
       </p>
 
-      {/* Progress chips */}
       <div className="mt-5 flex flex-wrap gap-2">
         {stepLabel(1, 'ተጫዋቾች', 'Players', groupSize != null, step === 1)}
         {stepLabel(2, 'ቁጥርዎ', 'Your number', pick != null || !!myPick, step === 2)}
         {stepLabel(3, 'ሽልማት', 'Prize', prize != null, step === 3)}
       </div>
 
-      {/* Summary bar when past step 1 */}
       {groupSize != null && (
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/50">
           <span className="rounded-full bg-white/5 px-2.5 py-1">
@@ -215,38 +234,119 @@ export default function RoomsPage() {
         </div>
       )}
 
-      {/* STEP 1 — Players */}
+      {/* ——— STEP 1: Players ——— */}
       {step === 1 && (
-        <section className="mt-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-5">
-          <div className="mb-1 flex items-center gap-2 text-base font-bold text-emerald-200">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-sm">
-              1
-            </span>
-            {t('በክፍሉ ውስጥ ስንት ተጫዋቾች?', 'How many players in the room?')}
-          </div>
-          <p className="mb-4 text-sm text-white/45">
-            {t('መቀመጫ ብዛት ይምረጡ', 'Choose the number of seats')}
-          </p>
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-            {GROUP_SIZES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onSelectSize(s)}
-                className={`rounded-2xl py-4 text-lg font-bold transition ${
-                  groupSize === s
-                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
-                    : 'bg-white/5 text-white/80 hover:bg-white/10'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </section>
+        <>
+          <section className="mt-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-5">
+            <div className="mb-1 flex items-center gap-2 text-base font-bold text-emerald-200">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-sm">
+                1
+              </span>
+              {t('በክፍሉ ውስጥ ስንት ተጫዋቾች?', 'How many players in the room?')}
+            </div>
+            <p className="mb-4 text-sm text-white/45">
+              {t('መቀመጫ ብዛት ይምረጡ', 'Choose the number of seats')}
+            </p>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+              {GROUP_SIZES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => onSelectSize(s)}
+                  className={`rounded-2xl py-4 text-lg font-bold transition ${
+                    groupSize === s
+                      ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+                      : 'bg-white/5 text-white/80 hover:bg-white/10'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Open rooms — only on step 1 so users can jump in */}
+          <section className="mt-6">
+            <h2 className="mb-3 text-sm font-semibold text-white/60">
+              {t('ክፍት ክፍሎች', 'Open rooms')}
+            </h2>
+            {openRooms.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center text-sm text-white/40">
+                {t(
+                  'አሁን ክፍት ክፍል የለም — ከላይ ተጫዋቾችን ይምረጡ እና አዲስ ይጀምሩ',
+                  'No open rooms yet — pick players above to start a new one',
+                )}
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {openRooms.map((r) => {
+                  const stake = contributionOf(r.prizePool, r.groupSize);
+                  const seatsLeft = r.groupSize - r.members.length;
+                  return (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => joinOpenRoom(r)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-emerald-800/40 bg-emerald-950/40 px-4 py-3.5 text-left transition hover:border-emerald-500/50 hover:bg-emerald-900/30"
+                      >
+                        <div>
+                          <div className="font-semibold text-emerald-100">
+                            {r.groupSize} {t('ተጫዋቾች', 'players')} ·{' '}
+                            <span className="text-amber-300">
+                              {r.prizePool.toLocaleString()} {t('ብር', 'ETB')}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 text-xs text-white/40">
+                            {t('አስተዋጽኦ', 'Stake')} {stake} · {seatsLeft}{' '}
+                            {t('መቀመጫ ቀርቷል', 'seats left')}
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white">
+                          {r.members.length}/{r.groupSize}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* Quick popular empty templates when no open rooms */}
+            {openRooms.length === 0 && (
+              <div className="mt-3">
+                <p className="mb-2 text-xs text-white/35">
+                  {t('ፈጣን ጅምር', 'Quick start')}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { size: 5, prize: 500 },
+                    { size: 10, prize: 1000 },
+                    { size: 10, prize: 500 },
+                    { size: 20, prize: 2000 },
+                  ].map((q) => (
+                    <button
+                      key={`${q.size}-${q.prize}`}
+                      type="button"
+                      onClick={() => {
+                        setGroupSize(q.size);
+                        setPrize(q.prize);
+                        setPick(null);
+                        setMsg('');
+                        setStep(2);
+                      }}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10"
+                    >
+                      {q.size}p · {q.prize}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </>
       )}
 
-      {/* STEP 2 — Your number */}
+      {/* ——— STEP 2: Your number ——— */}
       {step === 2 && groupSize != null && (
         <section className="mt-6 rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-5">
           <div className="mb-1 flex items-center gap-2 text-base font-bold text-emerald-200">
@@ -259,6 +359,11 @@ export default function RoomsPage() {
             {t(
               `ከ 01 እስከ ${String(groupSize).padStart(2, '0')} አንድ ቁጥር ይምረጡ`,
               `Pick one number from 01 to ${String(groupSize).padStart(2, '0')}`,
+            )}
+            {prize != null && (
+              <span className="ml-1 text-amber-300/80">
+                · {prize.toLocaleString()} {t('ብር', 'ETB')}
+              </span>
             )}
           </p>
           <div className="grid grid-cols-5 gap-2">
@@ -284,17 +389,33 @@ export default function RoomsPage() {
               );
             })}
           </div>
+          {room && room.members.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-white/45">
+              {room.members.map((m) => (
+                <span
+                  key={m.playerId}
+                  className={`rounded-full px-2 py-0.5 ${
+                    m.playerId === user.playerId
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  #{m.pick} {m.name}
+                </span>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setStep(1)}
             className="mt-4 text-xs text-white/40 underline"
           >
-            {t('← ተጫዋቾችን ቀይር', '← Change players')}
+            {t('← ተጫዋቾች / ክፍት ክፍሎች', '← Players / open rooms')}
           </button>
         </section>
       )}
 
-      {/* STEP 3 — Prize pot + play */}
+      {/* ——— STEP 3: Prize + Play ——— */}
       {step === 3 && groupSize != null && (pick != null || myPick) && (
         <section className="mt-6 rounded-2xl border border-amber-900/30 bg-gradient-to-b from-amber-950/40 to-emerald-950/20 p-5">
           <div className="mb-1 flex items-center gap-2 text-base font-bold text-amber-200">
