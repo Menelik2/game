@@ -49,8 +49,9 @@ export default function RoomsPage() {
   const templateId = roomId(groupSize, prize);
 
   useEffect(() => {
+    if (!user) loginDemo();
     ensureRooms();
-  }, [ensureRooms]);
+  }, [ensureRooms, user, loginDemo]);
 
   useEffect(() => {
     setPick(null);
@@ -66,20 +67,26 @@ export default function RoomsPage() {
     setErr('');
     try {
       if (multiplayer) {
-        if (user?.name) setPlayerName(user.name);
-        await openRoom(templateId);
-        await mpJoin(templateId, pick);
-        router.push(`/rooms/${templateId}?pick=${pick}`);
-      } else {
-        ensureRooms();
-        const res = joinLocal(templateId, pick);
-        if (!res.ok) {
-          setErr(res.message);
-          setBusy(false);
+        const name = user?.name || 'Player';
+        setPlayerName(name);
+        try {
+          await openRoom(templateId);
+          await mpJoin(templateId, pick);
+          router.push(`/rooms/${templateId}?pick=${pick}`);
           return;
+        } catch (apiErr: any) {
+          // Fall back to local demo if API fails
+          console.warn('API join failed, using local demo', apiErr);
         }
-        router.push(`/rooms/${templateId}`);
       }
+      ensureRooms();
+      const res = joinLocal(templateId, pick);
+      if (!res.ok) {
+        setErr(res.message);
+        setBusy(false);
+        return;
+      }
+      router.push(`/rooms/${templateId}`);
     } catch (e: any) {
       setErr(e?.message || t.common.error);
     } finally {
