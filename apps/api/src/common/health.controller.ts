@@ -7,6 +7,7 @@ import { ApiTags } from '@nestjs/swagger';
 export class HealthController {
   constructor(private readonly config: ConfigService) {}
 
+  /** Primary health: GET /api/health */
   @Get('health')
   check() {
     return {
@@ -20,6 +21,7 @@ export class HealthController {
     };
   }
 
+  /** GET /api */
   @Get()
   root() {
     return this.check();

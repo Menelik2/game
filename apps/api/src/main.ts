@@ -17,11 +17,9 @@ async function bootstrap() {
   const port = config.get<number>('PORT', 3001);
   const prefix = config.get<string>('API_PREFIX', 'api');
 
+  // Only exclude bare "/". Health stays at /api/health
   app.setGlobalPrefix(prefix, {
-    exclude: [
-      { path: '/', method: RequestMethod.GET },
-      { path: 'health', method: RequestMethod.GET },
-    ],
+    exclude: [{ path: '/', method: RequestMethod.GET }],
   });
 
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -88,8 +86,7 @@ async function bootstrap() {
   SwaggerModule.setup(`${prefix}/docs`, app, document);
 
   await app.listen(port, '0.0.0.0');
-  const logger = new Logger('Bootstrap');
-  logger.log(`API on :${port} — GET /  /health  /${prefix}/health`);
+  Logger.log(`Health: http://0.0.0.0:${port}/${prefix}/health`, 'Bootstrap');
 }
 
 bootstrap();

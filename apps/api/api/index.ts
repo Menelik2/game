@@ -15,19 +15,37 @@ import { TransformInterceptor } from '../src/common/interceptors/transform.inter
 
 let cached: Express | null = null;
 
+function healthPayload() {
+  return {
+    status: 'ok',
+    service: 'fast-equb-api',
+    timestamp: new Date().toISOString(),
+    demoMode: process.env.DEMO_MODE !== 'false',
+    realMoneyEnabled: process.env.REAL_MONEY_ENABLED === 'true',
+    database: Boolean(process.env.DATABASE_URL?.trim()),
+    equb: true,
+  };
+}
+
 async function bootstrap(): Promise<Express> {
   if (cached) return cached;
 
   const server = express();
+
+  // Always-on paths (even before Nest finishes cold start)
   server.get('/', (_req, res) => {
     res.json({
-      status: 'ok',
-      service: 'fast-equb-api',
-      equb: true,
+      ...healthPayload(),
       docs: '/api/docs',
       health: '/api/health',
       templates: '/api/equb/templates',
     });
+  });
+  server.get('/health', (_req, res) => {
+    res.json({ success: true, data: healthPayload() });
+  });
+  server.get('/api/health', (_req, res) => {
+    res.json({ success: true, data: healthPayload() });
   });
 
   const app = await NestFactory.create(AppModule, new ExpressAdapter(server), {
@@ -38,10 +56,7 @@ async function bootstrap(): Promise<Express> {
   const prefix = config.get<string>('API_PREFIX', 'api');
 
   app.setGlobalPrefix(prefix, {
-    exclude: [
-      { path: '/', method: RequestMethod.GET },
-      { path: 'health', method: RequestMethod.GET },
-    ],
+    exclude: [{ path: '/', method: RequestMethod.GET }],
   });
 
   app.use(helmet({ contentSecurityPolicy: false }));
