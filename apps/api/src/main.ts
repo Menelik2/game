@@ -19,11 +19,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix(prefix);
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: false,
-    }),
-  );
+  app.use(helmet({
+    contentSecurityPolicy: false,
+  }));
   app.use(cookieParser());
 
   const corsOrigins = (
@@ -49,7 +47,8 @@ async function bootstrap() {
         /^http:\/\/localhost(:\d+)?$/i.test(normalized) ||
         /^http:\/\/127\.0\.0\.1(:\d+)?$/i.test(normalized);
       if (allowed) return callback(null, true);
-      new Logger('CORS').warn(`Blocked origin: ${origin}`);
+      const logger = new Logger('CORS');
+      logger.warn(`Blocked origin: ${origin}`);
       return callback(null, false);
     },
     credentials: true,
@@ -80,10 +79,8 @@ async function bootstrap() {
   app.useGlobalInterceptors(new TransformInterceptor());
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Apex Casino API')
-    .setDescription(
-      'Production-grade casino platform API. DEMO MODE by default – virtual credits only.',
-    )
+    .setTitle('Fast Equb API')
+    .setDescription('Equb multiplayer API. DEMO MODE by default — virtual Birr only.')
     .setVersion('1.0')
     .addBearerAuth()
     .addCookieAuth('access_token')
@@ -94,9 +91,9 @@ async function bootstrap() {
 
   await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
-  logger.log(`Apex API running on http://0.0.0.0:${port}/${prefix}`);
-  logger.log(`CORS origins: ${corsOrigins.join(', ')} (+ *.vercel.app)`);
-  logger.log(`DEMO_MODE=${config.get('DEMO_MODE')} REAL_MONEY_ENABLED=${config.get('REAL_MONEY_ENABLED')}`);
+  logger.log(`API running on http://localhost:${port}/${prefix}`);
+  logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`);
+  logger.log(`DEMO_MODE=${config.get('DEMO_MODE')}`);
 }
 
 bootstrap();
