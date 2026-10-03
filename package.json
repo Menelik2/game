@@ -8,10 +8,16 @@
   "scripts": {
     "dev:api": "npm run start:dev --workspace=@apex/api",
     "dev:web": "npm run dev --workspace=@apex/web",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace=@apex/web",
+    "build:all": "npm run build --workspaces --if-present",
     "test": "npm test --workspace=@apex/api --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "seed": "npm run seed --workspace=@apex/api"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "engines": {
     "node": ">=20"
