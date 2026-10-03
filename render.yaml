@@ -1,4 +1,5 @@
-# Render.com Blueprint – Menelik2/game
+# Full backend deploy: Nest API + Postgres (Equb, auth, wallet, games)
+# Dashboard: https://dashboard.render.com → New → Blueprint → Menelik2/game
 services:
   - type: web
     name: apex-api
@@ -6,8 +7,8 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build --workspace=@apex/shared --if-present && npm run build --workspace=@apex/api
-    startCommand: npm run migration:run --workspace=@apex/api; npm run start:prod --workspace=@apex/api
+    buildCommand: npm install && npm run build --workspace=@apex/api
+    startCommand: npm run start:prod --workspace=@apex/api
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -20,10 +21,14 @@ services:
         value: api
       - key: PORT
         value: "10000"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: SYNC_DB
+        value: "true"
       - key: APP_URL
         value: https://abelgame.vercel.app
       - key: CORS_ORIGINS
-        value: https://abelgame.vercel.app,http://localhost:3000
+        value: https://abelgame.vercel.app,https://*.vercel.app,http://localhost:3000
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

@@ -27,24 +27,33 @@ import configuration from './config/configuration';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        url: config.get<string>('DATABASE_URL'),
-        autoLoadEntities: true,
-        synchronize: false,
-        logging: config.get('NODE_ENV') === 'development',
-        ssl: config.get('DATABASE_SSL') === true ? { rejectUnauthorized: false } : false,
-      }),
+      useFactory: (config: ConfigService) => {
+        const sync =
+          config.get<string>('SYNC_DB') === 'true' ||
+          process.env.SYNC_DB === 'true';
+        const sslOn =
+          config.get('DATABASE_SSL') === true ||
+          process.env.DATABASE_SSL === 'true';
+        return {
+          type: 'postgres' as const,
+          url: config.get<string>('DATABASE_URL'),
+          autoLoadEntities: true,
+          // Demo / first Render deploy: set SYNC_DB=true to create tables without migrations
+          synchronize: sync,
+          logging: config.get('NODE_ENV') === 'development',
+          ssl: sslOn ? { rejectUnauthorized: false } : false,
+        };
+      },
     }),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ([
+      useFactory: (config: ConfigService) => [
         {
           ttl: config.get<number>('RATE_LIMIT_TTL', 60) * 1000,
           limit: config.get<number>('RATE_LIMIT_LIMIT', 100),
         },
-      ]),
+      ],
     }),
     AuthModule,
     UsersModule,

@@ -1,151 +1,118 @@
-# Deploy Apex Casino + Equb (Ekub)
+# Deploy everything (UI + API + Equb)
 
-## Important: where each part runs
+Nest API **cannot** run on Vercel (serverless). Full stack uses **two hosts**:
 
-| Part | Can run on Vercel? | Host on |
-|------|--------------------|---------|
-| **Frontend** (`apps/web` Next.js) | Yes | **Vercel** |
-| **API + Equb** (`apps/api` NestJS) | **No** | **Render / Railway / Docker VPS** |
+```
+Browser  →  Vercel (Next.js Games + Fast Equb UI)
+               │
+               │  NEXT_PUBLIC_API_URL=https://apex-api-xxxx.onrender.com
+               ▼
+         Render (Nest API + Equb + Postgres)
+```
 
-**Why Equb cannot run on Vercel**
-
-- Equb uses **Socket.IO** (`/equb` WebSocket namespace)
-- Equb uses an **in-memory room store** + `setInterval` scheduler (live rounds)
-- NestJS is a **long-running** Node server, not a serverless function
-
-Vercel is for the **UI only**. The backend (login, wallet, games, **Equb**) must be a separate always-on service.
+| Component | Host | Config |
+|-----------|------|--------|
+| UI / Games / Equb pages | **Vercel** | `apps/web` or repo root + `vercel.json` |
+| API, Equb server, auth, wallet | **Render** | `render.yaml` |
+| Database | **Render Postgres** | created by blueprint |
 
 ---
 
-## Architecture
+## 1) Deploy API + database (Render)
 
+1. Go to https://dashboard.render.com → **New** → **Blueprint**
+2. Connect GitHub **Menelik2/game**, branch **main**
+3. Confirm services: **apex-api** + **apex-postgres**
+4. Apply (first deploy can take 5–10 minutes on free tier)
+5. Open the service URL, e.g. `https://apex-api-xxxx.onrender.com`
+6. Check health:
+
+```text
+https://YOUR-API.onrender.com/api/health
+https://YOUR-API.onrender.com/api/equb/templates
+https://YOUR-API.onrender.com/api/equb/ping
 ```
-Browser  →  Vercel (Next.js UI)
-                │
-                │  NEXT_PUBLIC_API_URL=https://your-api.onrender.com
-                ▼
-         Render / Railway (NestJS API + Equb + Postgres)
-```
 
-Equb HTTP routes (under API prefix `api`):
-
-- `GET  /api/equb/templates`
-- `GET  /api/equb/rooms`
-- `GET  /api/equb/rooms/:id`
-- `POST /api/equb/rooms/:templateId/join`
-- `POST /api/equb/rooms/:roomId/draw`
-- `POST /api/equb/rooms/:templateId/open`
-
-Equb realtime: Socket.IO namespace **`/equb`** on the same API host.
-
----
-
-## Step 1 — Host the API (includes Equb) on Render
-
-1. Open https://dashboard.render.com → **New** → **Blueprint**
-2. Connect GitHub repo **Menelik2/game**, branch **main**
-3. Render reads `render.yaml` and creates **apex-api** + Postgres
-4. After deploy, copy the API URL, e.g.  
-   `https://apex-api-xxxx.onrender.com`
-5. In Render → **apex-api** → **Shell**, run seed once:
+7. **Seed demo users** (Render → apex-api → Shell):
 
 ```bash
 npm run seed --workspace=@apex/api
 ```
 
-6. Set env on the API service (if not already from blueprint):
+8. Env already set by `render.yaml`:
 
-| Key | Value |
+| Key | Purpose |
 |-----|--------|
-| `DEMO_MODE` | `true` |
-| `REAL_MONEY_ENABLED` | `false` |
-| `APP_URL` | your Vercel URL, e.g. `https://addisbingo.vercel.app` |
-| `CORS_ORIGINS` | same Vercel URL (comma-separated if multiple) |
-| `JWT_SECRET` | long random string |
-| `JWT_REFRESH_SECRET` | another long random string |
-| `DATABASE_URL` | (from Render Postgres) |
+| `SYNC_DB=true` | Auto-create tables (demo) |
+| `DATABASE_SSL=true` | Render Postgres |
+| `CORS_ORIGINS` | Allows `abelgame.vercel.app` + `*.vercel.app` |
+| `DEMO_MODE=true` | Virtual credits only |
 
-Health check: `GET https://YOUR-API/api/health`  
-Equb templates: `GET https://YOUR-API/api/equb/templates`
+Update `APP_URL` / `CORS_ORIGINS` if your Vercel domain is different.
 
-### Alternative: Railway or Docker VPS
-
-```bash
-git clone https://github.com/Menelik2/game.git && cd game
-cp .env.example .env   # set secrets + APP_URL / CORS_ORIGINS
-docker compose up -d postgres redis
-docker compose up -d --build api
-docker compose exec api npm run seed --workspace=@apex/api
-```
+**Free tier note:** Render spins down after idle; first request may be slow (cold start).
 
 ---
 
-## Step 2 — Host the frontend on Vercel
+## 2) Deploy UI (Vercel)
 
-1. https://vercel.com/new → Import **Menelik2/game**
-2. **Root Directory:** `apps/web`
+1. https://vercel.com/new → import **Menelik2/game**
+2. **Root Directory:** `apps/web` *(recommended)* or leave empty
 3. **Framework:** Next.js
-4. **Production Branch:** `main`
-5. Environment variables:
+4. Environment variables:
 
 | Key | Value |
 |-----|--------|
-| `NEXT_PUBLIC_API_URL` | `https://YOUR-API-HOST` (no trailing slash) |
+| `NEXT_PUBLIC_API_URL` | `https://YOUR-API.onrender.com` (no trailing slash) |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` |
 
-6. Deploy
+5. Deploy
 
-Example:
-
-```
-NEXT_PUBLIC_API_URL=https://apex-api-xxxx.onrender.com
-NEXT_PUBLIC_DEMO_MODE=true
-```
-
-Redeploy after changing env vars.
+Rooms page should show **LIVE API** when the Nest service is reachable.
 
 ---
 
-## Step 3 — Connect frontend ↔ API (checklist)
+## 3) Connect checklist
 
-1. API is up: open `https://YOUR-API/api/health` → `{ "status": "ok", ... }`
-2. Equb is up: open `https://YOUR-API/api/equb/templates` → list of rooms
-3. On **Render API**: `APP_URL` / `CORS_ORIGINS` = your exact Vercel origin  
-   (e.g. `https://addisbingo.vercel.app` — no trailing slash)
-4. On **Vercel**: `NEXT_PUBLIC_API_URL` = API origin only (no `/api` path)
-5. Browser: hard refresh; Network tab should call  
-   `https://YOUR-API/api/auth/login`, `.../api/equb/...`
-
-CORS already allows `*.vercel.app` in the Nest bootstrap, but set `CORS_ORIGINS` to your production domain explicitly.
+- [ ] `GET /api/health` → `status: ok`
+- [ ] `GET /api/equb/templates` → list of rooms
+- [ ] Vercel `NEXT_PUBLIC_API_URL` = API origin only
+- [ ] Render `CORS_ORIGINS` includes your Vercel URL
+- [ ] Hard refresh the site; Network tab shows calls to Render
 
 ---
 
-## Demo logins (after API seed)
+## Demo accounts (after seed)
 
 | Role | Email | Password |
 |------|-------|----------|
 | Player | demo@apexcasino.com | Demo123! |
 | Admin | admin@apexcasino.com | Admin123! |
 
+Fast Equb also supports **name-only register** (local + live join with `playerId`).
+
 ---
 
-## Local development
+## Alternative: Docker (all local / one VPS)
 
 ```bash
 git clone https://github.com/Menelik2/game.git && cd game
 cp .env.example .env
-docker compose up -d postgres redis
-npm install
-npm run seed --workspace=@apex/api
-npm run dev
+# set JWT secrets, APP_URL, CORS_ORIGINS
+docker compose up -d --build
+docker compose exec api npm run seed --workspace=@apex/api
 ```
 
 - Web: http://localhost:3000  
-- API: http://localhost:3001/api/docs  
-- Equb: http://localhost:3001/api/equb/templates  
+- API: http://localhost:3001/api/health  
+- Docs: http://localhost:3001/api/docs  
 
 ---
 
-## Repo
+## Why not “all on Vercel”?
 
-https://github.com/Menelik2/game
+- Nest is a **long-running** process  
+- Equb uses **Socket.IO** + **in-memory rooms** + **setInterval**  
+- Vercel serverless functions are short-lived and have no sticky WebSockets for this stack  
+
+UI → Vercel. API → Render. That is the supported production layout.
