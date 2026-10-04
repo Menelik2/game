@@ -9,6 +9,7 @@ import {
   type AdminDashboard,
 } from '@/lib/admin-api';
 import { isApiConfigured } from '@/lib/api';
+import { ADMIN_FEE_RATE } from '@/lib/equb-math';
 import {
   Users,
   Activity,
@@ -19,10 +20,13 @@ import {
   UserCog,
   RefreshCw,
   ArrowRight,
+  Percent,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   const user = useEqubStore((s) => s.user);
+  const adminEarningsTotal = useEqubStore((s) => s.adminEarningsTotal);
+  const adminFeeLog = useEqubStore((s) => s.adminFeeLog);
   const [data, setData] = useState<AdminDashboard | null>(null);
   const [local, setLocal] = useState(localAdminSnapshot());
   const [error, setError] = useState('');
@@ -71,6 +75,7 @@ export default function AdminDashboardPage() {
   }
 
   const maxSignups = Math.max(1, ...(data?.signupsByDay?.map((d) => d.count) || [1]));
+  const feePct = Math.round(ADMIN_FEE_RATE * 100);
 
   const cards = data
     ? [
@@ -141,6 +146,49 @@ export default function AdminDashboardPage() {
           Refresh
         </button>
       </div>
+
+      {/* 15% game fee */}
+      <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-amber-950/30 to-transparent p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-black">
+              <Percent className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-200/80">
+                Admin game fee · {feePct}%
+              </p>
+              <p className="mt-1 text-3xl font-black tabular-nums text-amber-100">
+                {Number(adminEarningsTotal || 0).toLocaleString()}{' '}
+                <span className="text-base font-semibold text-amber-200/60">Birr</span>
+              </p>
+              <p className="mt-1 text-[11px] text-white/40">
+                Every completed game: winner 85% · platform {feePct}% of pot
+              </p>
+            </div>
+          </div>
+          <span className="rounded-full bg-black/30 px-3 py-1 text-[11px] font-semibold text-amber-200/90">
+            {(adminFeeLog || []).length} games logged
+          </span>
+        </div>
+        {(adminFeeLog || []).length > 0 && (
+          <ul className="mt-4 max-h-40 space-y-1.5 overflow-y-auto text-xs">
+            {(adminFeeLog || []).slice(0, 12).map((e, i) => (
+              <li
+                key={`${e.at}-${i}`}
+                className="flex items-center justify-between gap-2 rounded-xl bg-black/25 px-3 py-2"
+              >
+                <span className="text-white/55">
+                  {e.winnerName} · pot {e.grossPot.toLocaleString()}
+                </span>
+                <span className="font-mono font-semibold text-amber-300">
+                  +{e.adminFee.toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {error && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
@@ -277,28 +325,6 @@ export default function AdminDashboardPage() {
                     </li>
                   ))}
                 </ul>
-              </section>
-            )}
-
-            {data?.recentTransactions && data.recentTransactions.length > 0 && (
-              <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 lg:col-span-2">
-                <h2 className="mb-4 text-sm font-bold text-white/85">Recent transactions</h2>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {data.recentTransactions.slice(0, 12).map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center justify-between rounded-xl border border-white/5 bg-black/25 px-3 py-2.5 text-xs"
-                    >
-                      <span className="text-white/55">
-                        <span className="font-semibold text-white/75">{t.type}</span>
-                        <span className="text-white/30"> · {t.status}</span>
-                      </span>
-                      <span className="font-mono font-semibold text-amber-200/95">
-                        {t.amount} {t.currency}
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </section>
             )}
 
