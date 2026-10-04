@@ -10,6 +10,7 @@ import { AdminModule } from './admin/admin.module';
 import { UsersModule } from './users/users.module';
 import { WalletModule } from './wallet/wallet.module';
 import { AuditModule } from './audit/audit.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import configuration from './config/configuration';
 
 const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
@@ -17,7 +18,7 @@ const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
 /**
  * Fast Equb API
  * - Equb rooms always available (in-memory)
- * - Auth + Admin + wallets when DATABASE_URL is set
+ * - Auth + Admin + wallets + compliance when DATABASE_URL is set
  */
 @Module({
   imports: [
@@ -35,7 +36,6 @@ const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
         },
       ],
     }),
-    // Postgres — required for auth, admin, wallets
     ...(hasDatabase
       ? [
           TypeOrmModule.forRootAsync({
@@ -61,6 +61,7 @@ const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
           UsersModule,
           WalletModule,
           AuditModule,
+          ComplianceModule,
         ]
       : []),
     EqubModule,
