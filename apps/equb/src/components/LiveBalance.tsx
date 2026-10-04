@@ -7,10 +7,8 @@ import { formatBirrCompact } from '@/lib/money';
 import clsx from 'clsx';
 
 /**
- * Real-time balance display.
- * - Subscribes to user.balance only (fast re-render)
- * - Animates on change (green credit / red debit)
- * - Polls ledger every 2s while logged in
+ * Real-time balance in header / wallet.
+ * Sources: zustand user.balance, custom equb:balance events, 1.5s ledger poll.
  */
 export function LiveBalance({
   className,
@@ -19,71 +17,98 @@ export function LiveBalance({
   className?: string;
   size?: 'sm' | 'lg';
 }) {
-  const balance = useEqubStore((s) => s.user?.balance ?? null);
+  const storeBalance = useEqubStore((s) => s.user?.balance);
+  const userId = useEqubStore((s) => s.user?.id);
   const refreshBalance = useEqubStore((s) => s.refreshBalance);
   const { locale } = useI18n();
-  const prev = useRef<number | null>(null);
+
+  const [display, setDisplay] = useState<number | null>(storeBalance ?? null);
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
-  const [display, setDisplay] = useState<number | null>(balance);
+  const prev = useRef<number | null>(storeBalance ?? null);
+
+  function apply(next: number) {
+    if (!Number.isFinite(next)) return;
+    if (prev.current != null && prev.current !== next) {
+      setFlash(next > prev.current ? 'up' : 'down');
+      window.setTimeout(() => setFlash(null), 800);
+    }
+    prev.current = next;
+    setDisplay(next);
+  }
 
   useEffect(() => {
-    if (balance == null) {
+    if (storeBalance == null) {
       setDisplay(null);
       prev.current = null;
       return;
     }
-    if (prev.current != null && prev.current !== balance) {
-      setFlash(balance > prev.current ? 'up' : 'down');
-      const t = setTimeout(() => setFlash(null), 900);
-      prev.current = balance;
-      setDisplay(balance);
-      return () => clearTimeout(t);
-    }
-    prev.current = balance;
-    setDisplay(balance);
-  }, [balance]);
+    apply(storeBalance);
+  }, [storeBalance]);
 
   useEffect(() => {
-    if (balance == null) return;
+    const onBal = (e: Event) => {
+      const d = (e as CustomEvent).detail as {
+        balance?: number;
+        userId?: string;
+      };
+      if (d?.userId && userId && d.userId !== userId) return;
+      if (typeof d?.balance === 'number') apply(d.balance);
+    };
+    window.addEventListener('equb:balance', onBal);
+    return () => window.removeEventListener('equb:balance', onBal);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
     refreshBalance();
-    const id = setInterval(() => refreshBalance(), 2000);
+    const id = window.setInterval(() => refreshBalance(), 1500);
     const onFocus = () => refreshBalance();
     const onVis = () => {
       if (document.visibilityState === 'visible') refreshBalance();
     };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVis);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'equb-accounts-v1' || e.key === 'fast-equb-v6') {
+      if (
+        e.key === 'equb-accounts-v1' ||
+        e.key === 'fast-equb-v6' ||
+        e.key?.startsWith('fast-equb')
+      ) {
         refreshBalance();
       }
     };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
     window.addEventListener('storage', onStorage);
     return () => {
-      clearInterval(id);
+      window.clearInterval(id);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('storage', onStorage);
     };
-  }, [balance == null, refreshBalance]);
+  }, [userId, refreshBalance]);
 
-  if (display == null) return null;
+  if (display == null || !userId) return null;
 
   return (
     <div
       className={clsx(
-        'rounded-full font-mono font-bold transition-all duration-300',
-        size === 'lg' ? 'px-5 py-2 text-2xl' : 'px-3 py-1.5 text-xs sm:text-sm',
-        flash === 'up' && 'scale-105 bg-emerald-500/30 text-emerald-300',
-        flash === 'down' && 'scale-105 bg-red-500/30 text-red-300',
+        'inline-flex items-center gap-0.5 rounded-full font-mono font-bold transition-all duration-300',
+        size === 'lg'
+          ? 'px-5 py-2.5 text-2xl'
+          : 'px-3 py-1.5 text-xs sm:text-sm',
+        flash === 'up' &&
+          'scale-110 bg-emerald-500/35 text-emerald-200 shadow-lg shadow-emerald-500/20',
+        flash === 'down' &&
+          'scale-110 bg-red-500/35 text-red-200 shadow-lg shadow-red-500/20',
         !flash && 'bg-equb-500/15 text-equb-400',
         className,
       )}
-      title="Balance (live)"
+      aria-live="polite"
+      aria-atomic="true"
+      title="Live balance"
     >
       {formatBirrCompact(display, locale)}
-      {flash === 'up' && <span className="ml-1 text-[10px]">▲</span>}
-      {flash === 'down' && <span className="ml-1 text-[10px]">▼</span>}
+      {flash === 'up' && <span className="text-[10px]">▲</span>}
+      {flash === 'down' && <span className="text-[10px]">▼</span>}
     </div>
   );
 }
