@@ -16,7 +16,7 @@ import { cryptographicDraw, secureRandomInt } from './crypto-rng';
 import { msg } from './i18n/messages';
 import { updateLocalBalance } from './auth-local';
 
-type User = {
+export type User = {
   id: string;
   name: string;
   phone?: string;
