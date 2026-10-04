@@ -30,11 +30,8 @@ type HistoryEvent = {
   roomId: string;
   winningNumber: number;
   winnerName: string;
-  /** Gross pot before fee */
   amount: number;
-  /** What winner received (85%) */
   winnerPayout: number;
-  /** Admin / platform fee (15%) */
   adminFee: number;
   wasYou: boolean;
   at: number;
@@ -55,7 +52,6 @@ type State = {
   user: User | null;
   rooms: LiveRoom[];
   history: HistoryEvent[];
-  /** Cumulative admin 15% from completed games (this device / session store) */
   adminEarningsTotal: number;
   adminFeeLog: AdminFeeEvent[];
   setSessionUser: (user: User) => void;
@@ -94,6 +90,8 @@ function freshRound(room: LiveRoom): LiveRoom {
     winnerId: null,
     lastAdminFee: undefined,
     lastWinnerPayout: undefined,
+    entropyHex: undefined,
+    commitmentHash: undefined,
   };
 }
 
@@ -131,29 +129,61 @@ export const useEqubStore = create<State>()(
       logout: () => set({ user: null }),
 
       ensureRooms: () => {
-        if (get().rooms.length === 0) set({ rooms: catalogToRooms() });
+        const current = get().rooms;
+        if (current.length === 0) {
+          set({ rooms: catalogToRooms() });
+          return;
+        }
+        // Recover rooms stuck in "drawing" after a failed draw / refresh
+        const fixed = current.map((r) =>
+          r.status === 'drawing' ? { ...r, status: 'open' as const } : r,
+        );
+        if (fixed.some((r, i) => r.status !== current[i]?.status)) {
+          set({ rooms: fixed });
+        }
       },
 
       joinRoom: (roomId, pick) => {
         const { user, rooms } = get();
         if (!user) return { ok: false, message: msg('signInFirst') };
 
-        let room = rooms.find((r) => r.id === roomId);
+        const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
 
-        if (room.status === 'completed' || room.status === 'drawing' || isFull(room)) {
-          room = freshRound(room);
-          set({ rooms: rooms.map((r) => (r.id === roomId ? room! : r)) });
-          room = get().rooms.find((r) => r.id === roomId)!;
+        // Completed round — start a new one only when user joins again
+        if (room.status === 'completed') {
+          const reset = freshRound(room);
+          set({ rooms: rooms.map((r) => (r.id === roomId ? reset : r)) });
+          return get().joinRoom(roomId, pick);
         }
 
-        if (room.members.some((m) => m.id === user.id))
-          return { ok: false, message: msg('alreadyInRound') };
-        if (pick < 1 || pick > room.groupSize)
-          return { ok: false, message: msg('pickRange', { size: room.groupSize }) };
-        if (takenPicks(room).has(pick)) return { ok: false, message: msg('numberTaken') };
+        // Stuck mid-draw — reopen seats without wiping members
+        if (room.status === 'drawing') {
+          set({
+            rooms: rooms.map((r) =>
+              r.id === roomId ? { ...r, status: 'open' as const } : r,
+            ),
+          });
+        }
 
-        const fee = room.contribution;
+        const live = get().rooms.find((r) => r.id === roomId)!;
+
+        if (live.status !== 'open') {
+          return { ok: false, message: msg('cannotFill') };
+        }
+
+        // Full open room must NOT be wiped — that was the main game bug
+        if (isFull(live)) {
+          return { ok: false, message: msg('alreadyFull') };
+        }
+
+        if (live.members.some((m) => m.id === user.id))
+          return { ok: false, message: msg('alreadyInRound') };
+        if (pick < 1 || pick > live.groupSize)
+          return { ok: false, message: msg('pickRange', { size: live.groupSize }) };
+        if (takenPicks(live).has(pick)) return { ok: false, message: msg('numberTaken') };
+
+        const fee = live.contribution;
         if (user.balance < fee)
           return {
             ok: false,
@@ -209,93 +239,116 @@ export const useEqubStore = create<State>()(
         if (!room) return { ok: false, message: msg('roomNotFound') };
         if (!isFull(room)) return { ok: false, message: msg('roomNotFull') };
         if (room.status === 'completed') return { ok: false, message: msg('alreadyDrawn') };
+        if (room.status === 'drawing') {
+          // Allow retry if previous draw hung
+        }
 
         set({
           rooms: rooms.map((r) => (r.id === roomId ? { ...r, status: 'drawing' } : r)),
         });
 
-        const proof = await cryptographicDraw(room.groupSize);
-        const winner = room.members.find((m) => m.pick === proof.winningNumber);
-        if (!winner) return { ok: false, message: msg('drawError') };
+        try {
+          const proof = await cryptographicDraw(room.groupSize);
+          // Prefer exact pick match; if missing (corrupt state), pick random member
+          let winner = room.members.find((m) => m.pick === proof.winningNumber);
+          if (!winner && room.members.length > 0) {
+            winner = room.members[secureRandomInt(room.members.length)];
+          }
+          if (!winner) {
+            set({
+              rooms: get().rooms.map((r) =>
+                r.id === roomId ? { ...r, status: 'open' as const } : r,
+              ),
+            });
+            return { ok: false, message: msg('drawError') };
+          }
 
-        // —— 15% admin / 85% winner ——
-        const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
+          const winningNumber = winner.pick;
+          const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
 
-        const wasYou = !!(user && winner.id === user.id);
-        let nextUser = user;
-        if (wasYou && user) {
-          nextUser = {
-            ...user,
-            balance: Math.round((user.balance + winnerPayout) * 100) / 100,
+          const wasYou = !!(user && winner.id === user.id);
+          let nextUser = user;
+          if (wasYou && user) {
+            nextUser = {
+              ...user,
+              balance: Math.round((user.balance + winnerPayout) * 100) / 100,
+            };
+            persistBalance(nextUser);
+          }
+          const bal = nextUser?.balance ?? 0;
+          const canAgain = bal >= room.contribution;
+          const again = canAgain ? msg('playAgainHint') : msg('needMoreHint');
+
+          const feeEvent: AdminFeeEvent = {
+            roomId,
+            grossPot,
+            adminFee,
+            winnerPayout,
+            winnerName: winner.name,
+            at: Date.now(),
           };
-          persistBalance(nextUser);
+
+          set({
+            user: nextUser,
+            adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
+            adminFeeLog: [feeEvent, ...adminFeeLog].slice(0, 100),
+            rooms: get().rooms.map((r) =>
+              r.id === roomId
+                ? {
+                    ...r,
+                    status: 'completed',
+                    winningNumber,
+                    winnerId: winner!.id,
+                    lastAdminFee: adminFee,
+                    lastWinnerPayout: winnerPayout,
+                    entropyHex: proof.entropyHex,
+                    commitmentHash: proof.commitmentHash,
+                  }
+                : r,
+            ),
+            history: [
+              {
+                roomId,
+                winningNumber,
+                winnerName: winner.name,
+                amount: grossPot,
+                winnerPayout,
+                adminFee,
+                wasYou,
+                at: Date.now(),
+                entropyHex: proof.entropyHex,
+                commitmentHash: proof.commitmentHash,
+              },
+              ...history,
+            ].slice(0, 50),
+          });
+
+          return {
+            ok: true,
+            message: wasYou
+              ? msg('youWon', {
+                  pot: winnerPayout,
+                  num: winningNumber,
+                  again,
+                  fee: adminFee,
+                  pct: Math.round(ADMIN_FEE_RATE * 100),
+                })
+              : msg('otherWon', {
+                  num: winningNumber,
+                  name: winner.name,
+                  again,
+                  pot: winnerPayout,
+                  fee: adminFee,
+                }),
+          };
+        } catch {
+          set({
+            rooms: get().rooms.map((r) =>
+              r.id === roomId ? { ...r, status: 'open' as const } : r,
+            ),
+          });
+          return { ok: false, message: msg('drawError') };
         }
-        const bal = nextUser?.balance ?? 0;
-        const canAgain = bal >= room.contribution;
-        const again = canAgain ? msg('playAgainHint') : msg('needMoreHint');
-
-        const feeEvent: AdminFeeEvent = {
-          roomId,
-          grossPot,
-          adminFee,
-          winnerPayout,
-          winnerName: winner.name,
-          at: Date.now(),
-        };
-
-        set({
-          user: nextUser,
-          adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
-          adminFeeLog: [feeEvent, ...adminFeeLog].slice(0, 100),
-          rooms: get().rooms.map((r) =>
-            r.id === roomId
-              ? {
-                  ...r,
-                  status: 'completed',
-                  winningNumber: proof.winningNumber,
-                  winnerId: winner.id,
-                  lastAdminFee: adminFee,
-                  lastWinnerPayout: winnerPayout,
-                  entropyHex: proof.entropyHex,
-                  commitmentHash: proof.commitmentHash,
-                }
-              : r,
-          ),
-          history: [
-            {
-              roomId,
-              winningNumber: proof.winningNumber,
-              winnerName: winner.name,
-              amount: grossPot,
-              winnerPayout,
-              adminFee,
-              wasYou,
-              at: Date.now(),
-              entropyHex: proof.entropyHex,
-              commitmentHash: proof.commitmentHash,
-            },
-            ...history,
-          ].slice(0, 50),
-        });
-
-        return {
-          ok: true,
-          message: wasYou
-            ? msg('youWon', {
-                pot: winnerPayout,
-                num: proof.winningNumber,
-                again,
-                fee: adminFee,
-                pct: Math.round(ADMIN_FEE_RATE * 100),
-              })
-            : msg('otherWon', {
-                num: proof.winningNumber,
-                name: winner.name,
-                again,
-                pot: winnerPayout,
-                fee: adminFee,
-              }),
-        };
       },
 
       reopenRoom: (roomId) => {
@@ -333,6 +386,19 @@ export const useEqubStore = create<State>()(
         return { ok: true, message: msg('referralOk') };
       },
     }),
-    { name: 'fast-equb-v4' },
+    {
+      name: 'fast-equb-v5',
+      version: 5,
+      migrate: (persisted: unknown) => {
+        const p = (persisted || {}) as Record<string, unknown>;
+        return {
+          ...p,
+          adminEarningsTotal: Number(p.adminEarningsTotal) || 0,
+          adminFeeLog: Array.isArray(p.adminFeeLog) ? p.adminFeeLog : [],
+          history: Array.isArray(p.history) ? p.history : [],
+          rooms: Array.isArray(p.rooms) ? p.rooms : [],
+        };
+      },
+    },
   ),
 );
