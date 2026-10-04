@@ -114,6 +114,20 @@ function balanceFromLedger(userId: string, fallback: number): number {
   return a ? a.balance : fallback;
 }
 
+/** Real-time UI: notify LiveBalance listeners in the same tab */
+function emitBalance(balance: number, userId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent('equb:balance', {
+        detail: { balance, userId, at: Date.now() },
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 export const useEqubStore = create<State>()(
   persist(
     (set, get) => ({
@@ -125,24 +139,26 @@ export const useEqubStore = create<State>()(
 
       setSessionUser: (user) => {
         const bal = balanceFromLedger(user.id, user.balance);
-        set({ user: { ...user, balance: bal } });
+        const next = { ...user, balance: bal };
+        set({ user: next });
+        emitBalance(bal, user.id);
       },
 
       loginDemo: (name) => {
         const n = (name || 'ተጫዋች').slice(0, 24);
-        set({
-          user: {
-            id: `u_${Date.now().toString(36)}`,
-            name: n,
-            phone: undefined,
-            email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
-            balance: 5000,
-            referralCode:
-              n.slice(0, 4).toUpperCase() +
-              Math.random().toString(36).slice(2, 6).toUpperCase(),
-            role: 'player',
-          },
-        });
+        const u = {
+          id: `u_${Date.now().toString(36)}`,
+          name: n,
+          phone: undefined as string | undefined,
+          email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
+          balance: 5000,
+          referralCode:
+            n.slice(0, 4).toUpperCase() +
+            Math.random().toString(36).slice(2, 6).toUpperCase(),
+          role: 'player' as const,
+        };
+        set({ user: u });
+        emitBalance(u.balance, u.id);
       },
 
       logout: () => set({ user: null }),
@@ -225,6 +241,7 @@ export const useEqubStore = create<State>()(
               : r,
           ),
         });
+        emitBalance(nextUser.balance, nextUser.id);
         return { ok: true, message: msg('joined', { pick }) };
       },
 
@@ -307,6 +324,7 @@ export const useEqubStore = create<State>()(
             at: Date.now(),
           };
 
+          if (nextUser) emitBalance(nextUser.balance, nextUser.id);
           set({
             user: nextUser,
             adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
@@ -403,6 +421,7 @@ export const useEqubStore = create<State>()(
           const nextUser = { ...user, balance: nextBal };
           set({ user: nextUser });
           if (debit.balance < 0) persistBalance(nextUser);
+          emitBalance(nextBal, user.id);
           return { ok: true, message: 'ok', balance: nextBal };
         }
         const credited = creditAccount(user.id, delta);
@@ -413,6 +432,7 @@ export const useEqubStore = create<State>()(
         const nextUser = { ...user, balance: nextBal };
         set({ user: nextUser });
         if (credited == null) persistBalance(nextUser);
+        emitBalance(nextBal, user.id);
         return { ok: true, message: 'ok', balance: nextBal };
       },
 
@@ -420,7 +440,10 @@ export const useEqubStore = create<State>()(
         const { user } = get();
         if (!user) return;
         const bal = balanceFromLedger(user.id, user.balance);
-        if (bal !== user.balance) set({ user: { ...user, balance: bal } });
+        if (bal !== user.balance) {
+          set({ user: { ...user, balance: bal } });
+          emitBalance(bal, user.id);
+        }
       },
 
       claimReferral: (code) => {
@@ -435,6 +458,7 @@ export const useEqubStore = create<State>()(
         };
         persistBalance(nextUser);
         set({ user: nextUser });
+        emitBalance(nextUser.balance, nextUser.id);
         return { ok: true, message: msg('referralOk') };
       },
     }),
