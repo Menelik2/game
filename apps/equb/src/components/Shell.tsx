@@ -18,6 +18,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const isPlay = path.startsWith('/rooms/');
   const isRoomsHub = path === '/rooms';
   const isAdmin = path.startsWith('/admin');
+  const isAdminUser = user?.role === 'admin';
 
   const nav = [
     { href: '/', label: t.nav.home, icon: Home },
@@ -46,7 +47,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             {path !== '/' && (
               <BackButton
-                href={path.startsWith('/rooms/') ? '/rooms' : path.startsWith('/admin') ? '/admin' : '/'}
+                href={
+                  path.startsWith('/rooms/')
+                    ? '/rooms'
+                    : path.startsWith('/admin')
+                      ? '/'
+                      : '/'
+                }
                 label={path.startsWith('/rooms/') ? t.common.backRooms : t.common.backHome}
                 className="shrink-0 !px-2 !py-1.5 text-xs lg:hidden"
               />
@@ -82,18 +89,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            <Link
-              href="/admin"
-              className={clsx(
-                'flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition',
-                isAdmin
-                  ? 'bg-amber-500/15 text-amber-200'
-                  : 'text-white/50 hover:bg-white/5 hover:text-white/80',
-              )}
-            >
-              <Shield className="h-4 w-4" />
-              Admin
-            </Link>
+            {isAdminUser && (
+              <Link
+                href="/admin"
+                className={clsx(
+                  'flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition',
+                  isAdmin
+                    ? 'bg-amber-500/15 text-amber-200'
+                    : 'text-white/50 hover:bg-white/5 hover:text-white/80',
+                )}
+              >
+                <Shield className="h-4 w-4" />
+                Admin
+              </Link>
+            )}
           </nav>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -148,16 +157,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <Link
-            href="/admin"
-            className={clsx(
-              'flex min-w-[3.5rem] flex-col items-center gap-0.5 px-2 py-1.5 text-[10px]',
-              isAdmin ? 'text-amber-300' : 'text-white/40',
-            )}
-          >
-            <Shield className="h-5 w-5" />
-            <span>Admin</span>
-          </Link>
+          {isAdminUser && (
+            <Link
+              href="/admin"
+              className={clsx(
+                'flex min-w-[3.5rem] flex-col items-center gap-0.5 px-2 py-1.5 text-[10px]',
+                isAdmin ? 'text-amber-300' : 'text-white/40',
+              )}
+            >
+              <Shield className="h-5 w-5" />
+              <span>Admin</span>
+            </Link>
+          )}
         </div>
       </nav>
     </div>
