@@ -1,6 +1,5 @@
 /**
- * Multiplayer client — same-origin /api on abelgame (no external backend required).
- * Optional NEXT_PUBLIC_API_URL; falls back to same origin if external is down.
+ * Multiplayer client — same-origin /api + optional NEXT_PUBLIC_API_URL
  */
 
 function resolveApiBase(): string {
@@ -20,6 +19,10 @@ function resolveApiBase(): string {
     return '';
   }
   return env;
+}
+
+export function getApiBase(): string {
+  return resolveApiBase();
 }
 
 export function isMultiplayerEnabled(): boolean {
@@ -42,6 +45,7 @@ export type ServerRoom = {
   drawAt?: number;
   secondsLeft?: number;
   updatedAt?: number;
+  wallet?: ServerWallet;
 };
 
 function pid() {
@@ -151,4 +155,59 @@ export function joinRoom(templateId: string, pick: number) {
     method: 'POST',
     body: JSON.stringify({ playerId, name, pick }),
   });
+}
+
+export type ServerWallet = {
+  playerId: string;
+  balance: number;
+  updatedAt: number;
+  version: number;
+};
+
+function walletBase(): string {
+  const override =
+    typeof window !== 'undefined'
+      ? (window as any).__equbApiBase
+      : undefined;
+  const base =
+    override !== undefined && override !== null
+      ? String(override)
+      : resolveApiBase();
+  return base;
+}
+
+export async function fetchServerWallet(playerId: string): Promise<ServerWallet> {
+  const res = await fetch(
+    `${walletBase()}/api/wallet/${encodeURIComponent(playerId)}`,
+  );
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.message || 'Wallet fetch failed');
+  return (json.data || json) as ServerWallet;
+}
+
+export function subscribeServerBalance(
+  playerId: string,
+  onEvent: (ev: {
+    balance: number;
+    delta?: number;
+    reason?: string;
+    version?: number;
+  }) => void,
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const url = `${walletBase()}/api/wallet/${encodeURIComponent(playerId)}/stream`;
+  const es = new EventSource(url);
+  es.onmessage = (msg) => {
+    try {
+      const data = JSON.parse(msg.data);
+      if (data?.type === 'snapshot' && data.data) {
+        onEvent({ balance: data.data.balance, version: data.data.version });
+      } else if (typeof data?.balance === 'number') {
+        onEvent(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+  return () => es.close();
 }

@@ -2,14 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useEqubStore } from '@/lib/store';
+import { getPlayerIdentity, subscribeServerBalance } from '@/lib/multiplayer';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import clsx from 'clsx';
 
-/**
- * Real-time balance in header / wallet.
- * Sources: zustand user.balance, custom equb:balance events, 1.5s ledger poll.
- */
 export function LiveBalance({
   className,
   size = 'sm',
@@ -20,6 +17,7 @@ export function LiveBalance({
   const storeBalance = useEqubStore((s) => s.user?.balance);
   const userId = useEqubStore((s) => s.user?.id);
   const refreshBalance = useEqubStore((s) => s.refreshBalance);
+  const setSessionUser = useEqubStore((s) => s.setSessionUser);
   const { locale } = useI18n();
 
   const [display, setDisplay] = useState<number | null>(storeBalance ?? null);
@@ -85,6 +83,21 @@ export function LiveBalance({
       window.removeEventListener('storage', onStorage);
     };
   }, [userId, refreshBalance]);
+
+  // Backend SSE real-time balance
+  useEffect(() => {
+    if (!userId) return;
+    const { playerId } = getPlayerIdentity();
+    const unsub = subscribeServerBalance(playerId, (ev) => {
+      if (typeof ev.balance !== 'number') return;
+      apply(ev.balance);
+      const cur = useEqubStore.getState().user;
+      if (cur && Math.abs(cur.balance - ev.balance) > 0.001) {
+        setSessionUser({ ...cur, balance: ev.balance });
+      }
+    });
+    return unsub;
+  }, [userId, setSessionUser]);
 
   if (display == null || !userId) return null;
 
