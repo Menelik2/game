@@ -20,6 +20,12 @@ import clsx from 'clsx';
 
 const QUICK_ADD = [100, 500, 1000, 5000];
 
+/** Safe admin check — does not depend on store User typing */
+function sessionIsAdmin(user: unknown): boolean {
+  if (!user || typeof user !== 'object') return false;
+  return (user as { role?: string }).role === 'admin';
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { locale } = useI18n();
@@ -38,7 +44,7 @@ export default function AdminPage() {
   }
 
   function syncSessionBalance(userId: string, balance: number) {
-    if (user?.id === userId) {
+    if (user && user.id === userId) {
       setSessionUser({ ...user, balance });
     }
   }
@@ -48,7 +54,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    if (user && user.role !== 'admin') router.replace('/');
+    if (user && !sessionIsAdmin(user)) router.replace('/');
   }, [user, router]);
 
   if (!user) {
@@ -68,7 +74,7 @@ export default function AdminPage() {
     );
   }
 
-  if (user.role !== 'admin') {
+  if (!sessionIsAdmin(user)) {
     return (
       <div className="py-12 text-center text-sm text-red-300">
         Access denied — admin only. Players cannot open this page.
@@ -166,7 +172,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* Set absolute balance */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-full text-[10px] uppercase text-white/35 sm:w-auto">
                   Set balance
@@ -204,7 +209,6 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              {/* Add to balance */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-full text-[10px] uppercase text-white/35 sm:w-auto">
                   Add Birr
