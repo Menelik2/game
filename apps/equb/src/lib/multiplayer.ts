@@ -14,6 +14,7 @@ export function isMultiplayerEnabled(): boolean {
     ) {
       return false;
     }
+    // Same host as frontend = not a separate API
     if (u.hostname === window.location.hostname) return false;
   } catch {
     return false;
@@ -34,9 +35,7 @@ export type ServerRoom = {
   winnerId: string | null;
   entropyHex?: string | null;
   commitmentHash?: string | null;
-  /** Unix ms when auto-draw fires */
   drawAt?: number;
-  /** Seconds until next draw (from API) */
   secondsLeft?: number;
   updatedAt?: number;
 };
@@ -64,28 +63,45 @@ export function setPlayerName(name: string) {
   }
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}/api${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg =
-      (Array.isArray(json?.message) ? json.message.join(', ') : json?.message) ||
-      json?.error?.message ||
-      `HTTP ${res.status}`;
-    throw new Error(msg);
+async function req<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const timeoutMs = init?.timeoutMs ?? 5000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API}/api${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg =
+        (Array.isArray(json?.message) ? json.message.join(', ') : json?.message) ||
+        json?.error?.message ||
+        `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return (json?.data !== undefined ? json.data : json) as T;
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('API timeout');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return (json?.data !== undefined ? json.data : json) as T;
 }
 
 export function openRoom(templateId: string) {
-  return req<ServerRoom>(`/equb/rooms/${templateId}/open`, { method: 'POST', body: '{}' });
+  return req<ServerRoom>(`/equb/rooms/${templateId}/open`, {
+    method: 'POST',
+    body: '{}',
+    timeoutMs: 4000,
+  });
 }
 
 export function fetchRoom(id: string) {
-  return req<ServerRoom>(`/equb/rooms/${id}`);
+  return req<ServerRoom>(`/equb/rooms/${id}`, { timeoutMs: 4000 });
 }
 
 export function joinRoom(templateId: string, pick: number) {
@@ -93,6 +109,7 @@ export function joinRoom(templateId: string, pick: number) {
   return req<ServerRoom>(`/equb/rooms/${templateId}/join`, {
     method: 'POST',
     body: JSON.stringify({ playerId, name, pick }),
+    timeoutMs: 4000,
   });
 }
 
@@ -101,5 +118,6 @@ export function drawRoom(roomId: string) {
   return req<ServerRoom>(`/equb/rooms/${roomId}/draw`, {
     method: 'POST',
     body: JSON.stringify({ playerId }),
+    timeoutMs: 8000,
   });
 }

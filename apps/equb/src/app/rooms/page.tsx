@@ -59,45 +59,95 @@ export default function RoomsPage() {
     setPick(null);
   }, [groupSize]);
 
+  function openLocalRoom(chosenPick: number): boolean {
+    // Ensure demo user exists (loginDemo is sync set in zustand)
+    let u = useEqubStore.getState().user;
+    if (!u) {
+      loginDemo();
+      u = useEqubStore.getState().user;
+    }
+    if (!u) {
+      setErr(t.common.error);
+      return false;
+    }
+    ensureRooms();
+    // Make sure catalog room exists for this template
+    const list = useEqubStore.getState().rooms;
+    if (!list.some((r) => r.id === templateId)) {
+      useEqubStore.setState({
+        rooms: [
+          ...list,
+          {
+            id: templateId,
+            groupSize,
+            prizePool: prize,
+            contribution: contributionPerMember(prize, groupSize),
+            tier: prize <= 500 ? 'entry' : prize < 10000 ? 'low' : 'mid',
+            status: 'open',
+            members: [],
+            winningNumber: null,
+            winnerId: null,
+          },
+        ],
+      });
+    }
+    const res = joinLocal(templateId, chosenPick);
+    if (!res.ok) {
+      setErr(res.message);
+      return false;
+    }
+    return true;
+  }
+
   async function handleOpenRoom() {
     if (pick == null) {
       setErr(interpolate(t.rooms.pickFirst, { size: groupSize }));
       return;
     }
-    if (!user) loginDemo();
+
     setBusy(true);
     setErr('');
+
+    // Hard safety: never stay on OPENING longer than 8s
+    const safety = setTimeout(() => setBusy(false), 8000);
+
     try {
+      // Try live API briefly; on any failure use local game
       if (multiplayer) {
-        const name = user?.name || 'Player';
+        const name =
+          useEqubStore.getState().user?.name || user?.name || 'Player';
         setPlayerName(name);
         try {
           await openRoom(templateId);
           await mpJoin(templateId, pick);
+          clearTimeout(safety);
+          setBusy(false);
           router.push(`/rooms/${templateId}?pick=${pick}`);
           return;
         } catch (apiErr: unknown) {
-          console.warn('API join failed, using local demo', apiErr);
+          console.warn('API open/join failed — local room', apiErr);
         }
       }
-      ensureRooms();
-      const res = joinLocal(templateId, pick);
-      if (!res.ok) {
-        setErr(res.message);
-        setBusy(false);
-        return;
-      }
-      router.push(`/rooms/${templateId}`);
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : t.common.error);
-    } finally {
+
+      const ok = openLocalRoom(pick);
+      clearTimeout(safety);
       setBusy(false);
+      if (ok) {
+        router.push(`/rooms/${templateId}`);
+      }
+    } catch (e: unknown) {
+      clearTimeout(safety);
+      setBusy(false);
+      // Last resort: still try local
+      if (openLocalRoom(pick)) {
+        router.push(`/rooms/${templateId}`);
+      } else {
+        setErr(e instanceof Error ? e.message : t.common.error);
+      }
     }
   }
 
   const openRooms = rooms.filter((r) => r.status === 'open').slice(0, 12);
-
-  // Preview seats for selected size + current pick (before open)
   const previewTaken = pick != null ? new Set([pick]) : new Set<number>();
 
   return (
@@ -164,7 +214,6 @@ export default function RoomsPage() {
               {interpolate(t.rooms.step2Hint, { size: String(groupSize).padStart(2, '0') })}
             </p>
 
-            {/* Seat nodes preview */}
             <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
               <SeatRing
                 total={groupSize}
@@ -311,7 +360,6 @@ export default function RoomsPage() {
                           <ChevronRight className="h-4 w-4 text-white/25" />
                         </div>
                       </div>
-                      {/* Seat nodes */}
                       <div className="mt-2.5 border-t border-white/5 pt-2.5">
                         <SeatNodes
                           total={r.groupSize}
