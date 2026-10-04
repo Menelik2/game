@@ -1,204 +1,113 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { registerLocal, loginLocal } from '@/lib/auth-local';
-
-type Mode = 'login' | 'register';
+import { AuthForm } from '@/components/AuthForm';
+import { formatBirrCompact } from '@/lib/money';
+import { User, Phone, Wallet, Gift, LogOut, ArrowRight } from 'lucide-react';
 
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
-  const setSessionUser = useEqubStore((s) => s.setSessionUser);
   const logout = useEqubStore((s) => s.logout);
   const claimReferral = useEqubStore((s) => s.claimReferral);
-  const { t } = useI18n();
-
-  const [mode, setMode] = useState<Mode>('register');
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { t, locale } = useI18n();
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      if (mode === 'register') {
-        const res = await registerLocal({ fullName, phone, password });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        setSessionUser({
-          id: res.account.id,
-          name: res.account.fullName,
-          phone: res.account.phone,
-          email: `${res.account.phone.replace('+', '')}@phone.equb`,
-          balance: res.account.balance,
-          referralCode: res.account.referralCode,
-        });
-      } else {
-        const res = await loginLocal({ phone, password });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        setSessionUser({
-          id: res.account.id,
-          name: res.account.fullName,
-          phone: res.account.phone,
-          email: `${res.account.phone.replace('+', '')}@phone.equb`,
-          balance: res.account.balance,
-          referralCode: res.account.referralCode,
-        });
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!user) {
     return (
-      <div className="space-y-5">
+      <div className="mx-auto max-w-md space-y-5">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">{t.profile.title}</h1>
+          <div>
+            <h1 className="text-2xl font-bold">{t.profile.title}</h1>
+            <p className="mt-1 text-sm text-white/45">ግባ ወይም አዲስ መለያ ይፍጠሩ</p>
+          </div>
           <LanguageSwitcher />
         </div>
 
-        <div className="flex gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('register');
-              setError('');
-            }}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold ${
-              mode === 'register' ? 'bg-equb-600 text-white' : 'text-white/50'
-            }`}
-          >
-            መመዝገብ · Register
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('login');
-              setError('');
-            }}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold ${
-              mode === 'login' ? 'bg-equb-600 text-white' : 'text-white/50'
-            }`}
-          >
-            ግባ · Login
-          </button>
+        <div className="glass rounded-3xl border border-equb-800/40 p-5 sm:p-6">
+          <AuthForm initialMode="login" redirectTo="/rooms" />
         </div>
 
-        <form onSubmit={onSubmit} className="glass space-y-4 rounded-3xl p-6">
-          <p className="text-sm text-white/50">
-            {mode === 'register'
-              ? 'ሙሉ ስም፣ ስልክ ቁጥር (የተጠቃሚ ስም) እና የይለፍ ቃል'
-              : 'ስልክ ቁጥርዎን (የተጠቃሚ ስም) እና የይለፍ ቃል ያስገቡ'}
-          </p>
-
-          {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-              {error}
-            </div>
-          )}
-
-          {mode === 'register' && (
-            <div>
-              <label className="mb-1 block text-xs text-white/50">ሙሉ ስም · Full name</label>
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                minLength={2}
-                placeholder="ለምሳሌ አበበ ከበደ"
-                className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-              />
-            </div>
-          )}
-
-          <div>
-            <label className="mb-1 block text-xs text-white/50">
-              ስልክ (የተጠቃሚ ስም) · Phone (username)
-            </label>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-              inputMode="tel"
-              placeholder="09xxxxxxxx ወይም +2519xxxxxxxx"
-              className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs text-white/50">የይለፍ ቃል · Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              placeholder="ቢያንስ 6 ቁምፊ"
-              className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded-2xl bg-gold-500 py-3.5 text-sm font-black text-black disabled:opacity-50"
-          >
-            {busy
-              ? '...'
-              : mode === 'register'
-                ? 'መመዝገብ · Create account'
-                : 'ግባ · Sign in'}
-          </button>
-        </form>
+        <p className="text-center text-[11px] text-white/30">
+          ስልክ ቁጥርዎ የተጠቃሚ ስምዎ ነው · Phone is your username
+        </p>
       </div>
     );
   }
 
+  const initial = (user.name || '?').trim().charAt(0).toUpperCase();
+
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-md space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t.profile.title}</h1>
         <LanguageSwitcher />
       </div>
 
-      <div className="glass space-y-3 rounded-3xl p-5 text-sm">
-        <p>
-          <span className="text-white/40">ሙሉ ስም · Full name</span>
-          <br />
-          <strong>{user.name}</strong>
-        </p>
-        <p>
-          <span className="text-white/40">ስልክ (ተጠቃሚ) · Phone</span>
-          <br />
-          <strong className="font-mono">{user.phone || '—'}</strong>
-        </p>
-        <p>
-          <span className="text-white/40">{t.profile.balance}</span>
-          <br />
-          <strong className="text-equb-400">
-            {user.balance.toLocaleString()} {t.common.birr}
-          </strong>
-        </p>
-        <p>
-          <span className="text-white/40">{t.profile.inviteCode}</span>
-          <br />
-          <strong className="font-mono tracking-widest">{user.referralCode}</strong>
-        </p>
+      {/* Hero card */}
+      <div className="relative overflow-hidden rounded-3xl border border-equb-700/40 bg-gradient-to-br from-equb-950/90 to-[#0a1210] p-5">
+        <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-equb-500/20 blur-2xl" />
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-equb-400 to-equb-700 text-2xl font-black text-black shadow-lg shadow-equb-500/20">
+            {initial}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-lg font-bold text-white">{user.name}</p>
+            <p className="mt-0.5 font-mono text-sm text-equb-300/90">{user.phone || '—'}</p>
+          </div>
+        </div>
+
+        <div className="relative mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-black/30 px-3 py-3">
+            <div className="flex items-center gap-1.5 text-[10px] text-white/40">
+              <Wallet className="h-3 w-3" />
+              {t.profile.balance}
+            </div>
+            <p className="mt-1 text-lg font-black text-gold-400">
+              {formatBirrCompact(user.balance, locale)}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-black/30 px-3 py-3">
+            <div className="flex items-center gap-1.5 text-[10px] text-white/40">
+              <Gift className="h-3 w-3" />
+              {t.profile.inviteCode}
+            </div>
+            <p className="mt-1 font-mono text-sm font-bold tracking-wider text-equb-300">
+              {user.referralCode}
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* Details */}
+      <div className="glass space-y-0 divide-y divide-white/5 rounded-3xl text-sm">
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <User className="h-4 w-4 shrink-0 text-equb-400" />
+          <div>
+            <p className="text-[10px] text-white/40">ሙሉ ስም</p>
+            <p className="font-semibold">{user.name}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <Phone className="h-4 w-4 shrink-0 text-equb-400" />
+          <div>
+            <p className="text-[10px] text-white/40">ስልክ (ተጠቃሚ ስም)</p>
+            <p className="font-mono font-semibold">{user.phone || '—'}</p>
+          </div>
+        </div>
+      </div>
+
+      <Link
+        href="/rooms"
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-equb-600 py-3.5 text-sm font-bold text-white"
+      >
+        ወደ ክበቦች
+        <ArrowRight className="h-4 w-4" />
+      </Link>
 
       {!user.referredBy && (
         <div className="glass rounded-3xl p-5">
@@ -229,8 +138,9 @@ export default function ProfilePage() {
       <button
         type="button"
         onClick={() => logout()}
-        className="w-full rounded-xl border border-white/10 py-3 text-sm text-white/50"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 py-3 text-sm text-white/45 hover:border-red-500/30 hover:text-red-300"
       >
+        <LogOut className="h-4 w-4" />
         {t.common.signOut}
       </button>
     </div>

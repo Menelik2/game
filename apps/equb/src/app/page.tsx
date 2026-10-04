@@ -5,12 +5,12 @@ import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { EthDateBadge } from '@/components/EthDateBadge';
+import { AuthForm } from '@/components/AuthForm';
 import { formatBirrCompact } from '@/lib/money';
 import { Sparkles, Shield, Users, Trophy } from 'lucide-react';
 
 export default function HomePage() {
   const user = useEqubStore((s) => s.user);
-  const loginDemo = useEqubStore((s) => s.loginDemo);
   const { t, locale } = useI18n();
 
   return (
@@ -49,19 +49,26 @@ export default function HomePage() {
             {t.home.intro}
           </p>
 
-          <div className="relative mt-6 max-w-sm">
+          {/* Login / Register on home when logged out */}
+          <div className="relative mt-6 max-w-md">
             {!user ? (
-              <button
-                type="button"
-                onClick={() => loginDemo()}
-                className="btn-gold w-full animate-glow lg:py-4 lg:text-base"
-              >
-                {t.common.startDemo}
-              </button>
+              <div className="rounded-3xl border border-equb-800/50 bg-black/35 p-4 sm:p-5">
+                <h2 className="mb-3 text-sm font-bold text-equb-200">ግባ ወይም መለያ ፍጠር</h2>
+                <AuthForm initialMode="login" redirectTo="/rooms" />
+              </div>
             ) : (
-              <Link href="/rooms" className="btn-gold block w-full lg:py-4 lg:text-base">
-                {t.common.playRooms}
-              </Link>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-equb-700/40 bg-equb-950/40 px-4 py-3 text-sm">
+                  <span className="text-white/45">እንኳን ደህና መጡ · </span>
+                  <strong className="text-equb-200">{user.name}</strong>
+                  {user.phone && (
+                    <span className="ml-2 font-mono text-xs text-white/40">{user.phone}</span>
+                  )}
+                </div>
+                <Link href="/rooms" className="btn-gold block w-full lg:py-4 lg:text-base">
+                  {t.common.playRooms}
+                </Link>
+              </div>
             )}
           </div>
         </section>
