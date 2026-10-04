@@ -7,11 +7,18 @@ import { fetchAdminAudit } from '@/lib/admin-api';
 import { isApiConfigured } from '@/lib/api';
 import { AlertCircle, ScrollText } from 'lucide-react';
 
+type AuditItem = {
+  id: string;
+  action: string;
+  entity?: string | null;
+  entityId?: string | null;
+  userId?: string | null;
+  createdAt: string;
+};
+
 export default function AdminAuditPage() {
   const user = useEqubStore((s) => s.user);
-  const [items, setItems] = useState<
-    Array<{ id: string; action: string; entity?: string | null; userId?: string | null; createdAt: string }>
-  >([]);
+  const [items, setItems] = useState<AuditItem[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
