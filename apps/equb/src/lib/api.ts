@@ -3,7 +3,7 @@
 export function getApiBase(): string {
   const raw =
     (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) || '';
-  return raw.replace(/\/$/, '');
+  return String(raw).trim().replace(/\/$/, '');
 }
 
 export function isApiConfigured(): boolean {
@@ -19,7 +19,7 @@ export type ApiUser = {
   country?: string | null;
 };
 
-type AuthResult = {
+export type AuthResult = {
   user: ApiUser;
   accessToken: string;
 };
@@ -40,15 +40,24 @@ function unwrapData<T>(body: unknown): T {
   return body as T;
 }
 
+/** Nest AllExceptionsFilter: { success:false, error:{ code, message } } */
 function errorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== 'object') return fallback;
   const b = body as Record<string, unknown>;
-  const msg =
-    (b.message as string) ||
-    (b.error as string) ||
-    ((b.data as { message?: string })?.message);
-  if (Array.isArray(msg)) return msg.join(', ');
-  if (typeof msg === 'string' && msg) return msg;
+
+  const nested = b.error;
+  if (nested && typeof nested === 'object') {
+    const e = nested as Record<string, unknown>;
+    if (typeof e.message === 'string' && e.message) return e.message;
+    if (Array.isArray(e.message)) return (e.message as string[]).join(', ');
+    if (typeof e.details === 'string') return e.details;
+    if (Array.isArray(e.details)) return (e.details as string[]).join(', ');
+  }
+
+  if (typeof b.message === 'string' && b.message) return b.message;
+  if (Array.isArray(b.message)) return (b.message as string[]).join(', ');
+  if (typeof b.error === 'string' && b.error) return b.error;
+
   return fallback;
 }
 
@@ -59,28 +68,37 @@ export async function apiRegister(input: {
 }): Promise<AuthResult> {
   const base = getApiBase();
   if (!base) {
-    throw new Error('API አልተገናኘም — NEXT_PUBLIC_API_URL ያዘጋጁ');
+    throw new Error('API_NOT_CONFIGURED');
   }
 
-  const res = await fetch(`${base}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      fullName: input.fullName,
-      phone: input.phone,
-      password: input.password,
-      country: 'ET',
-      acceptTerms: true,
-      acceptAge: true,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        fullName: input.fullName.trim(),
+        phone: input.phone.trim(),
+        password: input.password,
+        country: 'ET',
+        acceptTerms: true,
+        acceptAge: true,
+      }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
 
   const body = await parseJson(res);
   if (!res.ok) {
     throw new Error(errorMessage(body, 'መመዝገብ አልተሳካም'));
   }
-  return unwrapData<AuthResult>(body);
+  const data = unwrapData<AuthResult>(body);
+  if (!data?.user?.id) {
+    throw new Error('መለያ ተፈጥሯል ግን ምላሽ ትክክል አይደለም');
+  }
+  return data;
 }
 
 export async function apiLogin(input: {
@@ -89,24 +107,33 @@ export async function apiLogin(input: {
 }): Promise<AuthResult> {
   const base = getApiBase();
   if (!base) {
-    throw new Error('API አልተገናኘም — NEXT_PUBLIC_API_URL ያዘጋጁ');
+    throw new Error('API_NOT_CONFIGURED');
   }
 
-  const res = await fetch(`${base}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      phone: input.phone,
-      password: input.password,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        phone: input.phone.trim(),
+        password: input.password,
+      }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
 
   const body = await parseJson(res);
   if (!res.ok) {
     throw new Error(errorMessage(body, 'ግባት አልተሳካም'));
   }
-  return unwrapData<AuthResult>(body);
+  const data = unwrapData<AuthResult>(body);
+  if (!data?.user?.id) {
+    throw new Error('ግባት ተሳክቷል ግን ምላሽ ትክክል አይደለም');
+  }
+  return data;
 }
 
 export async function apiWalletBalance(accessToken: string): Promise<number | null> {
@@ -126,8 +153,12 @@ export async function apiWalletBalance(accessToken: string): Promise<number | nu
     const bal =
       (data?.balance as number) ??
       (data?.available as number) ??
-      ((data?.wallets as { balance?: number }[])?.[0]?.balance);
-    return typeof bal === 'number' ? bal : null;
+      (typeof data?.availableBalance === 'string'
+        ? parseFloat(data.availableBalance as string)
+        : null) ??
+      ((data?.wallets as { balance?: number; availableBalance?: string }[])?.[0]
+        ?.balance);
+    return typeof bal === 'number' && !Number.isNaN(bal) ? bal : null;
   } catch {
     return null;
   }

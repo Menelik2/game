@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -21,11 +22,13 @@ export function normalizePhone(raw: string): string | null {
   const digits = (raw || '').replace(/\D/g, '');
   if (!digits) return null;
   let n = digits;
-  if (n.startsWith('251') && n.length === 12) n = n.slice(3);
+  if (n.startsWith('251') && n.length >= 12) n = n.slice(3);
   if (n.startsWith('0') && n.length === 10) n = n.slice(1);
+  // 9xxxxxxxx
   if (n.length === 9 && n.startsWith('9')) {
     return `+251${n}`;
   }
+  // already 2519xxxxxxxx without plus handled above
   return null;
 }
 
@@ -33,7 +36,6 @@ interface RegisterDto {
   fullName: string;
   phone: string;
   password: string;
-  /** optional legacy */
   email?: string;
   dateOfBirth?: string;
   country?: string;
@@ -42,7 +44,6 @@ interface RegisterDto {
 }
 
 interface LoginDto {
-  /** phone number (preferred) or email (legacy) */
   phone?: string;
   email?: string;
   password: string;
@@ -50,6 +51,8 @@ interface LoginDto {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserProfile) private readonly profileRepo: Repository<UserProfile>,
@@ -92,7 +95,6 @@ export class AuthService {
       });
     }
 
-    // Username = phone; synthetic email for legacy unique email column
     const email =
       (dto.email || '').trim().toLowerCase() ||
       `${phone.replace('+', '')}@phone.equb.local`;
@@ -100,8 +102,8 @@ export class AuthService {
     const existingEmail = await this.userRepo.findOne({ where: { email } });
     if (existingEmail) {
       throw new ConflictException({
-        code: 'EMAIL_EXISTS',
-        message: 'An account with this phone already exists',
+        code: 'PHONE_EXISTS',
+        message: 'An account with this phone number already exists',
       });
     }
 
@@ -120,6 +122,7 @@ export class AuthService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let savedUser: User;
     try {
       const user = queryRunner.manager.create(User, {
         email,
@@ -130,7 +133,7 @@ export class AuthService {
         status: 'ACTIVE',
         emailVerifiedAt: new Date(),
       });
-      const savedUser = await queryRunner.manager.save(user);
+      savedUser = await queryRunner.manager.save(user);
 
       const profile = queryRunner.manager.create(UserProfile, {
         userId: savedUser.id,
@@ -141,9 +144,24 @@ export class AuthService {
       await queryRunner.manager.save(profile);
 
       await queryRunner.commitTransaction();
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('Register transaction failed', e instanceof Error ? e.stack : e);
+      throw e;
+    } finally {
+      await queryRunner.release();
+    }
 
+    // Wallet after commit — must not fail the whole registration
+    try {
       await this.walletService.createDemoWallet(savedUser.id);
+    } catch (e) {
+      this.logger.warn(
+        `Demo wallet failed for ${savedUser.id}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
 
+    try {
       await this.audit.log({
         userId: savedUser.id,
         action: 'USER_REGISTERED',
@@ -151,18 +169,15 @@ export class AuthService {
         entityId: savedUser.id,
         ipHash: ip ? this.hashIp(ip) : undefined,
       });
-
-      const tokens = await this.issueTokens(savedUser);
-      return {
-        user: this.sanitizeUser(savedUser, fullName),
-        ...tokens,
-      };
-    } catch (e) {
-      await queryRunner.rollbackTransaction();
-      throw e;
-    } finally {
-      await queryRunner.release();
+    } catch {
+      /* non-fatal */
     }
+
+    const tokens = await this.issueTokens(savedUser);
+    return {
+      user: this.sanitizeUser(savedUser, fullName),
+      ...tokens,
+    };
   }
 
   async login(dto: LoginDto, ip?: string) {
@@ -180,7 +195,6 @@ export class AuthService {
     let user: User | null = null;
     if (phoneNorm) {
       user = await this.userRepo.findOne({ where: { phone: phoneNorm } });
-      // also try synthetic email from phone
       if (!user) {
         user = await this.userRepo.findOne({
           where: { email: `${phoneNorm.replace('+', '')}@phone.equb.local` },
@@ -235,16 +249,23 @@ export class AuthService {
     user.lockedUntil = null;
     await this.userRepo.save(user);
 
-    await this.audit.log({
-      userId: user.id,
-      action: 'USER_LOGIN',
-      entity: 'user',
-      entityId: user.id,
-      ipHash: ip ? this.hashIp(ip) : undefined,
-    });
+    try {
+      await this.audit.log({
+        userId: user.id,
+        action: 'USER_LOGIN',
+        entity: 'user',
+        entityId: user.id,
+        ipHash: ip ? this.hashIp(ip) : undefined,
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     const profile = await this.profileRepo.findOne({ where: { userId: user.id } });
-    const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || user.phone || user.email;
+    const fullName =
+      [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') ||
+      user.phone ||
+      user.email;
 
     const tokens = await this.issueTokens(user);
     return {
@@ -264,15 +285,15 @@ export class AuthService {
 
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.config.get<string>('JWT_SECRET'),
-      expiresIn: this.config.get('JWT_ACCESS_EXPIRES', '15m'),
-    });
+      expiresIn: this.config.get('JWT_ACCESS_EXPIRES', '15m') as string & import('ms').StringValue,
+    } as Parameters<JwtService['signAsync']>[1]);
 
     const refreshToken = await this.jwtService.signAsync(
       { sub: user.id, type: 'refresh', jti: randomUUID() },
       {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.config.get('JWT_REFRESH_EXPIRES', '7d'),
-      },
+        expiresIn: this.config.get('JWT_REFRESH_EXPIRES', '7d') as string & import('ms').StringValue,
+      } as Parameters<JwtService['signAsync']>[1],
     );
 
     return { accessToken, refreshToken };
