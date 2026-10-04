@@ -13,29 +13,39 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, AdminGuard, RolesGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('dashboard')
+  @RequirePermissions('dashboard:read')
+  @ApiOperation({ summary: 'Dashboard (dashboard:read)' })
   dashboard() {
     return this.adminService.dashboard();
   }
 
   @Get('health')
+  @RequirePermissions('system:read')
   health() {
     return this.adminService.systemHealth();
   }
 
-  // ——— Users CRUD ———
+  @Get('roles')
+  @RequirePermissions('users:read')
+  @ApiOperation({ summary: 'List roles & permissions matrix' })
+  roles() {
+    return this.adminService.listRoles();
+  }
 
   @Get('users')
-  @ApiOperation({ summary: 'List users (Read)' })
+  @RequirePermissions('users:read')
   listUsers(
     @Query('page') page = 1,
     @Query('limit') limit = 20,
@@ -51,7 +61,7 @@ export class AdminController {
   }
 
   @Post('users')
-  @ApiOperation({ summary: 'Create user' })
+  @RequirePermissions('users:create')
   createUser(
     @Body()
     body: {
@@ -59,6 +69,7 @@ export class AdminController {
       phone: string;
       password: string;
       isAdmin?: boolean;
+      roles?: string[];
       status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
       initialBalance?: number;
     },
@@ -67,13 +78,13 @@ export class AdminController {
   }
 
   @Get('users/:id')
-  @ApiOperation({ summary: 'Get user' })
+  @RequirePermissions('users:read')
   getUser(@Param('id') id: string) {
     return this.adminService.getUser(id);
   }
 
   @Put('users/:id')
-  @ApiOperation({ summary: 'Update user' })
+  @RequirePermissions('users:update')
   updateUser(
     @Param('id') id: string,
     @Body()
@@ -82,6 +93,7 @@ export class AdminController {
       phone?: string;
       status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
       isAdmin?: boolean;
+      roles?: string[];
       password?: string;
       country?: string;
     },
@@ -90,12 +102,14 @@ export class AdminController {
   }
 
   @Delete('users/:id')
-  @ApiOperation({ summary: 'Delete user (soft close; ?hard=true permanent)' })
+  @RequirePermissions('users:delete')
   deleteUser(@Param('id') id: string, @Query('hard') hard?: string) {
-    return this.adminService.deleteUser(id, hard === 'true' || hard === '1');
+    const isHard = hard === 'true' || hard === '1';
+    return this.adminService.deleteUser(id, isHard);
   }
 
   @Patch('users/:id/status')
+  @RequirePermissions('users:update')
   setStatus(
     @Param('id') id: string,
     @Body() body: { status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED' },
@@ -104,11 +118,20 @@ export class AdminController {
   }
 
   @Patch('users/:id/admin')
-  setAdmin(@Param('id') id: string, @Body() body: { isAdmin: boolean }) {
-    return this.adminService.setUserAdmin(id, !!body.isAdmin);
+  @RequirePermissions('users:set_role')
+  setAdmin(@Param('id') id: string, @Body() body: { isAdmin: boolean; roles?: string[] }) {
+    return this.adminService.setUserAdmin(id, !!body.isAdmin, body.roles);
+  }
+
+  @Patch('users/:id/roles')
+  @RequirePermissions('users:set_role')
+  @ApiOperation({ summary: 'Assign roles (users:set_role)' })
+  setRoles(@Param('id') id: string, @Body() body: { roles: string[] }) {
+    return this.adminService.setUserRoles(id, body.roles || []);
   }
 
   @Post('users/:id/credit')
+  @RequirePermissions('users:credit')
   credit(
     @Param('id') id: string,
     @Body() body: { amount: number; note?: string },
@@ -117,6 +140,7 @@ export class AdminController {
   }
 
   @Get('audit')
+  @RequirePermissions('audit:read')
   audit(@Query('page') page = 1, @Query('limit') limit = 30) {
     return this.adminService.listAudit(Number(page) || 1, Number(limit) || 30);
   }
