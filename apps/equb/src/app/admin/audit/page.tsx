@@ -7,7 +7,7 @@ import { fetchAdminAudit } from '@/lib/admin-api';
 import { isApiConfigured } from '@/lib/api';
 import { AlertCircle, ScrollText } from 'lucide-react';
 
-type AuditItem = {
+export type AuditRow = {
   id: string;
   action: string;
   entity?: string | null;
@@ -16,16 +16,21 @@ type AuditItem = {
   createdAt: string;
 };
 
+function shortId(value?: string | null): string {
+  if (!value) return '';
+  return value.length > 8 ? `${value.slice(0, 8)}…` : value;
+}
+
 export default function AdminAuditPage() {
   const user = useEqubStore((s) => s.user);
-  const [items, setItems] = useState<AuditItem[]>([]);
+  const [items, setItems] = useState<AuditRow[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let c = false;
+    let cancelled = false;
     (async () => {
       if (!isApiConfigured()) {
         setLoading(false);
@@ -35,18 +40,28 @@ export default function AdminAuditPage() {
       setLoading(true);
       try {
         const res = await fetchAdminAudit(page);
-        if (!c) {
-          setItems(res.items || []);
-          setTotalPages(res.meta?.totalPages || 1);
-        }
+        if (cancelled) return;
+        const rows: AuditRow[] = (res.items || []).map((raw) => {
+          const r = raw as AuditRow;
+          return {
+            id: r.id,
+            action: r.action,
+            entity: r.entity ?? null,
+            entityId: r.entityId ?? null,
+            userId: r.userId ?? null,
+            createdAt: r.createdAt,
+          };
+        });
+        setItems(rows);
+        setTotalPages(res.meta?.totalPages || 1);
       } catch (e) {
-        if (!c) setError(e instanceof Error ? e.message : 'Failed');
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed');
       } finally {
-        if (!c) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
-      c = true;
+      cancelled = true;
     };
   }, [page]);
 
@@ -80,23 +95,29 @@ export default function AdminAuditPage() {
         <p className="text-sm text-white/40">No audit events yet.</p>
       ) : (
         <ul className="space-y-2">
-          {items.map((a) => (
-            <li
-              key={a.id}
-              className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold text-amber-100">{a.action}</span>
-                <span className="text-[11px] text-white/35">
-                  {new Date(a.createdAt).toLocaleString()}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-white/40">
-                {a.entity || '—'} {a.entityId ? `· ${a.entityId.slice(0, 8)}…` : ''}
-                {a.userId ? ` · user ${a.userId.slice(0, 8)}…` : ''}
-              </p>
-            </li>
-          ))}
+          {items.map((row) => {
+            const entityLabel = row.entity || '—';
+            const entityPart = row.entityId ? ` · ${shortId(row.entityId)}` : '';
+            const userPart = row.userId ? ` · user ${shortId(row.userId)}` : '';
+            return (
+              <li
+                key={row.id}
+                className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-amber-100">{row.action}</span>
+                  <span className="text-[11px] text-white/35">
+                    {new Date(row.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-white/40">
+                  {entityLabel}
+                  {entityPart}
+                  {userPart}
+                </p>
+              </li>
+            );
+          })}
         </ul>
       )}
 
