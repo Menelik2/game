@@ -7,8 +7,8 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import {
   ensureAdminAccount,
-  loginEmail,
-  registerEmail,
+  loginLocal,
+  registerLocal,
 } from '@/lib/auth-local';
 import { formatBirrCompact } from '@/lib/money';
 
@@ -24,8 +24,8 @@ export default function ProfilePage() {
   const logout = useEqubStore((s) => s.logout);
   const claimReferral = useEqubStore((s) => s.claimReferral);
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
@@ -41,7 +41,7 @@ export default function ProfilePage() {
     setMsg('');
     try {
       if (mode === 'register') {
-        const r = await registerEmail({ fullName: name, email, password });
+        const r = await registerLocal({ fullName, phone, password });
         if (!r.ok) {
           setMsg(r.error);
           return;
@@ -49,15 +49,19 @@ export default function ProfilePage() {
         setSessionUser({
           id: r.account.id,
           name: r.account.fullName,
-          email: r.account.email || email,
+          email: r.account.email || `${r.account.phone}@phone.equb`,
           phone: r.account.phone,
           balance: r.account.balance,
           referralCode: r.account.referralCode,
           role: r.account.role || 'player',
         });
-        setMsg('Account created · 5,000 Birr');
+        setMsg(
+          locale === 'am'
+            ? 'ተመዝግበዋል · 5,000 ብር'
+            : 'Account created · 5,000 Birr',
+        );
       } else {
-        const r = await loginEmail({ email, password });
+        const r = await loginLocal({ phone, password });
         if (!r.ok) {
           setMsg(r.error);
           return;
@@ -65,14 +69,22 @@ export default function ProfilePage() {
         setSessionUser({
           id: r.account.id,
           name: r.account.fullName,
-          email: r.account.email || email,
+          email: r.account.email || `${r.account.phone}@phone.equb`,
           phone: r.account.phone,
           balance: r.account.balance,
           referralCode: r.account.referralCode,
           role: r.account.role || 'player',
           banned: r.account.banned,
         });
-        setMsg(r.account.role === 'admin' ? 'Admin login' : 'Welcome');
+        setMsg(
+          r.account.role === 'admin'
+            ? locale === 'am'
+              ? 'አስተዳዳሪ ገብተዋል'
+              : 'Admin login'
+            : locale === 'am'
+              ? 'እንኳን ደህና መጡ'
+              : 'Welcome',
+        );
       }
     } finally {
       setBusy(false);
@@ -98,7 +110,7 @@ export default function ProfilePage() {
                   : 'rounded-full px-4 py-1.5 text-xs text-white/50'
               }
             >
-              {t.common.signIn}
+              {locale === 'am' ? 'ግባ' : t.common.signIn}
             </button>
             <button
               type="button"
@@ -109,34 +121,53 @@ export default function ProfilePage() {
                   : 'rounded-full px-4 py-1.5 text-xs text-white/50'
               }
             >
-              Register
+              {locale === 'am' ? 'ተመዝገብ' : 'Register'}
             </button>
           </div>
 
           {mode === 'register' && (
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wide text-white/40">
+                {locale === 'am' ? 'ሙሉ ስም' : 'Full name'}
+              </label>
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder={locale === 'am' ? 'ምሳሌ፡ አበበ ከበደ' : 'e.g. Abebe Kebede'}
+                autoComplete="name"
+                className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wide text-white/40">
+              {locale === 'am' ? 'ስልክ ቁጥር' : 'Phone number'}
+            </label>
             <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t.profile.name}
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="09xxxxxxxx"
+              autoComplete="tel"
               className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
             />
-          )}
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            autoComplete="username"
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password (min 6)"
-            className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[10px] uppercase tracking-wide text-white/40">
+              {locale === 'am' ? 'የይለፍ ቃል' : 'Password'}
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={locale === 'am' ? 'ቢያንስ 6 ቁምፊ' : 'Min 6 characters'}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
+            />
+          </div>
 
           {msg && <p className="text-xs text-amber-300">{msg}</p>}
 
@@ -146,14 +177,28 @@ export default function ProfilePage() {
             onClick={() => void handleAuth()}
             className="btn-gold w-full disabled:opacity-50"
           >
-            {busy ? '…' : mode === 'login' ? t.common.signIn : 'Create account'}
+            {busy
+              ? '…'
+              : mode === 'login'
+                ? locale === 'am'
+                  ? 'ግባ'
+                  : t.common.signIn
+                : locale === 'am'
+                  ? 'መለያ ፍጠር'
+                  : 'Create account'}
           </button>
+
+          <p className="text-center text-[10px] text-white/30">
+            {locale === 'am'
+              ? 'ስልክ፡ 09xxxxxxxx · የይለፍ ቃል ቢያንስ 6 ቁምፊ'
+              : 'Phone: 09xxxxxxxx · Password min 6 chars'}
+          </p>
 
           <div className="border-t border-white/10 pt-4">
             <p className="mb-2 text-xs text-white/40">{t.profile.guestHint}</p>
             <button
               type="button"
-              onClick={() => loginDemo(name || undefined)}
+              onClick={() => loginDemo(fullName || undefined)}
               className="w-full rounded-2xl border border-white/15 py-3 text-sm font-semibold text-white/80"
             >
               {t.common.startDemo}
@@ -173,7 +218,9 @@ export default function ProfilePage() {
 
       <div className="glass space-y-3 rounded-3xl p-5 text-sm">
         <p>
-          <span className="text-white/40">{t.profile.name}</span>
+          <span className="text-white/40">
+            {locale === 'am' ? 'ሙሉ ስም' : 'Full name'}
+          </span>
           <br />
           <strong>{user.name}</strong>
           {sessionIsAdmin(user) && (
@@ -183,9 +230,13 @@ export default function ProfilePage() {
           )}
         </p>
         <p>
-          <span className="text-white/40">Email</span>
+          <span className="text-white/40">
+            {locale === 'am' ? 'ስልክ' : 'Phone'}
+          </span>
           <br />
-          <strong className="font-mono text-xs">{user.email}</strong>
+          <strong className="font-mono text-xs">
+            {user.phone || user.email}
+          </strong>
         </p>
         <p>
           <span className="text-white/40">{t.profile.balance}</span>
