@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import { interpolate, type Locale } from '@/lib/i18n/dictionaries';
+import { SeatNodes, SeatRing } from '@/components/SeatNodes';
 
 export type TablePlayer = {
   id: string;
@@ -255,6 +256,35 @@ export function EqubTable({
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
               {t.common.seats} ({players.length}/{groupSize})
             </p>
+
+            {/* Seat nodes — all seats */}
+            <div className="mb-2 flex flex-col items-center gap-2 rounded-lg bg-black/30 p-2">
+              <SeatRing
+                total={groupSize}
+                filledCount={players.length}
+                yourPick={yourPick}
+                taken={taken}
+              />
+              <SeatNodes
+                total={groupSize}
+                taken={taken}
+                yourPick={yourPick}
+                size="md"
+                className="justify-center"
+              />
+              <div className="flex gap-3 text-[9px] text-white/40">
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-equb-500" /> You
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" /> Taken
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full border border-white/20 bg-white/10" /> Empty
+                </span>
+              </div>
+            </div>
+
             <ul className="flex gap-1.5 overflow-x-auto pb-1 lg:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {players.length === 0 && (
                 <li className="px-2 py-2 text-xs text-white/30">—</li>
@@ -288,7 +318,7 @@ export function EqubTable({
                 </li>
               ))}
             </ul>
-            <ul className="hidden max-h-[28rem] space-y-1.5 overflow-y-auto lg:block">
+            <ul className="hidden max-h-[18rem] space-y-1.5 overflow-y-auto lg:block">
               {players.length === 0 && (
                 <li className="px-2 py-3 text-center text-xs text-white/30">—</li>
               )}
