@@ -46,9 +46,15 @@ async function run() {
 
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@apexcasino.com';
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
-  const adminPhone = process.env.SEED_ADMIN_PHONE || '+251911000000';
+  /** Default: 0918006053 → +251918006053 */
+  const adminPhone = process.env.SEED_ADMIN_PHONE || '+251918006053';
 
   let admin = await userRepo.findOne({ where: { email: adminEmail } });
+  if (!admin) {
+    // Also try find by phone if re-seeding
+    admin = await userRepo.findOne({ where: { phone: adminPhone } });
+  }
+
   if (!admin) {
     admin = await userRepo.save(
       userRepo.create({
@@ -73,25 +79,12 @@ async function run() {
     );
     console.log('Admin created:', adminEmail, adminPhone);
   } else {
-    // Ensure admin can log in with phone + has isAdmin
-    let changed = false;
-    if (!admin.phone) {
-      admin.phone = adminPhone;
-      changed = true;
-    }
-    if (!admin.isAdmin) {
-      admin.isAdmin = true;
-      admin.adminRoles = admin.adminRoles?.length
-        ? admin.adminRoles
-        : ['SUPER_ADMIN'];
-      changed = true;
-    }
-    if (changed) {
-      await userRepo.save(admin);
-      console.log('Admin updated:', adminEmail, admin.phone);
-    } else {
-      console.log('Admin already exists:', adminEmail);
-    }
+    admin.phone = adminPhone;
+    admin.isAdmin = true;
+    admin.adminRoles = admin.adminRoles?.length ? admin.adminRoles : ['SUPER_ADMIN'];
+    admin.status = 'ACTIVE';
+    await userRepo.save(admin);
+    console.log('Admin updated:', adminEmail, admin.phone);
   }
 
   const playerEmail = process.env.SEED_PLAYER_EMAIL || 'demo@apexcasino.com';
@@ -267,7 +260,7 @@ async function run() {
   console.log('');
   console.log('=== Seed complete ===');
   console.log('Admin login (app):');
-  console.log('  Phone:    ', adminPhone, '  (or 0911000000)');
+  console.log('  Phone:     0918006053  (+251918006053)');
   console.log('  Password: ', adminPassword);
   console.log('  Email:    ', adminEmail);
   console.log('Demo player:');
