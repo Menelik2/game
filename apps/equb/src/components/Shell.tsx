@@ -9,7 +9,7 @@ import { BackButton } from '@/components/BackButton';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { EthDateBadge } from '@/components/EthDateBadge';
-import { formatBirrCompact } from '@/lib/money';
+import { LiveBalance } from '@/components/LiveBalance';
 
 function sessionIsAdmin(user: unknown): boolean {
   if (!user || typeof user !== 'object') return false;
@@ -116,9 +116,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
             <LanguageSwitcher compact />
             {user ? (
-              <div className="rounded-full bg-equb-500/15 px-3 py-1.5 font-mono text-xs font-bold text-equb-400 sm:text-sm">
-                {formatBirrCompact(user.balance, locale)}
-              </div>
+              <LiveBalance />
             ) : (
               <Link
                 href="/profile"
