@@ -5,13 +5,14 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useEqubStore } from '@/lib/store';
-import { takenPicks, isFull, splitPot } from '@/lib/equb-math';
+import { takenPicks, isFull } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
   joinRoom as mpJoin,
   openRoom,
   fetchRoom,
   getPlayerIdentity,
+  probeApi,
   type ServerRoom,
 } from '@/lib/multiplayer';
 import { optimisticJoin } from '@/lib/optimistic';
@@ -35,9 +36,11 @@ function PlayBackBar() {
   );
 }
 
+type Conn = 'checking' | 'online' | 'offline';
+
 export default function RoomDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const multiplayer = isMultiplayerEnabled();
+  const wantMp = isMultiplayerEnabled();
   const { t, locale } = useI18n();
 
   const rooms = useEqubStore((s) => s.rooms);
@@ -56,28 +59,58 @@ export default function RoomDetailPage() {
   const [joining, setJoining] = useState(false);
   const [serverRoom, setServerRoom] = useState<ServerRoom | null>(null);
   const [tick, setTick] = useState(60);
+  const [conn, setConn] = useState<Conn>(wantMp ? 'checking' : 'offline');
 
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
+  const multiplayer = wantMp && conn === 'online';
 
   const refreshServer = useCallback(async () => {
-    if (!multiplayer || !id) return;
+    if (!wantMp || !id || conn === 'offline') return;
     try {
       if (serverRoom?.id) setServerRoom(await fetchRoom(serverRoom.id));
       else setServerRoom(await openRoom(templateId!));
+      setConn('online');
     } catch {
-      /* offline */
+      setConn('offline');
+      setServerRoom(null);
     }
-  }, [multiplayer, id, templateId, serverRoom?.id]);
+  }, [wantMp, id, templateId, serverRoom?.id, conn]);
 
   useEffect(() => {
-    if (!multiplayer) {
-      ensureRooms();
+    ensureRooms();
+    if (!wantMp) {
+      setConn('offline');
       return;
     }
-    void refreshServer();
-    const iv = setInterval(() => void refreshServer(), 2500);
+    let cancelled = false;
+    (async () => {
+      const ok = await probeApi();
+      if (cancelled) return;
+      if (!ok) {
+        setConn('offline');
+        return;
+      }
+      setConn('online');
+      try {
+        setServerRoom(await openRoom(templateId!));
+      } catch {
+        if (!cancelled) setConn('offline');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wantMp, ensureRooms, templateId]);
+
+  useEffect(() => {
+    if (!multiplayer || !serverRoom?.id) return;
+    const iv = setInterval(() => {
+      void fetchRoom(serverRoom.id)
+        .then(setServerRoom)
+        .catch(() => setConn('offline'));
+    }, 3000);
     return () => clearInterval(iv);
-  }, [multiplayer, ensureRooms, refreshServer]);
+  }, [multiplayer, serverRoom?.id]);
 
   useDemoCountdown(tick, setTick, multiplayer && serverRoom?.secondsLeft != null);
   useEffect(() => {
@@ -92,36 +125,41 @@ export default function RoomDetailPage() {
     setTick,
     setMsg,
     setDrawing,
-    enabled: !multiplayer,
+    enabled: !multiplayer && conn !== 'checking',
     locale,
   });
 
   const historyResults: TableResult[] = useMemo(
     () =>
-      history.slice(0, 12).map((h, i) => {
-        const fee =
-          typeof h.adminFee === 'number' ? h.adminFee : splitPot(h.amount).adminFee;
-        return {
-          id: `${h.roomId}-${h.at}-${i}`,
-          winningNumber: h.winningNumber,
-          winnerName: h.winnerName,
-          pot: h.amount,
-          adminFee: fee,
-          at: h.at,
-        };
-      }),
+      history.slice(0, 12).map((h, i) => ({
+        id: `${h.roomId}-${h.at}-${i}`,
+        winningNumber: h.winningNumber,
+        winnerName: h.winnerName,
+        pot: h.amount,
+        at: h.at,
+      })),
     [history],
   );
 
-  if (multiplayer) {
+  if (conn === 'checking') {
+    return (
+      <div className="space-y-4 py-12 text-center">
+        <PlayBackBar />
+        <p className="text-white/40">{t.common.connecting}</p>
+        <p className="text-[10px] text-white/25">Checking game server…</p>
+      </div>
+    );
+  }
+
+  if (multiplayer && serverRoom) {
     const room = serverRoom;
     const identity = getPlayerIdentity();
-    const taken = new Set(room?.members.map((m) => m.pick) || []);
+    const taken = new Set(room.members.map((m) => m.pick) || []);
     const yourPick =
-      room?.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
+      room.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
     const inRoom = yourPick != null;
     const players: TablePlayer[] =
-      room?.members.map((m) => ({
+      room.members.map((m) => ({
         id: m.playerId,
         name: m.name,
         pick: m.pick,
@@ -134,53 +172,45 @@ export default function RoomDetailPage() {
             : 'waiting',
       })) || [];
 
-    const mpSplit = room ? splitPot(room.prizePool) : null;
-
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
-        {!room ? (
-          <p className="py-12 text-center text-white/40">{t.common.connecting}</p>
-        ) : (
-          <EqubTable
-            groupSize={room.groupSize}
-            prizePool={room.prizePool}
-            contribution={room.contribution}
-            taken={taken}
-            selected={pick}
-            yourPick={yourPick}
-            winningNumber={room.winningNumber}
-            status={room.status}
-            players={players}
-            results={historyResults}
-            secondsLeft={Number(room.secondsLeft ?? tick)}
-            roomId={room.id}
-            lastAdminFee={room.status === 'completed' ? mpSplit?.adminFee : null}
-            lastWinnerPayout={room.status === 'completed' ? mpSplit?.winnerPayout : null}
-            disabled={inRoom || room.status !== 'open' || joining}
-            joining={joining}
-            canBet={room.status === 'open' && !inRoom && pick != null}
-            locale={locale}
-            onSelect={setPick}
-            onBet={async () => {
-              if (pick == null) {
-                setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
-                return;
-              }
-              setJoining(true);
-              setServerRoom(optimisticJoin(room, pick));
-              try {
-                setServerRoom(await mpJoin(templateId!, pick));
-                setMsg(`#${String(pick).padStart(2, '0')}`);
-              } catch (e: unknown) {
-                setMsg(e instanceof Error ? e.message : t.common.error);
-                void refreshServer();
-              } finally {
-                setJoining(false);
-              }
-            }}
-          />
-        )}
+        <EqubTable
+          groupSize={room.groupSize}
+          prizePool={room.prizePool}
+          contribution={room.contribution}
+          taken={taken}
+          selected={pick}
+          yourPick={yourPick}
+          winningNumber={room.winningNumber}
+          status={room.status}
+          players={players}
+          results={historyResults}
+          secondsLeft={Number(room.secondsLeft ?? tick)}
+          roomId={room.id}
+          disabled={inRoom || room.status !== 'open' || joining}
+          joining={joining}
+          canBet={room.status === 'open' && !inRoom && pick != null}
+          locale={locale}
+          onSelect={setPick}
+          onBet={async () => {
+            if (pick == null) {
+              setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
+              return;
+            }
+            setJoining(true);
+            setServerRoom(optimisticJoin(room, pick));
+            try {
+              setServerRoom(await mpJoin(templateId!, pick));
+              setMsg(`#${String(pick).padStart(2, '0')}`);
+            } catch (e: any) {
+              setMsg(e?.message || t.common.error);
+              void refreshServer();
+            } finally {
+              setJoining(false);
+            }
+          }}
+        />
         {msg && (
           <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
             {msg}
@@ -204,7 +234,9 @@ export default function RoomDetailPage() {
   }
 
   const taken = takenPicks(room);
-  const yourPick = user ? room.members.find((m) => m.id === user.id)?.pick ?? null : null;
+  const yourPick = user
+    ? room.members.find((m) => m.id === user.id)?.pick ?? null
+    : null;
   const inRoom = yourPick != null;
   const full = isFull(room);
   const players: TablePlayer[] = room.members.map((m) => ({
@@ -223,6 +255,11 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
+      {wantMp && conn === 'offline' && (
+        <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-center text-[10px] text-amber-200/90">
+          Live server offline — playing demo mode
+        </p>
+      )}
       {!user && (
         <button
           type="button"
@@ -245,8 +282,6 @@ export default function RoomDetailPage() {
         results={historyResults}
         secondsLeft={tick}
         roomId={room.id}
-        lastAdminFee={room.lastAdminFee}
-        lastWinnerPayout={room.lastWinnerPayout}
         disabled={inRoom || room.status !== 'open'}
         joining={joining}
         drawing={drawing}
@@ -258,7 +293,7 @@ export default function RoomDetailPage() {
         onBet={() => {
           if (!user) {
             loginDemo();
-            setMsg(t.common.startDemo);
+            setMsg(t.common.error);
             return;
           }
           if (pick == null) {
