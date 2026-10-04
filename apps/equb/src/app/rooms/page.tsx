@@ -9,6 +9,7 @@ import {
   contributionPerMember,
   roomId,
   seatsLeft,
+  takenPicks,
   type LiveRoom,
 } from '@/lib/equb-math';
 import {
@@ -21,6 +22,7 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { interpolate } from '@/lib/i18n/dictionaries';
 import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { SeatNodes, SeatRing } from '@/components/SeatNodes';
 import clsx from 'clsx';
 import { ChevronRight } from 'lucide-react';
 
@@ -74,8 +76,7 @@ export default function RoomsPage() {
           await mpJoin(templateId, pick);
           router.push(`/rooms/${templateId}?pick=${pick}`);
           return;
-        } catch (apiErr: any) {
-          // Fall back to local demo if API fails
+        } catch (apiErr: unknown) {
           console.warn('API join failed, using local demo', apiErr);
         }
       }
@@ -87,14 +88,17 @@ export default function RoomsPage() {
         return;
       }
       router.push(`/rooms/${templateId}`);
-    } catch (e: any) {
-      setErr(e?.message || t.common.error);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : t.common.error);
     } finally {
       setBusy(false);
     }
   }
 
   const openRooms = rooms.filter((r) => r.status === 'open').slice(0, 12);
+
+  // Preview seats for selected size + current pick (before open)
+  const previewTaken = pick != null ? new Set([pick]) : new Set<number>();
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -159,6 +163,30 @@ export default function RoomsPage() {
             <p className="mb-3 text-[11px] text-white/40">
               {interpolate(t.rooms.step2Hint, { size: String(groupSize).padStart(2, '0') })}
             </p>
+
+            {/* Seat nodes preview */}
+            <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
+              <SeatRing
+                total={groupSize}
+                filledCount={pick != null ? 1 : 0}
+                yourPick={pick}
+                taken={previewTaken}
+              />
+              <SeatNodes
+                total={groupSize}
+                taken={previewTaken}
+                yourPick={pick}
+                size="md"
+                maxVisible={groupSize}
+                className="justify-center"
+              />
+              <p className="text-[10px] text-white/35">
+                {pick != null
+                  ? `Seat #${String(pick).padStart(2, '0')} · ${groupSize - 1} open`
+                  : `${groupSize} empty seats — pick a number`}
+              </p>
+            </div>
+
             <div
               className="grid gap-1.5"
               style={{
@@ -256,28 +284,46 @@ export default function RoomsPage() {
             </p>
             {openRooms.length > 0 ? (
               <div className="space-y-2">
-                {openRooms.map((r: LiveRoom) => (
-                  <Link
-                    key={r.id}
-                    href={`/rooms/${r.id}`}
-                    className="glass flex items-center justify-between rounded-2xl px-3.5 py-3.5 transition hover:border-equb-500/30 hover:bg-equb-500/5"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-white">
-                        {r.groupSize} {t.rooms.players}
-                      </p>
-                      <p className="mt-0.5 text-xs text-gold-400/90">
-                        {formatBirrCompact(r.prizePool, locale)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-white/45">
-                        {r.members.length}/{r.groupSize} · {seatsLeft(r)} {t.rooms.left}
-                      </span>
-                      <ChevronRight className="h-4 w-4 text-white/25" />
-                    </div>
-                  </Link>
-                ))}
+                {openRooms.map((r: LiveRoom) => {
+                  const taken = takenPicks(r);
+                  const yours = user
+                    ? r.members.find((m) => m.id === user.id)?.pick ?? null
+                    : null;
+                  return (
+                    <Link
+                      key={r.id}
+                      href={`/rooms/${r.id}`}
+                      className="glass block rounded-2xl px-3.5 py-3.5 transition hover:border-equb-500/30 hover:bg-equb-500/5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {r.groupSize} {t.rooms.players}
+                          </p>
+                          <p className="mt-0.5 text-xs text-gold-400/90">
+                            {formatBirrCompact(r.prizePool, locale)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-white/45">
+                            {r.members.length}/{r.groupSize} · {seatsLeft(r)} {t.rooms.left}
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-white/25" />
+                        </div>
+                      </div>
+                      {/* Seat nodes */}
+                      <div className="mt-2.5 border-t border-white/5 pt-2.5">
+                        <SeatNodes
+                          total={r.groupSize}
+                          taken={taken}
+                          yourPick={yours}
+                          size="sm"
+                          maxVisible={r.groupSize <= 20 ? r.groupSize : 20}
+                        />
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             ) : (
               <div className="glass rounded-2xl p-6 text-center text-sm text-white/35">
