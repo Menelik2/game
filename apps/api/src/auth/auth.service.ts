@@ -16,17 +16,35 @@ import { UserProfile } from '../users/entities/user-profile.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { AuditService } from '../audit/audit.service';
 
+/** Normalize Ethiopian mobile to +2519xxxxxxxx */
+export function normalizePhone(raw: string): string | null {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  let n = digits;
+  if (n.startsWith('251') && n.length === 12) n = n.slice(3);
+  if (n.startsWith('0') && n.length === 10) n = n.slice(1);
+  if (n.length === 9 && n.startsWith('9')) {
+    return `+251${n}`;
+  }
+  return null;
+}
+
 interface RegisterDto {
-  email: string;
+  fullName: string;
+  phone: string;
   password: string;
-  dateOfBirth: string;
-  country: string;
-  acceptTerms: boolean;
-  acceptAge: boolean;
+  /** optional legacy */
+  email?: string;
+  dateOfBirth?: string;
+  country?: string;
+  acceptTerms?: boolean;
+  acceptAge?: boolean;
 }
 
 interface LoginDto {
-  email: string;
+  /** phone number (preferred) or email (legacy) */
+  phone?: string;
+  email?: string;
   password: string;
 }
 
@@ -43,49 +61,47 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, ip?: string) {
-    if (!dto.acceptTerms || !dto.acceptAge) {
+    const fullName = (dto.fullName || '').trim().replace(/\s+/g, ' ');
+    if (fullName.length < 2) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'You must accept terms and confirm you are of legal age',
+        message: 'Full name is required (min 2 characters)',
       });
     }
 
-    if (!dto.email || !dto.password) {
+    const phone = normalizePhone(dto.phone || '');
+    if (!phone) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
-        message: 'Email and password are required',
+        message: 'Valid Ethiopian phone required (e.g. 09xxxxxxxx or +2519xxxxxxxx)',
       });
     }
 
-    if (dto.password.length < 6) {
+    if (!dto.password || dto.password.length < 6) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Password must be at least 6 characters',
       });
     }
 
-    const email = dto.email.trim().toLowerCase();
-
-    const dob = new Date(dto.dateOfBirth);
-    if (Number.isNaN(dob.getTime())) {
-      throw new BadRequestException({
-        code: 'VALIDATION_ERROR',
-        message: 'Invalid date of birth',
-      });
-    }
-    const age = this.calculateAge(dob);
-    if (age < 18) {
-      throw new ForbiddenException({
-        code: 'AGE_RESTRICTED',
-        message: 'You must be at least 18 years old',
+    const existingPhone = await this.userRepo.findOne({ where: { phone } });
+    if (existingPhone) {
+      throw new ConflictException({
+        code: 'PHONE_EXISTS',
+        message: 'An account with this phone number already exists',
       });
     }
 
-    const existing = await this.userRepo.findOne({ where: { email } });
-    if (existing) {
+    // Username = phone; synthetic email for legacy unique email column
+    const email =
+      (dto.email || '').trim().toLowerCase() ||
+      `${phone.replace('+', '')}@phone.equb.local`;
+
+    const existingEmail = await this.userRepo.findOne({ where: { email } });
+    if (existingEmail) {
       throw new ConflictException({
         code: 'EMAIL_EXISTS',
-        message: 'An account with this email already exists',
+        message: 'An account with this phone already exists',
       });
     }
 
@@ -96,6 +112,10 @@ export class AuthService {
       parallelism: 4,
     });
 
+    const nameParts = fullName.split(' ');
+    const firstName = nameParts[0] || fullName;
+    const lastName = nameParts.slice(1).join(' ') || null;
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -103,9 +123,10 @@ export class AuthService {
     try {
       const user = queryRunner.manager.create(User, {
         email,
+        phone,
         passwordHash,
-        dateOfBirth: dto.dateOfBirth,
-        country: (dto.country || 'US').toUpperCase().slice(0, 2),
+        dateOfBirth: dto.dateOfBirth || null,
+        country: (dto.country || 'ET').toUpperCase().slice(0, 2),
         status: 'ACTIVE',
         emailVerifiedAt: new Date(),
       });
@@ -113,6 +134,9 @@ export class AuthService {
 
       const profile = queryRunner.manager.create(UserProfile, {
         userId: savedUser.id,
+        firstName,
+        lastName,
+        language: 'am',
       });
       await queryRunner.manager.save(profile);
 
@@ -130,7 +154,7 @@ export class AuthService {
 
       const tokens = await this.issueTokens(savedUser);
       return {
-        user: this.sanitizeUser(savedUser),
+        user: this.sanitizeUser(savedUser, fullName),
         ...tokens,
       };
     } catch (e) {
@@ -142,19 +166,35 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
+    const password = dto.password || '';
+    const phoneNorm = normalizePhone(dto.phone || '');
     const email = (dto.email || '').trim().toLowerCase();
-    if (!email || !dto.password) {
+
+    if (!password || (!phoneNorm && !email)) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
-        message: 'Invalid credentials',
+        message: 'Phone and password are required',
       });
     }
 
-    const user = await this.userRepo.findOne({ where: { email } });
+    let user: User | null = null;
+    if (phoneNorm) {
+      user = await this.userRepo.findOne({ where: { phone: phoneNorm } });
+      // also try synthetic email from phone
+      if (!user) {
+        user = await this.userRepo.findOne({
+          where: { email: `${phoneNorm.replace('+', '')}@phone.equb.local` },
+        });
+      }
+    }
+    if (!user && email) {
+      user = await this.userRepo.findOne({ where: { email } });
+    }
+
     if (!user) {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
-        message: 'Invalid credentials',
+        message: 'Invalid phone or password',
       });
     }
 
@@ -174,7 +214,7 @@ export class AuthService {
 
     let valid = false;
     try {
-      valid = await argon2.verify(user.passwordHash, dto.password);
+      valid = await argon2.verify(user.passwordHash, password);
     } catch {
       valid = false;
     }
@@ -187,7 +227,7 @@ export class AuthService {
       await this.userRepo.save(user);
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
-        message: 'Invalid credentials',
+        message: 'Invalid phone or password',
       });
     }
 
@@ -203,9 +243,12 @@ export class AuthService {
       ipHash: ip ? this.hashIp(ip) : undefined,
     });
 
+    const profile = await this.profileRepo.findOne({ where: { userId: user.id } });
+    const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || user.phone || user.email;
+
     const tokens = await this.issueTokens(user);
     return {
-      user: this.sanitizeUser(user),
+      user: this.sanitizeUser(user, fullName),
       ...tokens,
     };
   }
@@ -214,6 +257,7 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
+      phone: user.phone,
       isAdmin: user.isAdmin,
       roles: user.adminRoles || [],
     };
@@ -238,24 +282,18 @@ export class AuthService {
     return this.userRepo.findOne({ where: { id: userId } });
   }
 
-  private sanitizeUser(user: User) {
+  private sanitizeUser(user: User, fullName?: string) {
     return {
       id: user.id,
       email: user.email,
+      phone: user.phone,
+      fullName: fullName || null,
       status: user.status,
       country: user.country,
       isAdmin: user.isAdmin,
       emailVerifiedAt: user.emailVerifiedAt,
       createdAt: user.createdAt,
     };
-  }
-
-  private calculateAge(dob: Date): number {
-    const today = new Date();
-    let age = today.getFullYear() - dob.getFullYear();
-    const m = today.getMonth() - dob.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
-    return age;
   }
 
   private hashIp(ip: string): string {

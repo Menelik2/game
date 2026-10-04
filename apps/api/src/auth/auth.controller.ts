@@ -23,24 +23,32 @@ export class AuthController {
   ) {}
 
   @Post('register')
-  @ApiOperation({ summary: 'Register a new player (demo mode auto-activates)' })
+  @ApiOperation({ summary: 'Register with full name, phone (username), password' })
   async register(
     @Body()
     body: {
-      email: string;
+      fullName: string;
+      phone: string;
       password: string;
-      dateOfBirth: string;
-      country: string;
-      acceptTerms: boolean;
-      acceptAge: boolean;
+      email?: string;
+      dateOfBirth?: string;
+      country?: string;
+      acceptTerms?: boolean;
+      acceptAge?: boolean;
     },
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.register(
       {
-        ...body,
-        email: (body.email || '').trim().toLowerCase(),
+        fullName: body.fullName,
+        phone: body.phone,
+        password: body.password,
+        email: body.email,
+        dateOfBirth: body.dateOfBirth,
+        country: body.country || 'ET',
+        acceptTerms: body.acceptTerms,
+        acceptAge: body.acceptAge,
       },
       req.ip,
     );
@@ -53,15 +61,16 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login' })
+  @ApiOperation({ summary: 'Login with phone (username) + password' })
   async login(
-    @Body() body: { email: string; password: string },
+    @Body() body: { phone?: string; email?: string; password: string },
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.login(
       {
-        email: (body.email || '').trim().toLowerCase(),
+        phone: body.phone,
+        email: body.email,
         password: body.password,
       },
       req.ip,
@@ -79,7 +88,6 @@ export class AuthController {
   @ApiBearerAuth()
   async logout(@Res({ passthrough: true }) res: Response) {
     const secure = this.config.get('COOKIE_SECURE') === true;
-    // Clear without domain restriction so host-only cookies are removed
     res.clearCookie('access_token', { path: '/', secure, sameSite: 'lax' });
     res.clearCookie('refresh_token', { path: '/', secure, sameSite: 'lax' });
     return { message: 'Logged out' };
@@ -88,8 +96,6 @@ export class AuthController {
   private setAuthCookies(res: Response, access: string, refresh: string) {
     const secure = this.config.get('COOKIE_SECURE') === true;
     const rawDomain = this.config.get<string>('COOKIE_DOMAIN');
-    // Never set Domain=localhost — browsers treat it poorly across ports.
-    // Omit domain for local/dev so cookies are host-only.
     const domain =
       rawDomain &&
       rawDomain !== 'localhost' &&
