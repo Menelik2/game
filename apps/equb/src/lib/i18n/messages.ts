@@ -9,7 +9,7 @@ const M = {
     pickRange: 'ከ 1 እስከ {size} ይምረጡ',
     numberTaken: 'ቁጥሩ ተይዟል',
     needBirr: '{fee} ብር ያስፈልጋል (ቀሪ {balance})። ብቸኛው ገደብ ገንዘብዎ ነው።',
-    joined: '#{pick} ተቀላቀሉ። ቀሪ ሂሳብ እስካለዎት ድረስ ያለ ገደብ ይጫወቱ።',
+    joined: '#{pick} ተቀላቀሉ። ቀሪ ሂሳብ እስካለዎት ድረግ ያለ ገደብ ይጫወቱ።',
     cannotFill: 'መሙላት አይቻልም',
     alreadyFull: 'አስቀድሞ ሙሉ ነው',
     filledBots: '{n} መቀመጫ በቦቶች ተሞልቷል',
@@ -19,8 +19,10 @@ const M = {
     membersOnly: 'ለአባላት ብቻ',
     cryptoFailed: 'የክሪፕቶ ዕጣ አልተሳካም',
     drawError: 'የዕጣ ስህተት',
-    youWon: 'አሸንፈዋል! {pot} ብር · #{num}.{again}',
-    otherWon: 'አሸናፊ ቁጥር {num} — {name} አሸንፏል።{again}',
+    youWon:
+      'አሸንፈዋል! {pot} ብር ተቀብለዋል (ከፖቱ 85%) · #{num} · አስተዳዳሪ ክፍያ {fee} ብር ({pct}%).{again}',
+    otherWon:
+      'አሸናፊ ቁጥር {num} — {name} አሸንፏል ({pot} ብር) · አስተዳዳሪ {fee} ብር (15%).{again}',
     playAgainHint: ' አዲስ ዙር ለመጀመር ቁጥር ይምረጡ።',
     needMoreHint: ' ለቀጣይ ዙር ተጨማሪ ብር ያስፈልጋል።',
     needForRound: 'ለአዲስ ዙር {fee} ብር ያስፈልጋል (ቀሪ {balance})',
@@ -51,8 +53,10 @@ const M = {
     membersOnly: 'Members only',
     cryptoFailed: 'Crypto RNG failed',
     drawError: 'Draw error',
-    youWon: 'You won {pot} Birr! #{num}.{again}',
-    otherWon: 'Winning number {num} — {name} wins.{again}',
+    youWon:
+      'You won {pot} Birr (85% of pot)! #{num}. Admin fee {fee} Birr ({pct}%).{again}',
+    otherWon:
+      'Winning number {num} — {name} wins {pot} Birr. Admin fee {fee} Birr (15%).{again}',
     playAgainHint: ' Pick a number again to start a new round.',
     needMoreHint: ' Need more Birr for next round.',
     needForRound: 'Need {fee} Birr for a new round (balance {balance})',

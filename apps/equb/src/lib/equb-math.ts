@@ -3,6 +3,28 @@
 export const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
 
+/** Platform / admin share of each pot when a game completes */
+export const ADMIN_FEE_RATE = 0.15;
+export const WINNER_SHARE_RATE = 1 - ADMIN_FEE_RATE; // 0.85
+
+/** Split pot: winner 85%, admin 15% */
+export function splitPot(prizePool: number): {
+  grossPot: number;
+  adminFee: number;
+  winnerPayout: number;
+  adminFeeRate: number;
+} {
+  const gross = Math.round(Number(prizePool) * 100) / 100;
+  const adminFee = Math.round(gross * ADMIN_FEE_RATE * 100) / 100;
+  const winnerPayout = Math.round((gross - adminFee) * 100) / 100;
+  return {
+    grossPot: gross,
+    adminFee,
+    winnerPayout,
+    adminFeeRate: ADMIN_FEE_RATE,
+  };
+}
+
 export function buildPrizePools(): number[] {
   const pools: number[] = [500];
   for (let p = 1000; p <= 9000; p += 1000) pools.push(p);
@@ -75,6 +97,9 @@ export type LiveRoom = {
   members: EqubMember[];
   winningNumber: number | null;
   winnerId: string | null;
+  /** Last draw split (set when completed) */
+  lastAdminFee?: number;
+  lastWinnerPayout?: number;
   entropyHex?: string;
   commitmentHash?: string;
 };

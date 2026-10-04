@@ -9,6 +9,8 @@ import {
   isFull,
   takenPicks,
   numberPool,
+  splitPot,
+  ADMIN_FEE_RATE,
 } from './equb-math';
 import { cryptographicDraw, secureRandomInt } from './crypto-rng';
 import { msg } from './i18n/messages';
@@ -28,18 +30,34 @@ type HistoryEvent = {
   roomId: string;
   winningNumber: number;
   winnerName: string;
+  /** Gross pot before fee */
   amount: number;
+  /** What winner received (85%) */
+  winnerPayout: number;
+  /** Admin / platform fee (15%) */
+  adminFee: number;
   wasYou: boolean;
   at: number;
   entropyHex?: string;
   commitmentHash?: string;
 };
 
+type AdminFeeEvent = {
+  roomId: string;
+  grossPot: number;
+  adminFee: number;
+  winnerPayout: number;
+  winnerName: string;
+  at: number;
+};
+
 type State = {
   user: User | null;
   rooms: LiveRoom[];
   history: HistoryEvent[];
-  /** Phone + password accounts */
+  /** Cumulative admin 15% from completed games (this device / session store) */
+  adminEarningsTotal: number;
+  adminFeeLog: AdminFeeEvent[];
   setSessionUser: (user: User) => void;
   loginDemo: (name?: string) => void;
   logout: () => void;
@@ -74,6 +92,8 @@ function freshRound(room: LiveRoom): LiveRoom {
     status: 'open',
     winningNumber: null,
     winnerId: null,
+    lastAdminFee: undefined,
+    lastWinnerPayout: undefined,
   };
 }
 
@@ -87,6 +107,8 @@ export const useEqubStore = create<State>()(
       user: null,
       rooms: [],
       history: [],
+      adminEarningsTotal: 0,
+      adminFeeLog: [],
 
       setSessionUser: (user) => set({ user }),
 
@@ -182,7 +204,7 @@ export const useEqubStore = create<State>()(
       },
 
       runDraw: async (roomId) => {
-        const { user, rooms, history } = get();
+        const { user, rooms, history, adminEarningsTotal, adminFeeLog } = get();
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
         if (!isFull(room)) return { ok: false, message: msg('roomNotFull') };
@@ -196,18 +218,35 @@ export const useEqubStore = create<State>()(
         const winner = room.members.find((m) => m.pick === proof.winningNumber);
         if (!winner) return { ok: false, message: msg('drawError') };
 
+        // —— 15% admin / 85% winner ——
+        const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
+
         const wasYou = !!(user && winner.id === user.id);
         let nextUser = user;
         if (wasYou && user) {
-          nextUser = { ...user, balance: user.balance + room.prizePool };
+          nextUser = {
+            ...user,
+            balance: Math.round((user.balance + winnerPayout) * 100) / 100,
+          };
           persistBalance(nextUser);
         }
         const bal = nextUser?.balance ?? 0;
         const canAgain = bal >= room.contribution;
         const again = canAgain ? msg('playAgainHint') : msg('needMoreHint');
 
+        const feeEvent: AdminFeeEvent = {
+          roomId,
+          grossPot,
+          adminFee,
+          winnerPayout,
+          winnerName: winner.name,
+          at: Date.now(),
+        };
+
         set({
           user: nextUser,
+          adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
+          adminFeeLog: [feeEvent, ...adminFeeLog].slice(0, 100),
           rooms: get().rooms.map((r) =>
             r.id === roomId
               ? {
@@ -215,6 +254,8 @@ export const useEqubStore = create<State>()(
                   status: 'completed',
                   winningNumber: proof.winningNumber,
                   winnerId: winner.id,
+                  lastAdminFee: adminFee,
+                  lastWinnerPayout: winnerPayout,
                   entropyHex: proof.entropyHex,
                   commitmentHash: proof.commitmentHash,
                 }
@@ -225,7 +266,9 @@ export const useEqubStore = create<State>()(
               roomId,
               winningNumber: proof.winningNumber,
               winnerName: winner.name,
-              amount: room.prizePool,
+              amount: grossPot,
+              winnerPayout,
+              adminFee,
               wasYou,
               at: Date.now(),
               entropyHex: proof.entropyHex,
@@ -238,11 +281,19 @@ export const useEqubStore = create<State>()(
         return {
           ok: true,
           message: wasYou
-            ? msg('youWon', { pot: room.prizePool, num: proof.winningNumber, again })
+            ? msg('youWon', {
+                pot: winnerPayout,
+                num: proof.winningNumber,
+                again,
+                fee: adminFee,
+                pct: Math.round(ADMIN_FEE_RATE * 100),
+              })
             : msg('otherWon', {
                 num: proof.winningNumber,
                 name: winner.name,
                 again,
+                pot: winnerPayout,
+                fee: adminFee,
               }),
         };
       },
@@ -282,6 +333,6 @@ export const useEqubStore = create<State>()(
         return { ok: true, message: msg('referralOk') };
       },
     }),
-    { name: 'fast-equb-v3' },
+    { name: 'fast-equb-v4' },
   ),
 );
