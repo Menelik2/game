@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import { interpolate, type Locale } from '@/lib/i18n/dictionaries';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
+import { ADMIN_FEE_RATE, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
   id: string;
@@ -19,6 +20,7 @@ export type TableResult = {
   winningNumber: number;
   winnerName: string;
   pot: number;
+  adminFee?: number;
   at?: number;
 };
 
@@ -35,6 +37,9 @@ type Props = {
   results?: TableResult[];
   secondsLeft?: number;
   roomId?: string;
+  /** After draw — platform cut */
+  lastAdminFee?: number | null;
+  lastWinnerPayout?: number | null;
   disabled?: boolean;
   joining?: boolean;
   drawing?: boolean;
@@ -69,6 +74,8 @@ export function EqubTable({
   results = [],
   secondsLeft = 60,
   roomId,
+  lastAdminFee,
+  lastWinnerPayout,
   disabled,
   joining,
   drawing,
@@ -88,6 +95,16 @@ export function EqubTable({
   const mm = String(Math.floor(safe / 60)).padStart(2, '0');
   const ss = String(safe % 60).padStart(2, '0');
   const urgent = safe <= 10 && status === 'open';
+
+  // Always compute fee for this pot (every game)
+  const preview = splitPot(prizePool);
+  const feePct = Math.round(ADMIN_FEE_RATE * 100);
+  const shownFee =
+    status === 'completed' && lastAdminFee != null ? lastAdminFee : preview.adminFee;
+  const shownWinner =
+    status === 'completed' && lastWinnerPayout != null
+      ? lastWinnerPayout
+      : preview.winnerPayout;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-2 sm:space-y-3">
@@ -136,13 +153,43 @@ export function EqubTable({
             </div>
 
             {status === 'completed' && winningNumber != null && (
-              <div className="mb-3 rounded-xl border border-gold-500/30 bg-gold-500/10 py-3 text-center sm:mb-4 sm:py-4">
-                <p className="text-[10px] uppercase tracking-widest text-white/40">
-                  {t.board.winningNumber}
-                </p>
-                <p className="font-mono text-4xl font-black text-gold-400 sm:text-5xl">
-                  {String(winningNumber).padStart(2, '0')}
-                </p>
+              <div className="mb-3 space-y-2 sm:mb-4">
+                <div className="rounded-xl border border-gold-500/30 bg-gold-500/10 py-3 text-center sm:py-4">
+                  <p className="text-[10px] uppercase tracking-widest text-white/40">
+                    {t.board.winningNumber}
+                  </p>
+                  <p className="font-mono text-4xl font-black text-gold-400 sm:text-5xl">
+                    {String(winningNumber).padStart(2, '0')}
+                  </p>
+                </div>
+                {/* Admin fee on every game */}
+                <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-center">
+                  <div>
+                    <p className="text-[9px] uppercase text-white/40">Pot</p>
+                    <p className="font-mono text-xs font-bold text-white sm:text-sm">
+                      {formatBirrCompact(prizePool, locale)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase text-equb-300/80">Winner 85%</p>
+                    <p className="font-mono text-xs font-bold text-equb-300 sm:text-sm">
+                      {formatBirrCompact(shownWinner, locale)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase text-amber-300/80">Admin {feePct}%</p>
+                    <p className="font-mono text-xs font-bold text-amber-300 sm:text-sm">
+                      {formatBirrCompact(shownFee, locale)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {status === 'open' && (
+              <div className="mb-2 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-center text-[10px] text-white/40">
+                Winner gets 85% · Admin fee {feePct}% (
+                {formatBirrCompact(preview.adminFee, locale)}) every game
               </div>
             )}
 
@@ -256,8 +303,6 @@ export function EqubTable({
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
               {t.common.seats} ({players.length}/{groupSize})
             </p>
-
-            {/* Seat nodes — all seats */}
             <div className="mb-2 flex flex-col items-center gap-2 rounded-lg bg-black/30 p-2">
               <SeatRing
                 total={groupSize}
@@ -272,52 +317,7 @@ export function EqubTable({
                 size="md"
                 className="justify-center"
               />
-              <div className="flex gap-3 text-[9px] text-white/40">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-equb-500" /> You
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-amber-500" /> Taken
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full border border-white/20 bg-white/10" /> Empty
-                </span>
-              </div>
             </div>
-
-            <ul className="flex gap-1.5 overflow-x-auto pb-1 lg:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {players.length === 0 && (
-                <li className="px-2 py-2 text-xs text-white/30">—</li>
-              )}
-              {players.map((p) => (
-                <li
-                  key={p.id}
-                  className={clsx(
-                    'flex shrink-0 flex-col rounded-lg px-2.5 py-1.5 text-[10px]',
-                    p.isYou ? 'bg-equb-500/25 ring-1 ring-equb-500/50' : 'bg-white/5',
-                  )}
-                >
-                  <span className="max-w-[4.5rem] truncate font-semibold">
-                    {p.isYou ? `${p.name} ★` : p.name}
-                  </span>
-                  <span className="font-mono text-white/50">
-                    {p.pick != null ? `#${String(p.pick).padStart(2, '0')}` : '—'}
-                  </span>
-                  <span
-                    className={clsx(
-                      'font-bold uppercase',
-                      p.status === 'waiting' && 'text-gold-400',
-                      p.status === 'won' && 'text-gold-400',
-                      p.status === 'lost' && 'text-white/30',
-                    )}
-                  >
-                    {p.status === 'waiting' && t.board.waitShort}
-                    {p.status === 'won' && t.board.won}
-                    {p.status === 'lost' && '—'}
-                  </span>
-                </li>
-              ))}
-            </ul>
             <ul className="hidden max-h-[18rem] space-y-1.5 overflow-y-auto lg:block">
               {players.length === 0 && (
                 <li className="px-2 py-3 text-center text-xs text-white/30">—</li>
@@ -368,15 +368,22 @@ export function EqubTable({
               {results.slice(0, 12).map((r) => (
                 <li
                   key={r.id}
-                  className="flex shrink-0 items-center gap-2 rounded bg-white/5 px-2 py-1.5 lg:w-full lg:justify-between"
+                  className="flex shrink-0 flex-col gap-0.5 rounded bg-white/5 px-2 py-1.5 lg:w-full"
                 >
-                  <span className="text-gold-400">
-                    #{String(r.winningNumber).padStart(2, '0')}
-                  </span>
-                  <span className="max-w-[4rem] truncate text-white/50 lg:max-w-[6rem]">
-                    {r.winnerName}
-                  </span>
-                  <span className="text-equb-400">{formatBirrCompact(r.pot, locale)}</span>
+                  <div className="flex items-center gap-2 lg:justify-between">
+                    <span className="text-gold-400">
+                      #{String(r.winningNumber).padStart(2, '0')}
+                    </span>
+                    <span className="max-w-[4rem] truncate text-white/50 lg:max-w-[6rem]">
+                      {r.winnerName}
+                    </span>
+                    <span className="text-equb-400">{formatBirrCompact(r.pot, locale)}</span>
+                  </div>
+                  {r.adminFee != null && r.adminFee > 0 && (
+                    <span className="text-[9px] text-amber-400/80">
+                      admin {feePct}%: {formatBirrCompact(r.adminFee, locale)}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

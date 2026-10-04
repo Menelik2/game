@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useEqubStore } from '@/lib/store';
-import { takenPicks, isFull } from '@/lib/equb-math';
+import { takenPicks, isFull, splitPot } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
   joinRoom as mpJoin,
@@ -98,13 +98,18 @@ export default function RoomDetailPage() {
 
   const historyResults: TableResult[] = useMemo(
     () =>
-      history.slice(0, 12).map((h, i) => ({
-        id: `${h.roomId}-${h.at}-${i}`,
-        winningNumber: h.winningNumber,
-        winnerName: h.winnerName,
-        pot: h.amount,
-        at: h.at,
-      })),
+      history.slice(0, 12).map((h, i) => {
+        const fee =
+          typeof h.adminFee === 'number' ? h.adminFee : splitPot(h.amount).adminFee;
+        return {
+          id: `${h.roomId}-${h.at}-${i}`,
+          winningNumber: h.winningNumber,
+          winnerName: h.winnerName,
+          pot: h.amount,
+          adminFee: fee,
+          at: h.at,
+        };
+      }),
     [history],
   );
 
@@ -129,6 +134,8 @@ export default function RoomDetailPage() {
             : 'waiting',
       })) || [];
 
+    const mpSplit = room ? splitPot(room.prizePool) : null;
+
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
@@ -148,6 +155,8 @@ export default function RoomDetailPage() {
             results={historyResults}
             secondsLeft={Number(room.secondsLeft ?? tick)}
             roomId={room.id}
+            lastAdminFee={room.status === 'completed' ? mpSplit?.adminFee : null}
+            lastWinnerPayout={room.status === 'completed' ? mpSplit?.winnerPayout : null}
             disabled={inRoom || room.status !== 'open' || joining}
             joining={joining}
             canBet={room.status === 'open' && !inRoom && pick != null}
@@ -163,8 +172,8 @@ export default function RoomDetailPage() {
               try {
                 setServerRoom(await mpJoin(templateId!, pick));
                 setMsg(`#${String(pick).padStart(2, '0')}`);
-              } catch (e: any) {
-                setMsg(e?.message || t.common.error);
+              } catch (e: unknown) {
+                setMsg(e instanceof Error ? e.message : t.common.error);
                 void refreshServer();
               } finally {
                 setJoining(false);
@@ -236,6 +245,8 @@ export default function RoomDetailPage() {
         results={historyResults}
         secondsLeft={tick}
         roomId={room.id}
+        lastAdminFee={room.lastAdminFee}
+        lastWinnerPayout={room.lastWinnerPayout}
         disabled={inRoom || room.status !== 'open'}
         joining={joining}
         drawing={drawing}
