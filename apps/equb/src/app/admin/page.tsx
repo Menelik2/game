@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
 import {
@@ -21,12 +21,14 @@ import {
   RefreshCw,
   ArrowRight,
   Percent,
+  Coins,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   const user = useEqubStore((s) => s.user);
   const adminEarningsTotal = useEqubStore((s) => s.adminEarningsTotal);
   const adminFeeLog = useEqubStore((s) => s.adminFeeLog);
+  const history = useEqubStore((s) => s.history);
   const [data, setData] = useState<AdminDashboard | null>(null);
   const [local, setLocal] = useState(localAdminSnapshot());
   const [error, setError] = useState('');
@@ -59,6 +61,52 @@ export default function AdminDashboardPage() {
     return () => clearInterval(id);
   }, [load]);
 
+  /** Prefer fee log; fall back to history rows that include adminFee */
+  const feeRows = useMemo(() => {
+    if (adminFeeLog?.length) {
+      return adminFeeLog.map((e) => ({
+        roomId: e.roomId,
+        winnerName: e.winnerName,
+        grossPot: e.grossPot,
+        winnerPayout: e.winnerPayout,
+        adminFee: e.adminFee,
+        at: e.at,
+      }));
+    }
+    return (history || [])
+      .filter((h) => typeof (h as { adminFee?: number }).adminFee === 'number')
+      .map((h) => {
+        const row = h as {
+          roomId: string;
+          winnerName: string;
+          amount: number;
+          winnerPayout?: number;
+          adminFee: number;
+          at: number;
+        };
+        return {
+          roomId: row.roomId,
+          winnerName: row.winnerName,
+          grossPot: row.amount,
+          winnerPayout:
+            row.winnerPayout ??
+            Math.round(row.amount * (1 - ADMIN_FEE_RATE) * 100) / 100,
+          adminFee: row.adminFee,
+          at: row.at,
+        };
+      });
+  }, [adminFeeLog, history]);
+
+  const totalFees =
+    Number(adminEarningsTotal) > 0
+      ? Number(adminEarningsTotal)
+      : feeRows.reduce((s, r) => s + (r.adminFee || 0), 0);
+  const totalPots = feeRows.reduce((s, r) => s + (r.grossPot || 0), 0);
+  const totalWinner = feeRows.reduce((s, r) => s + (r.winnerPayout || 0), 0);
+  const gamesCount = feeRows.length;
+  const avgFee = gamesCount ? Math.round((totalFees / gamesCount) * 100) / 100 : 0;
+  const feePct = Math.round(ADMIN_FEE_RATE * 100);
+
   if (!user) {
     return (
       <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-10 text-center">
@@ -75,7 +123,6 @@ export default function AdminDashboardPage() {
   }
 
   const maxSignups = Math.max(1, ...(data?.signupsByDay?.map((d) => d.count) || [1]));
-  const feePct = Math.round(ADMIN_FEE_RATE * 100);
 
   const cards = data
     ? [
@@ -147,47 +194,123 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* 15% game fee */}
-      <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-amber-950/30 to-transparent p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-black">
-              <Percent className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-200/80">
-                Admin game fee · {feePct}%
-              </p>
-              <p className="mt-1 text-3xl font-black tabular-nums text-amber-100">
-                {Number(adminEarningsTotal || 0).toLocaleString()}{' '}
-                <span className="text-base font-semibold text-amber-200/60">Birr</span>
-              </p>
-              <p className="mt-1 text-[11px] text-white/40">
-                Every completed game: winner 85% · platform {feePct}% of pot
-              </p>
-            </div>
-          </div>
-          <span className="rounded-full bg-black/30 px-3 py-1 text-[11px] font-semibold text-amber-200/90">
-            {(adminFeeLog || []).length} games logged
+      {/* ——— Total + per-game admin fees ——— */}
+      <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-amber-950/25 to-transparent p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500 text-black">
+            <Percent className="h-5 w-5" />
           </span>
+          <div>
+            <h2 className="text-sm font-bold text-amber-50">Admin fees · {feePct}% of every pot</h2>
+            <p className="text-[11px] text-white/40">Winner receives 85% · platform keeps {feePct}%</p>
+          </div>
         </div>
-        {(adminFeeLog || []).length > 0 && (
-          <ul className="mt-4 max-h-40 space-y-1.5 overflow-y-auto text-xs">
-            {(adminFeeLog || []).slice(0, 12).map((e, i) => (
-              <li
-                key={`${e.at}-${i}`}
-                className="flex items-center justify-between gap-2 rounded-xl bg-black/25 px-3 py-2"
-              >
-                <span className="text-white/55">
-                  {e.winnerName} · pot {e.grossPot.toLocaleString()}
-                </span>
-                <span className="font-mono font-semibold text-amber-300">
-                  +{e.adminFee.toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-2xl border border-amber-500/20 bg-black/30 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-amber-200/60">
+              Total admin fees
+            </p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-amber-100">
+              {totalFees.toLocaleString()}
+            </p>
+            <p className="text-[10px] text-white/35">Birr</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Games</p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-white">{gamesCount}</p>
+            <p className="text-[10px] text-white/35">completed draws</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Avg / game</p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-white">
+              {avgFee.toLocaleString()}
+            </p>
+            <p className="text-[10px] text-white/35">Birr fee</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Gross pots</p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-white">
+              {totalPots.toLocaleString()}
+            </p>
+            <p className="text-[10px] text-white/35">
+              winners got {totalWinner.toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-white/50">
+            <Coins className="h-3.5 w-3.5" />
+            Per-game breakdown
+          </div>
+
+          {feeRows.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-center text-xs text-white/40">
+              No completed games yet. After a draw finishes, each game&apos;s 15% fee appears here.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-white/10">
+              <table className="w-full min-w-[520px] text-left text-xs">
+                <thead className="bg-black/40 text-[10px] uppercase tracking-wide text-white/40">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Time</th>
+                    <th className="px-3 py-2.5 font-semibold">Room</th>
+                    <th className="px-3 py-2.5 font-semibold">Winner</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Pot</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Winner 85%</th>
+                    <th className="px-3 py-2.5 font-semibold text-right text-amber-200/80">
+                      Admin {feePct}%
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {feeRows.map((r, i) => (
+                    <tr key={`${r.at}-${r.roomId}-${i}`} className="bg-black/20 hover:bg-white/[0.03]">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-white/40">
+                        {new Date(r.at).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </td>
+                      <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-white/50">
+                        {r.roomId.replace(/^equb-/, '')}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-white/75">{r.winnerName}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-white/60">
+                        {r.grossPot.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-equb-300/90">
+                        {r.winnerPayout.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-bold tabular-nums text-amber-300">
+                        +{r.adminFee.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t border-amber-500/20 bg-amber-500/10">
+                  <tr className="font-bold">
+                    <td className="px-3 py-2.5 text-amber-100/90" colSpan={3}>
+                      Total ({gamesCount} games)
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-white/70">
+                      {totalPots.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-equb-300">
+                      {totalWinner.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-amber-200">
+                      {totalFees.toLocaleString()}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
       </section>
 
       {error && (
@@ -289,38 +412,6 @@ export default function AdminDashboardPage() {
                         }`}
                       >
                         {u.status}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {data?.recentAudit && data.recentAudit.length > 0 && (
-              <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-white/85">Audit stream</h2>
-                  <Link
-                    href="/admin/audit"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-amber-300/90"
-                  >
-                    Full log <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </div>
-                <ul className="space-y-2">
-                  {data.recentAudit.slice(0, 8).map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-black/30 px-3 py-2.5 text-xs"
-                    >
-                      <span className="font-semibold text-amber-100/95">{a.action}</span>
-                      <span className="shrink-0 text-white/30">
-                        {new Date(a.createdAt).toLocaleString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
                       </span>
                     </li>
                   ))}
