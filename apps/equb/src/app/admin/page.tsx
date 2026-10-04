@@ -9,7 +9,12 @@ import {
   type AdminDashboard,
 } from '@/lib/admin-api';
 import { isApiConfigured } from '@/lib/api';
-import { ADMIN_FEE_RATE } from '@/lib/equb-math';
+import {
+  buildFeeRows,
+  summarizeFees,
+  roomStats,
+  ADMIN_FEE_RATE,
+} from '@/lib/admin-logic';
 import {
   Users,
   Activity,
@@ -65,54 +70,13 @@ export default function AdminDashboardPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  const feeRows = useMemo(() => {
-    if (adminFeeLog.length) {
-      return adminFeeLog.map((e) => ({
-        roomId: e.roomId,
-        winnerName: e.winnerName,
-        grossPot: Number(e.grossPot) || 0,
-        winnerPayout: Number(e.winnerPayout) || 0,
-        adminFee: Number(e.adminFee) || 0,
-        at: e.at,
-      }));
-    }
-    return history
-      .filter((h) => typeof (h as { adminFee?: number }).adminFee === 'number')
-      .map((h) => {
-        const row = h as {
-          roomId: string;
-          winnerName: string;
-          amount: number;
-          winnerPayout?: number;
-          adminFee: number;
-          at: number;
-        };
-        return {
-          roomId: row.roomId,
-          winnerName: row.winnerName,
-          grossPot: Number(row.amount) || 0,
-          winnerPayout:
-            Number(row.winnerPayout) ||
-            Math.round(row.amount * (1 - ADMIN_FEE_RATE) * 100) / 100,
-          adminFee: Number(row.adminFee) || 0,
-          at: row.at,
-        };
-      });
-  }, [adminFeeLog, history]);
+  /** Full fee algorithm */
+  const fee = useMemo(() => {
+    const rows = buildFeeRows(adminFeeLog, history);
+    return summarizeFees(rows, adminEarningsTotal);
+  }, [adminFeeLog, history, adminEarningsTotal]);
 
-  const totalFees =
-    Number(adminEarningsTotal) > 0
-      ? Number(adminEarningsTotal)
-      : feeRows.reduce((s, r) => s + r.adminFee, 0);
-  const totalPots = feeRows.reduce((s, r) => s + r.grossPot, 0);
-  const totalWinner = feeRows.reduce((s, r) => s + r.winnerPayout, 0);
-  const gamesCount = feeRows.length || history.length;
-  const avgFee = feeRows.length
-    ? Math.round((totalFees / feeRows.length) * 100) / 100
-    : 0;
-  const feePct = Math.round(ADMIN_FEE_RATE * 100);
-  const openRooms = rooms.filter((r) => r.status === 'open').length;
-  const completedRooms = rooms.filter((r) => r.status === 'completed').length;
+  const roomsKpi = useMemo(() => roomStats(rooms), [rooms]);
 
   if (!user) {
     return (
@@ -137,23 +101,23 @@ export default function AdminDashboardPage() {
   const localCards = [
     {
       label: 'Admin fees',
-      value: totalFees.toLocaleString(),
+      value: fee.totalAdminFees.toLocaleString(),
       icon: Percent,
-      sub: `${feePct}% of every pot`,
+      sub: `${fee.feePercent}% of every pot`,
       tone: 'from-amber-500/25 to-transparent',
     },
     {
       label: 'Games played',
-      value: gamesCount,
+      value: fee.gamesCount || history.length,
       icon: Gamepad2,
-      sub: `${openRooms} open · ${completedRooms} done`,
+      sub: `${roomsKpi.open} open · ${roomsKpi.completed} done`,
       tone: 'from-violet-500/20 to-transparent',
     },
     {
       label: 'Gross pots',
-      value: totalPots.toLocaleString(),
+      value: fee.totalGrossPots.toLocaleString(),
       icon: Wallet,
-      sub: `Winners ${totalWinner.toLocaleString()}`,
+      sub: `Winners ${fee.totalWinnerPayouts.toLocaleString()}`,
       tone: 'from-emerald-500/20 to-transparent',
     },
     {
@@ -203,6 +167,13 @@ export default function AdminDashboardPage() {
           tone: 'from-orange-500/20 to-transparent',
         },
         {
+          label: 'Platform fees',
+          value: fee.totalAdminFees.toLocaleString(),
+          icon: Percent,
+          sub: `${fee.feePercent}% · ${fee.gamesCount} games`,
+          tone: 'from-amber-500/30 to-transparent',
+        },
+        {
           label: 'Suspended',
           value: data.suspendedUsers ?? 0,
           icon: ShieldAlert,
@@ -216,7 +187,9 @@ export default function AdminDashboardPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-white/45">
-          {data ? 'Live API + local game fees' : 'Local game fees · API optional'}
+          Algorithm: winner {(ADMIN_FEE_RATE * 100).toFixed(0) === '15' ? '85' : Math.round((1 - ADMIN_FEE_RATE) * 100)}%
+          {' · '}
+          platform {fee.feePercent}% · {data ? 'API + local' : 'local store'}
         </p>
         <button
           type="button"
@@ -229,7 +202,6 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* Always-visible fee board */}
       <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-amber-950/25 to-transparent p-5">
         <div className="mb-4 flex items-center gap-2">
           <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500 text-black">
@@ -237,10 +209,10 @@ export default function AdminDashboardPage() {
           </span>
           <div>
             <h2 className="text-sm font-bold text-amber-50">
-              Admin fees · {feePct}% of every pot
+              Admin fees · {fee.feePercent}% of every pot
             </h2>
             <p className="text-[11px] text-white/40">
-              Winner 85% · platform {feePct}% · works without API
+              fee = round(pot × {ADMIN_FEE_RATE}, 2) · winner = pot − fee
             </p>
           </div>
         </div>
@@ -251,29 +223,29 @@ export default function AdminDashboardPage() {
               Total admin fees
             </p>
             <p className="mt-1 text-2xl font-black tabular-nums text-amber-100">
-              {totalFees.toLocaleString()}
+              {fee.totalAdminFees.toLocaleString()}
             </p>
             <p className="text-[10px] text-white/35">Birr</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Games</p>
-            <p className="mt-1 text-2xl font-black tabular-nums text-white">{gamesCount}</p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-white">{fee.gamesCount}</p>
             <p className="text-[10px] text-white/35">completed draws</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Avg / game</p>
             <p className="mt-1 text-2xl font-black tabular-nums text-white">
-              {avgFee.toLocaleString()}
+              {fee.avgFeePerGame.toLocaleString()}
             </p>
             <p className="text-[10px] text-white/35">Birr fee</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-white/40">Gross pots</p>
             <p className="mt-1 text-2xl font-black tabular-nums text-white">
-              {totalPots.toLocaleString()}
+              {fee.totalGrossPots.toLocaleString()}
             </p>
             <p className="text-[10px] text-white/35">
-              winners {totalWinner.toLocaleString()}
+              winners {fee.totalWinnerPayouts.toLocaleString()}
             </p>
           </div>
         </div>
@@ -284,9 +256,9 @@ export default function AdminDashboardPage() {
             Per-game breakdown
           </div>
 
-          {feeRows.length === 0 ? (
+          {fee.rows.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-center text-xs text-white/40">
-              No completed games yet. Play a full room draw — the 15% fee will show here.
+              No completed games yet. Finish a draw — 15% fee is recorded automatically.
             </p>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-white/10">
@@ -299,12 +271,12 @@ export default function AdminDashboardPage() {
                     <th className="px-3 py-2.5 font-semibold text-right">Pot</th>
                     <th className="px-3 py-2.5 font-semibold text-right">Winner 85%</th>
                     <th className="px-3 py-2.5 font-semibold text-right text-amber-200/80">
-                      Admin {feePct}%
+                      Admin {fee.feePercent}%
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {feeRows.map((r, i) => (
+                  {fee.rows.map((r, i) => (
                     <tr
                       key={`${r.at}-${r.roomId}-${i}`}
                       className="bg-black/20 hover:bg-white/[0.03]"
@@ -320,9 +292,7 @@ export default function AdminDashboardPage() {
                       <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-white/50">
                         {String(r.roomId).replace(/^equb-/, '')}
                       </td>
-                      <td className="px-3 py-2.5 font-medium text-white/75">
-                        {r.winnerName}
-                      </td>
+                      <td className="px-3 py-2.5 font-medium text-white/75">{r.winnerName}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-white/60">
                         {r.grossPot.toLocaleString()}
                       </td>
@@ -338,16 +308,16 @@ export default function AdminDashboardPage() {
                 <tfoot className="border-t border-amber-500/20 bg-amber-500/10">
                   <tr className="font-bold">
                     <td className="px-3 py-2.5 text-amber-100/90" colSpan={3}>
-                      Total ({feeRows.length} games)
+                      Total ({fee.rows.length} games)
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-white/70">
-                      {totalPots.toLocaleString()}
+                      {fee.totalGrossPots.toLocaleString()}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-equb-300">
-                      {totalWinner.toLocaleString()}
+                      {fee.totalWinnerPayouts.toLocaleString()}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-amber-200">
-                      {totalFees.toLocaleString()}
+                      {fee.totalAdminFees.toLocaleString()}
                     </td>
                   </tr>
                 </tfoot>
@@ -361,16 +331,14 @@ export default function AdminDashboardPage() {
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
           <strong className="font-semibold">API:</strong> {error}
           <span className="mt-1 block text-amber-100/70">
-            Local fees above still work. For full user management, deploy API + seed admin
-            (0918006053 / Admin123!).
+            Local fee algorithm still runs. Seed admin: 0918006053 / Admin123!
           </span>
         </div>
       )}
 
       {!isApiConfigured() && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/45">
-          <code className="text-amber-200/80">NEXT_PUBLIC_API_URL</code> not set — showing
-          device data only.
+          <code className="text-amber-200/80">NEXT_PUBLIC_API_URL</code> not set — local KPIs only.
         </div>
       )}
 
@@ -404,9 +372,7 @@ export default function AdminDashboardPage() {
 
       {data?.signupsByDay && data.signupsByDay.length > 0 && (
         <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-white/85">Signups · last 7 days</h2>
-          </div>
+          <h2 className="mb-4 text-sm font-bold text-white/85">Signups · last 7 days</h2>
           <div className="flex h-36 items-end gap-2.5">
             {data.signupsByDay.map((d) => (
               <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
