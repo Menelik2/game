@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Param,
   Body,
   Query,
@@ -25,18 +26,35 @@ export class AdminController {
     return this.adminService.dashboard();
   }
 
+  @Get('health')
+  @ApiOperation({ summary: 'System health' })
+  health() {
+    return this.adminService.systemHealth();
+  }
+
   @Get('users')
   @ApiOperation({ summary: 'List users' })
   listUsers(
     @Query('page') page = 1,
     @Query('limit') limit = 20,
     @Query('q') q?: string,
+    @Query('status') status?: string,
   ) {
-    return this.adminService.listUsers(Number(page) || 1, Number(limit) || 20, q);
+    return this.adminService.listUsers(
+      Number(page) || 1,
+      Number(limit) || 20,
+      q,
+      status,
+    );
+  }
+
+  @Get('users/:id')
+  @ApiOperation({ summary: 'User detail' })
+  getUser(@Param('id') id: string) {
+    return this.adminService.getUser(id);
   }
 
   @Patch('users/:id/status')
-  @ApiOperation({ summary: 'Set user status ACTIVE | SUSPENDED | CLOSED' })
   setStatus(
     @Param('id') id: string,
     @Body() body: { status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED' },
@@ -45,8 +63,22 @@ export class AdminController {
   }
 
   @Patch('users/:id/admin')
-  @ApiOperation({ summary: 'Grant or revoke admin' })
   setAdmin(@Param('id') id: string, @Body() body: { isAdmin: boolean }) {
     return this.adminService.setUserAdmin(id, !!body.isAdmin);
+  }
+
+  @Post('users/:id/credit')
+  @ApiOperation({ summary: 'Credit demo wallet' })
+  credit(
+    @Param('id') id: string,
+    @Body() body: { amount: number; note?: string },
+  ) {
+    return this.adminService.creditUser(id, Number(body.amount), body.note);
+  }
+
+  @Get('audit')
+  @ApiOperation({ summary: 'Audit log' })
+  audit(@Query('page') page = 1, @Query('limit') limit = 30) {
+    return this.adminService.listAudit(Number(page) || 1, Number(limit) || 30);
   }
 }

@@ -7,10 +7,20 @@ import { UserProfile } from '../users/entities/user-profile.entity';
 import { Game } from '../games/entities/game.entity';
 import { Transaction } from '../transactions/entities/transaction.entity';
 import { Wallet } from '../wallet/entities/wallet.entity';
+import { AuditLog } from '../audit/entities/audit-log.entity';
+import { LedgerEntry } from '../wallet/entities/ledger-entry.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, UserProfile, Game, Transaction, Wallet]),
+    TypeOrmModule.forFeature([
+      User,
+      UserProfile,
+      Game,
+      Transaction,
+      Wallet,
+      AuditLog,
+      LedgerEntry,
+    ]),
   ],
   controllers: [AdminController],
   providers: [AdminService],
