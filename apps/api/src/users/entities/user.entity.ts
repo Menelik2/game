@@ -22,6 +22,8 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   email!: string;
 
+  /** Login username = phone (E.164 style +2519…) */
+  @Index({ unique: true })
   @Column({ type: 'varchar', length: 50, nullable: true })
   phone!: string | null;
 

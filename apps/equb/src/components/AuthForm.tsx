@@ -3,14 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEqubStore } from '@/lib/store';
-import { registerLocal, loginLocal } from '@/lib/auth-local';
+import { apiLogin, apiRegister, apiWalletBalance, isApiConfigured } from '@/lib/api';
 
 type Mode = 'login' | 'register';
 
 export function AuthForm({
   initialMode = 'login',
   redirectTo = '/rooms',
-  compact = false,
 }: {
   initialMode?: Mode;
   redirectTo?: string;
@@ -28,45 +27,67 @@ export function AuthForm({
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!isApiConfigured()) {
+      setError(
+        'ሰርቨር አልተገናኘም። በ Vercel ላይ NEXT_PUBLIC_API_URL = የ API አድራሻዎን ያስገቡ (ለምሳሌ https://your-api.onrender.com)',
+      );
+      return;
+    }
+
     setBusy(true);
     try {
-      if (mode === 'register') {
-        const res = await registerLocal({ fullName, phone, password });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        setSessionUser({
-          id: res.account.id,
-          name: res.account.fullName,
-          phone: res.account.phone,
-          email: `${res.account.phone.replace('+', '')}@phone.equb`,
-          balance: res.account.balance,
-          referralCode: res.account.referralCode,
-        });
-      } else {
-        const res = await loginLocal({ phone, password });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        setSessionUser({
-          id: res.account.id,
-          name: res.account.fullName,
-          phone: res.account.phone,
-          email: `${res.account.phone.replace('+', '')}@phone.equb`,
-          balance: res.account.balance,
-          referralCode: res.account.referralCode,
-        });
+      const result =
+        mode === 'register'
+          ? await apiRegister({ fullName, phone, password })
+          : await apiLogin({ phone, password });
+
+      const u = result.user;
+      const token = result.accessToken;
+      if (typeof window !== 'undefined' && token) {
+        localStorage.setItem('equb_access_token', token);
       }
+
+      let balance = 5000;
+      const remoteBal = token ? await apiWalletBalance(token) : null;
+      if (remoteBal != null) balance = remoteBal;
+
+      const displayName =
+        u.fullName ||
+        fullName.trim() ||
+        u.phone ||
+        phone ||
+        'ተጠቃሚ';
+
+      setSessionUser({
+        id: u.id,
+        name: displayName,
+        phone: u.phone || phone,
+        email: u.email,
+        balance,
+        referralCode:
+          (u.phone || phone || 'EQ').replace(/\D/g, '').slice(-6).toUpperCase() ||
+          'EQUB01',
+      });
+
       router.push(redirectTo);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'ስህተት ተፈጥሯል — እንደገና ይሞክሩ';
+      setError(message);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+    <div className="space-y-4">
+      {!isApiConfigured() && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          መለያዎች በዳታቤዝ እንዲቀመጡ API ያስፈልጋል። NEXT_PUBLIC_API_URL ያዘጋጁ።
+        </div>
+      )}
+
       <div className="flex gap-1 rounded-2xl border border-white/10 bg-black/30 p-1">
         <button
           type="button"
@@ -97,7 +118,7 @@ export function AuthForm({
       <form onSubmit={onSubmit} className="space-y-3">
         <p className="text-xs text-white/45">
           {mode === 'register'
-            ? 'ሙሉ ስም · ስልክ (ተጠቃሚ) · የይለፍ ቃል'
+            ? 'ሙሉ ስም · ስልክ (ተጠቃሚ) · የይለፍ ቃል — በዳታቤዝ ይቀመጣል'
             : 'ስልክ ቁጥርዎን እና የይለፍ ቃል ያስገቡ'}
         </p>
 
@@ -156,7 +177,7 @@ export function AuthForm({
           disabled={busy}
           className="btn-gold w-full py-3.5 text-sm disabled:opacity-50"
         >
-          {busy ? '...' : mode === 'register' ? 'መለያ ፍጠር' : 'ግባ'}
+          {busy ? '...' : mode === 'register' ? 'መለያ ፍጠር (ዳታቤዝ)' : 'ግባ'}
         </button>
       </form>
     </div>
