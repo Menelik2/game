@@ -16,6 +16,7 @@ import { User } from '../users/entities/user.entity';
 import { UserProfile } from '../users/entities/user-profile.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { AuditService } from '../audit/audit.service';
+import { resolveRoles } from './rbac/roles';
 
 /** Normalize Ethiopian mobile to +2519xxxxxxxx */
 export function normalizePhone(raw: string): string | null {
@@ -130,6 +131,8 @@ export class AuthService {
         country: (dto.country || 'ET').toUpperCase().slice(0, 2),
         status: 'ACTIVE',
         emailVerifiedAt: new Date(),
+        isAdmin: false,
+        adminRoles: null,
       });
       savedUser = await queryRunner.manager.save(user);
 
@@ -272,12 +275,17 @@ export class AuthService {
   }
 
   async issueTokens(user: User) {
+    const roles = resolveRoles({
+      isAdmin: user.isAdmin,
+      adminRoles: user.adminRoles,
+    });
+
     const payload = {
       sub: user.id,
       email: user.email,
       phone: user.phone,
-      isAdmin: user.isAdmin,
-      roles: user.adminRoles || [],
+      isAdmin: user.isAdmin || roles.some((r) => r !== 'USER'),
+      roles,
     };
 
     const accessSecret = this.config.get<string>('JWT_SECRET') || 'dev';
@@ -304,6 +312,10 @@ export class AuthService {
   }
 
   private sanitizeUser(user: User, fullName?: string) {
+    const roles = resolveRoles({
+      isAdmin: user.isAdmin,
+      adminRoles: user.adminRoles,
+    });
     return {
       id: user.id,
       email: user.email,
@@ -311,7 +323,8 @@ export class AuthService {
       fullName: fullName || null,
       status: user.status,
       country: user.country,
-      isAdmin: user.isAdmin,
+      isAdmin: user.isAdmin || roles.some((r) => r !== 'USER'),
+      roles,
       emailVerifiedAt: user.emailVerifiedAt,
       createdAt: user.createdAt,
     };
