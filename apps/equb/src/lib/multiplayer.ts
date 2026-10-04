@@ -1,22 +1,28 @@
-/** Real multiplayer client — NestJS /api/equb · falls back when API down */
+/**
+ * Multiplayer client — same-origin /api on abelgame (no external backend required).
+ * Optional NEXT_PUBLIC_API_URL; falls back to same origin if external is down.
+ */
 
-const API = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
-
-export function isMultiplayerEnabled(): boolean {
-  if (!API) return false;
-  if (typeof window === 'undefined') return !!API;
+function resolveApiBase(): string {
+  const env = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+  if (typeof window === 'undefined') return env;
+  if (!env) return '';
   try {
-    const u = new URL(API);
+    const u = new URL(env);
     if (
       (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
       window.location.hostname !== 'localhost' &&
       window.location.hostname !== '127.0.0.1'
     ) {
-      return false;
+      return '';
     }
   } catch {
-    return false;
+    return '';
   }
+  return env;
+}
+
+export function isMultiplayerEnabled(): boolean {
   return true;
 }
 
@@ -62,12 +68,23 @@ export function setPlayerName(name: string) {
   }
 }
 
+function apiUrl(path: string): string {
+  const override =
+    typeof window !== 'undefined'
+      ? (window as any).__equbApiBase
+      : undefined;
+  const base =
+    override !== undefined && override !== null
+      ? String(override)
+      : resolveApiBase();
+  return `${base}/api${path}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!API) throw new Error('API not configured');
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const res = await fetch(`${API}/api${path}`, {
+    const res = await fetch(apiUrl(path), {
       ...init,
       signal: ctrl.signal,
       headers: {
@@ -92,18 +109,29 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-/** Returns true if backend health responds quickly */
 export async function probeApi(): Promise<boolean> {
-  if (!isMultiplayerEnabled()) return false;
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5_000);
-    const res = await fetch(`${API}/api/health`, { signal: ctrl.signal });
-    clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
+  const bases: string[] = [];
+  const env = resolveApiBase();
+  if (env) bases.push(env);
+  bases.push('');
+
+  for (const base of bases) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4_000);
+      const res = await fetch(`${base}/api/health`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        if (typeof window !== 'undefined') {
+          (window as any).__equbApiBase = base;
+        }
+        return true;
+      }
+    } catch {
+      /* next */
+    }
   }
+  return false;
 }
 
 export function openRoom(templateId: string) {
