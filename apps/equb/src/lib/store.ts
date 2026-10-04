@@ -12,10 +12,12 @@ import {
 } from './equb-math';
 import { cryptographicDraw, secureRandomInt } from './crypto-rng';
 import { msg } from './i18n/messages';
+import { updateLocalBalance } from './auth-local';
 
 type User = {
   id: string;
   name: string;
+  phone?: string;
   email: string;
   balance: number;
   referralCode: string;
@@ -37,6 +39,8 @@ type State = {
   user: User | null;
   rooms: LiveRoom[];
   history: HistoryEvent[];
+  /** Phone + password accounts */
+  setSessionUser: (user: User) => void;
   loginDemo: (name?: string) => void;
   logout: () => void;
   ensureRooms: () => void;
@@ -73,6 +77,10 @@ function freshRound(room: LiveRoom): LiveRoom {
   };
 }
 
+function persistBalance(user: User | null) {
+  if (user?.id) updateLocalBalance(user.id, user.balance);
+}
+
 export const useEqubStore = create<State>()(
   persist(
     (set, get) => ({
@@ -80,12 +88,15 @@ export const useEqubStore = create<State>()(
       rooms: [],
       history: [],
 
+      setSessionUser: (user) => set({ user }),
+
       loginDemo: (name) => {
         const n = (name || 'ተጫዋች').slice(0, 24);
         set({
           user: {
             id: `u_${Date.now().toString(36)}`,
             name: n,
+            phone: undefined,
             email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
             balance: 5000,
             referralCode:
@@ -128,8 +139,13 @@ export const useEqubStore = create<State>()(
           };
 
         const member: EqubMember = { id: user.id, name: user.name, pick };
+        const nextUser = {
+          ...user,
+          balance: Math.round((user.balance - fee) * 100) / 100,
+        };
+        persistBalance(nextUser);
         set({
-          user: { ...user, balance: Math.round((user.balance - fee) * 100) / 100 },
+          user: nextUser,
           rooms: get().rooms.map((r) =>
             r.id === roomId
               ? { ...r, members: [...r.members, member], status: 'open' as const }
@@ -184,6 +200,7 @@ export const useEqubStore = create<State>()(
         let nextUser = user;
         if (wasYou && user) {
           nextUser = { ...user, balance: user.balance + room.prizePool };
+          persistBalance(nextUser);
         }
         const bal = nextUser?.balance ?? 0;
         const canAgain = bal >= room.contribution;
@@ -255,16 +272,16 @@ export const useEqubStore = create<State>()(
         if (!user) return { ok: false, message: msg('signInFirst') };
         if (user.referredBy) return { ok: false, message: msg('alreadyClaimed') };
         if (!code.trim()) return { ok: false, message: msg('invalidCode') };
-        set({
-          user: {
-            ...user,
-            referredBy: code.trim().toUpperCase(),
-            balance: user.balance + 100,
-          },
-        });
+        const nextUser = {
+          ...user,
+          referredBy: code.trim().toUpperCase(),
+          balance: user.balance + 100,
+        };
+        persistBalance(nextUser);
+        set({ user: nextUser });
         return { ok: true, message: msg('referralOk') };
       },
     }),
-    { name: 'fast-equb-v2' },
+    { name: 'fast-equb-v3' },
   ),
 );
