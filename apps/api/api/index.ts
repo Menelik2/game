@@ -23,6 +23,8 @@ function healthPayload() {
     demoMode: process.env.DEMO_MODE !== 'false',
     realMoneyEnabled: process.env.REAL_MONEY_ENABLED === 'true',
     database: Boolean(process.env.DATABASE_URL?.trim()),
+    admin: Boolean(process.env.DATABASE_URL?.trim()),
+    auth: Boolean(process.env.DATABASE_URL?.trim()),
     equb: true,
   };
 }
@@ -32,12 +34,13 @@ async function bootstrap(): Promise<Express> {
 
   const server = express();
 
-  // Always-on paths (even before Nest finishes cold start)
   server.get('/', (_req, res) => {
     res.json({
       ...healthPayload(),
       docs: '/api/docs',
       health: '/api/health',
+      adminDashboard: '/api/admin/dashboard',
+      authRegister: 'POST /api/auth/register',
       templates: '/api/equb/templates',
     });
   });
@@ -102,7 +105,7 @@ async function bootstrap(): Promise<Express> {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),
@@ -112,6 +115,10 @@ async function bootstrap(): Promise<Express> {
 
   await app.init();
   cached = server;
+  Logger.log(
+    `API ready — database=${Boolean(process.env.DATABASE_URL)} admin=${Boolean(process.env.DATABASE_URL)}`,
+    'Bootstrap',
+  );
   return server;
 }
 
