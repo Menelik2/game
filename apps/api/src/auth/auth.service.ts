@@ -24,11 +24,9 @@ export function normalizePhone(raw: string): string | null {
   let n = digits;
   if (n.startsWith('251') && n.length >= 12) n = n.slice(3);
   if (n.startsWith('0') && n.length === 10) n = n.slice(1);
-  // 9xxxxxxxx
   if (n.length === 9 && n.startsWith('9')) {
     return `+251${n}`;
   }
-  // already 2519xxxxxxxx without plus handled above
   return null;
 }
 
@@ -152,7 +150,6 @@ export class AuthService {
       await queryRunner.release();
     }
 
-    // Wallet after commit — must not fail the whole registration
     try {
       await this.walletService.createDemoWallet(savedUser.id);
     } catch (e) {
@@ -283,17 +280,20 @@ export class AuthService {
       roles: user.adminRoles || [],
     };
 
+    const accessSecret = this.config.get<string>('JWT_SECRET') || 'dev';
+    const refreshSecret = this.config.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh';
+
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.config.get<string>('JWT_SECRET'),
-      expiresIn: this.config.get('JWT_ACCESS_EXPIRES', '15m') as string & import('ms').StringValue,
-    } as Parameters<JwtService['signAsync']>[1]);
+      secret: accessSecret,
+      expiresIn: '15m',
+    });
 
     const refreshToken = await this.jwtService.signAsync(
       { sub: user.id, type: 'refresh', jti: randomUUID() },
       {
-        secret: this.config.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.config.get('JWT_REFRESH_EXPIRES', '7d') as string & import('ms').StringValue,
-      } as Parameters<JwtService['signAsync']>[1],
+        secret: refreshSecret,
+        expiresIn: '7d',
+      },
     );
 
     return { accessToken, refreshToken };
