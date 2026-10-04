@@ -348,19 +348,10 @@ export const useEqubStore = create<State>()(
       },
 
       reopenRoom: (roomId) => {
-        const { user, rooms } = get();
-        if (!user) return { ok: false, message: msg('signInFirst') };
+        const { rooms } = get();
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
-        if (user.balance < room.contribution) {
-          return {
-            ok: false,
-            message: msg('needForRound', {
-              fee: room.contribution,
-              balance: user.balance,
-            }),
-          };
-        }
+        // Always allow reopen so 60s auto-cycle can start a new game
         set({
           rooms: rooms.map((r) => (r.id === roomId ? freshRound(r) : r)),
         });
