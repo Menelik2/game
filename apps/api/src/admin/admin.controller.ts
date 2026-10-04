@@ -3,6 +3,8 @@ import {
   Get,
   Patch,
   Post,
+  Put,
+  Delete,
   Param,
   Body,
   Query,
@@ -21,19 +23,19 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('dashboard')
-  @ApiOperation({ summary: 'Admin dashboard stats' })
   dashboard() {
     return this.adminService.dashboard();
   }
 
   @Get('health')
-  @ApiOperation({ summary: 'System health' })
   health() {
     return this.adminService.systemHealth();
   }
 
+  // ——— Users CRUD ———
+
   @Get('users')
-  @ApiOperation({ summary: 'List users' })
+  @ApiOperation({ summary: 'List users (Read)' })
   listUsers(
     @Query('page') page = 1,
     @Query('limit') limit = 20,
@@ -48,10 +50,49 @@ export class AdminController {
     );
   }
 
+  @Post('users')
+  @ApiOperation({ summary: 'Create user' })
+  createUser(
+    @Body()
+    body: {
+      fullName: string;
+      phone: string;
+      password: string;
+      isAdmin?: boolean;
+      status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+      initialBalance?: number;
+    },
+  ) {
+    return this.adminService.createUser(body);
+  }
+
   @Get('users/:id')
-  @ApiOperation({ summary: 'User detail' })
+  @ApiOperation({ summary: 'Get user' })
   getUser(@Param('id') id: string) {
     return this.adminService.getUser(id);
+  }
+
+  @Put('users/:id')
+  @ApiOperation({ summary: 'Update user' })
+  updateUser(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      fullName?: string;
+      phone?: string;
+      status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+      isAdmin?: boolean;
+      password?: string;
+      country?: string;
+    },
+  ) {
+    return this.adminService.updateUser(id, body);
+  }
+
+  @Delete('users/:id')
+  @ApiOperation({ summary: 'Delete user (soft close; ?hard=true permanent)' })
+  deleteUser(@Param('id') id: string, @Query('hard') hard?: string) {
+    return this.adminService.deleteUser(id, hard === 'true' || hard === '1');
   }
 
   @Patch('users/:id/status')
@@ -68,7 +109,6 @@ export class AdminController {
   }
 
   @Post('users/:id/credit')
-  @ApiOperation({ summary: 'Credit demo wallet' })
   credit(
     @Param('id') id: string,
     @Body() body: { amount: number; note?: string },
@@ -77,7 +117,6 @@ export class AdminController {
   }
 
   @Get('audit')
-  @ApiOperation({ summary: 'Audit log' })
   audit(@Query('page') page = 1, @Query('limit') limit = 30) {
     return this.adminService.listAudit(Number(page) || 1, Number(limit) || 30);
   }

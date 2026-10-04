@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -14,6 +15,8 @@ import { AuditLog } from '../audit/entities/audit-log.entity';
 import { LedgerEntry } from '../wallet/entities/ledger-entry.entity';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import * as argon2 from 'argon2';
+import { normalizePhone } from '../auth/auth.service';
 
 @Injectable()
 export class AdminService {
@@ -69,7 +72,6 @@ export class AdminService {
       totalDemoBalance += parseFloat(String(w.availableBalance || 0)) || 0;
     }
 
-    // Signups per day (last 7 days)
     const signupsByDay: { date: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const dayStart = new Date(now - i * 24 * 60 * 60 * 1000);
@@ -272,44 +274,206 @@ export class AdminService {
     };
   }
 
-  async setUserStatus(userId: string, status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED') {
+  /** CREATE */
+  async createUser(input: {
+    fullName: string;
+    phone: string;
+    password: string;
+    isAdmin?: boolean;
+    status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+    initialBalance?: number;
+  }) {
+    const fullName = (input.fullName || '').trim().replace(/\s+/g, ' ');
+    if (fullName.length < 2) {
+      throw new BadRequestException({ message: 'Full name required (min 2)' });
+    }
+    const phone = normalizePhone(input.phone || '');
+    if (!phone) {
+      throw new BadRequestException({
+        message: 'Valid Ethiopian phone required (09xxxxxxxx)',
+      });
+    }
+    if (!input.password || input.password.length < 6) {
+      throw new BadRequestException({ message: 'Password min 6 characters' });
+    }
+
+    const existing = await this.userRepo.findOne({ where: { phone } });
+    if (existing) {
+      throw new ConflictException({ message: 'Phone already registered' });
+    }
+
+    const email = `${phone.replace('+', '')}@phone.equb.local`;
+    const passwordHash = await argon2.hash(input.password, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 4,
+    });
+
+    const parts = fullName.split(' ');
+    const user = await this.userRepo.save(
+      this.userRepo.create({
+        email,
+        phone,
+        passwordHash,
+        status: input.status || 'ACTIVE',
+        isAdmin: !!input.isAdmin,
+        adminRoles: input.isAdmin ? ['ADMIN'] : null,
+        country: 'ET',
+        emailVerifiedAt: new Date(),
+      }),
+    );
+
+    await this.profileRepo.save(
+      this.profileRepo.create({
+        userId: user.id,
+        firstName: parts[0] || fullName,
+        lastName: parts.slice(1).join(' ') || null,
+        language: 'am',
+      }),
+    );
+
+    const startBal = Math.max(0, Number(input.initialBalance) || 5000);
+    if (startBal > 0) {
+      await this.creditUser(user.id, startBal, 'Admin create — initial balance');
+    }
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        userId: user.id,
+        action: 'ADMIN_CREATE_USER',
+        entity: 'user',
+        entityId: user.id,
+        metadata: { phone, isAdmin: !!input.isAdmin },
+      }),
+    );
+
+    return this.getUser(user.id);
+  }
+
+  /** UPDATE */
+  async updateUser(
+    userId: string,
+    input: {
+      fullName?: string;
+      phone?: string;
+      status?: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+      isAdmin?: boolean;
+      password?: string;
+      country?: string;
+    },
+  ) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
-    user.status = status;
-    if (status === 'ACTIVE') {
+    if (!user) throw new NotFoundException({ message: 'User not found' });
+
+    if (input.phone !== undefined) {
+      const phone = normalizePhone(input.phone);
+      if (!phone) throw new BadRequestException({ message: 'Invalid phone' });
+      const clash = await this.userRepo.findOne({ where: { phone } });
+      if (clash && clash.id !== userId) {
+        throw new ConflictException({ message: 'Phone already in use' });
+      }
+      user.phone = phone;
+      user.email = `${phone.replace('+', '')}@phone.equb.local`;
+    }
+
+    if (input.status) user.status = input.status;
+    if (typeof input.isAdmin === 'boolean') {
+      user.isAdmin = input.isAdmin;
+      user.adminRoles = input.isAdmin ? user.adminRoles?.length ? user.adminRoles : ['ADMIN'] : null;
+    }
+    if (input.country) user.country = input.country.slice(0, 2).toUpperCase();
+
+    if (input.password && input.password.length >= 6) {
+      user.passwordHash = await argon2.hash(input.password, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+    }
+
+    if (input.status === 'ACTIVE') {
       user.failedLoginAttempts = 0;
       user.lockedUntil = null;
     }
+
+    await this.userRepo.save(user);
+
+    if (input.fullName !== undefined) {
+      const fullName = input.fullName.trim().replace(/\s+/g, ' ');
+      if (fullName.length >= 2) {
+        const parts = fullName.split(' ');
+        let profile = await this.profileRepo.findOne({ where: { userId } });
+        if (!profile) {
+          profile = this.profileRepo.create({
+            userId,
+            firstName: parts[0],
+            lastName: parts.slice(1).join(' ') || null,
+            language: 'am',
+          });
+        } else {
+          profile.firstName = parts[0] || fullName;
+          profile.lastName = parts.slice(1).join(' ') || null;
+        }
+        await this.profileRepo.save(profile);
+      }
+    }
+
+    await this.auditRepo.save(
+      this.auditRepo.create({
+        userId,
+        action: 'ADMIN_UPDATE_USER',
+        entity: 'user',
+        entityId: userId,
+        metadata: { fields: Object.keys(input) },
+      }),
+    );
+
+    return this.getUser(userId);
+  }
+
+  /** DELETE — soft close by default; hard=true removes row */
+  async deleteUser(userId: string, hard = false) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException({ message: 'User not found' });
+
+    if (hard) {
+      await this.profileRepo.delete({ userId });
+      // Keep wallet/tx history; only detach profile + close user
+      await this.userRepo.delete({ id: userId });
+      await this.auditRepo.save(
+        this.auditRepo.create({
+          action: 'ADMIN_HARD_DELETE_USER',
+          entity: 'user',
+          entityId: userId,
+        }),
+      );
+      return { id: userId, deleted: true, hard: true };
+    }
+
+    user.status = 'CLOSED';
+    user.isAdmin = false;
     await this.userRepo.save(user);
     await this.auditRepo.save(
       this.auditRepo.create({
         userId,
-        action: `ADMIN_SET_STATUS_${status}`,
+        action: 'ADMIN_SOFT_DELETE_USER',
         entity: 'user',
         entityId: userId,
       }),
     );
-    return { id: user.id, status: user.status, phone: user.phone, email: user.email };
+    return { id: userId, deleted: true, hard: false, status: 'CLOSED' };
+  }
+
+  async setUserStatus(userId: string, status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED') {
+    return this.updateUser(userId, { status });
   }
 
   async setUserAdmin(userId: string, isAdmin: boolean) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
-    user.isAdmin = isAdmin;
-    user.adminRoles = isAdmin ? user.adminRoles?.length ? user.adminRoles : ['ADMIN'] : null;
-    await this.userRepo.save(user);
-    await this.auditRepo.save(
-      this.auditRepo.create({
-        userId,
-        action: isAdmin ? 'ADMIN_GRANT' : 'ADMIN_REVOKE',
-        entity: 'user',
-        entityId: userId,
-      }),
-    );
-    return { id: user.id, isAdmin: user.isAdmin };
+    return this.updateUser(userId, { isAdmin });
   }
 
-  /** Credit demo wallet (demo mode only) */
   async creditUser(userId: string, amount: number, note?: string) {
     if (!amount || amount <= 0 || amount > 1_000_000) {
       throw new BadRequestException({
