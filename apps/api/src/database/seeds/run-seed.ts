@@ -13,9 +13,21 @@ import { Bonus } from '../../bonuses/entities/bonus.entity';
 config();
 
 async function run() {
+  if (!process.env.DATABASE_URL?.trim()) {
+    console.error('DATABASE_URL is not set. Example:');
+    console.error(
+      '  DATABASE_URL=postgresql://user:pass@host:5432/dbname npm run seed --workspace=@apex/api',
+    );
+    process.exit(1);
+  }
+
   const ds = new DataSource({
     type: 'postgres',
     url: process.env.DATABASE_URL,
+    ssl:
+      process.env.DATABASE_SSL === 'true'
+        ? { rejectUnauthorized: false }
+        : undefined,
     entities: [User, UserProfile, Wallet, Transaction, LedgerEntry, GameProvider, Game, Bonus],
     synchronize: true,
   });
@@ -33,40 +45,82 @@ async function run() {
   const bonusRepo = ds.getRepository(Bonus);
 
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@apexcasino.com';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
+  const adminPhone = process.env.SEED_ADMIN_PHONE || '+251911000000';
+
   let admin = await userRepo.findOne({ where: { email: adminEmail } });
   if (!admin) {
     admin = await userRepo.save(
       userRepo.create({
         email: adminEmail,
-        passwordHash: await argon2.hash(process.env.SEED_ADMIN_PASSWORD || 'Admin123!'),
+        phone: adminPhone,
+        passwordHash: await argon2.hash(adminPassword),
         status: 'ACTIVE',
         isAdmin: true,
         adminRoles: ['SUPER_ADMIN'],
         emailVerifiedAt: new Date(),
-        country: 'US',
+        country: 'ET',
         dateOfBirth: '1990-01-01',
       }),
     );
-    await profileRepo.save(profileRepo.create({ userId: admin.id, firstName: 'Apex', lastName: 'Admin' }));
-    console.log('Admin created:', adminEmail);
+    await profileRepo.save(
+      profileRepo.create({
+        userId: admin.id,
+        firstName: 'Equb',
+        lastName: 'Admin',
+        language: 'am',
+      }),
+    );
+    console.log('Admin created:', adminEmail, adminPhone);
+  } else {
+    // Ensure admin can log in with phone + has isAdmin
+    let changed = false;
+    if (!admin.phone) {
+      admin.phone = adminPhone;
+      changed = true;
+    }
+    if (!admin.isAdmin) {
+      admin.isAdmin = true;
+      admin.adminRoles = admin.adminRoles?.length
+        ? admin.adminRoles
+        : ['SUPER_ADMIN'];
+      changed = true;
+    }
+    if (changed) {
+      await userRepo.save(admin);
+      console.log('Admin updated:', adminEmail, admin.phone);
+    } else {
+      console.log('Admin already exists:', adminEmail);
+    }
   }
 
   const playerEmail = process.env.SEED_PLAYER_EMAIL || 'demo@apexcasino.com';
+  const playerPassword = process.env.SEED_PLAYER_PASSWORD || 'Demo123!';
+  const playerPhone = process.env.SEED_PLAYER_PHONE || '+251922000000';
+
   let player = await userRepo.findOne({ where: { email: playerEmail } });
   if (!player) {
     player = await userRepo.save(
       userRepo.create({
         email: playerEmail,
-        passwordHash: await argon2.hash(process.env.SEED_PLAYER_PASSWORD || 'Demo123!'),
+        phone: playerPhone,
+        passwordHash: await argon2.hash(playerPassword),
         status: 'ACTIVE',
         isAdmin: false,
         emailVerifiedAt: new Date(),
-        country: 'US',
+        country: 'ET',
         dateOfBirth: '1995-06-15',
       }),
     );
-    await profileRepo.save(profileRepo.create({ userId: player.id, firstName: 'Demo', lastName: 'Player' }));
-    console.log('Player created:', playerEmail);
+    await profileRepo.save(
+      profileRepo.create({
+        userId: player.id,
+        firstName: 'Demo',
+        lastName: 'Player',
+        language: 'am',
+      }),
+    );
+    console.log('Player created:', playerEmail, playerPhone);
   }
 
   const credits = parseInt(process.env.SEED_DEMO_CREDITS || '10000', 10);
@@ -117,12 +171,66 @@ async function run() {
   }
 
   const games = [
-    { slug: 'neon-reels', name: 'Neon Reels', category: 'SLOTS' as const, isPopular: true, isNew: true, hasJackpot: false, minBet: '0.10', maxBet: '100' },
-    { slug: 'fortune-spin', name: 'Fortune Spin', category: 'SLOTS' as const, isPopular: true, isNew: false, hasJackpot: true, minBet: '0.20', maxBet: '200' },
-    { slug: 'royal-roulette', name: 'Royal Roulette', category: 'ROULETTE' as const, isPopular: true, isNew: false, hasJackpot: false, minBet: '1', maxBet: '500' },
-    { slug: 'crash-nova', name: 'Crash Nova', category: 'CRASH' as const, isPopular: true, isNew: true, hasJackpot: false, minBet: '0.50', maxBet: '250' },
-    { slug: 'vegas-blackjack', name: 'Vegas Blackjack', category: 'BLACKJACK' as const, isPopular: true, isNew: false, hasJackpot: false, minBet: '5', maxBet: '500' },
-    { slug: 'point-baccarat', name: 'Point Baccarat', category: 'BACCARAT' as const, isPopular: false, isNew: true, hasJackpot: false, minBet: '10', maxBet: '1000' },
+    {
+      slug: 'neon-reels',
+      name: 'Neon Reels',
+      category: 'SLOTS' as const,
+      isPopular: true,
+      isNew: true,
+      hasJackpot: false,
+      minBet: '0.10',
+      maxBet: '100',
+    },
+    {
+      slug: 'fortune-spin',
+      name: 'Fortune Spin',
+      category: 'SLOTS' as const,
+      isPopular: true,
+      isNew: false,
+      hasJackpot: true,
+      minBet: '0.20',
+      maxBet: '200',
+    },
+    {
+      slug: 'royal-roulette',
+      name: 'Royal Roulette',
+      category: 'ROULETTE' as const,
+      isPopular: true,
+      isNew: false,
+      hasJackpot: false,
+      minBet: '1',
+      maxBet: '500',
+    },
+    {
+      slug: 'crash-nova',
+      name: 'Crash Nova',
+      category: 'CRASH' as const,
+      isPopular: true,
+      isNew: true,
+      hasJackpot: false,
+      minBet: '0.50',
+      maxBet: '250',
+    },
+    {
+      slug: 'vegas-blackjack',
+      name: 'Vegas Blackjack',
+      category: 'BLACKJACK' as const,
+      isPopular: true,
+      isNew: false,
+      hasJackpot: false,
+      minBet: '5',
+      maxBet: '500',
+    },
+    {
+      slug: 'point-baccarat',
+      name: 'Point Baccarat',
+      category: 'BACCARAT' as const,
+      isPopular: false,
+      isNew: true,
+      hasJackpot: false,
+      minBet: '10',
+      maxBet: '1000',
+    },
   ];
 
   for (const g of games) {
@@ -156,7 +264,17 @@ async function run() {
     console.log('Bonus seeded: Welcome Demo Credits');
   }
 
-  console.log('Seed complete.');
+  console.log('');
+  console.log('=== Seed complete ===');
+  console.log('Admin login (app):');
+  console.log('  Phone:    ', adminPhone, '  (or 0911000000)');
+  console.log('  Password: ', adminPassword);
+  console.log('  Email:    ', adminEmail);
+  console.log('Demo player:');
+  console.log('  Phone:    ', playerPhone);
+  console.log('  Password: ', playerPassword);
+  console.log('');
+
   await ds.destroy();
 }
 
