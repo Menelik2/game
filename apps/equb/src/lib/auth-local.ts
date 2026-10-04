@@ -1,4 +1,4 @@
-/** Local phone auth helpers (demo / offline). Username = phone. */
+/** Local phone auth — balance lives in accounts registry + session sync */
 
 export type Role = 'player' | 'admin';
 
@@ -52,7 +52,28 @@ export function loadAccounts(): LocalAccount[] {
 }
 
 function saveAccounts(list: LocalAccount[]) {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
+}
+
+export function getAccountById(userId: string): LocalAccount | null {
+  return loadAccounts().find((a) => a.id === userId) || null;
+}
+
+export function getAccountBalance(userId: string): number | null {
+  const a = getAccountById(userId);
+  return a ? a.balance : null;
+}
+
+/** Write balance for registered users only (no-op for pure guests) */
+export function updateLocalBalance(userId: string, balance: number): boolean {
+  const list = loadAccounts();
+  const i = list.findIndex((a) => a.id === userId);
+  if (i < 0) return false;
+  const next = Math.max(0, Math.round(Number(balance) * 100) / 100);
+  list[i] = { ...list[i]!, balance: next };
+  saveAccounts(list);
+  return true;
 }
 
 export async function registerLocal(input: {
@@ -116,18 +137,9 @@ export async function loginLocal(input: {
   return { ok: true, account };
 }
 
-export function updateLocalBalance(userId: string, balance: number) {
-  const list = loadAccounts();
-  const i = list.findIndex((a) => a.id === userId);
-  if (i >= 0) {
-    list[i] = { ...list[i]!, balance };
-    saveAccounts(list);
-  }
-}
-
 export async function ensureAdminAccount(): Promise<void> {
   const list = loadAccounts();
-  if (list.some((a) => a.role === 'admin' || a.email === ADMIN_EMAIL || a.phone === ADMIN_PHONE)) {
+  if (list.some((a) => a.role === 'admin' || a.phone === ADMIN_PHONE)) {
     return;
   }
   const passwordHash = await hashPassword(ADMIN_PASSWORD);
@@ -145,42 +157,39 @@ export async function ensureAdminAccount(): Promise<void> {
   saveAccounts(list);
 }
 
-export async function registerEmail(input: {
-  fullName: string;
-  email: string;
-  password: string;
-}): Promise<{ ok: true; account: LocalAccount } | { ok: false; error: string }> {
-  return registerLocal({
-    fullName: input.fullName,
-    phone: input.email,
-    password: input.password,
-  });
-}
-
-export async function loginEmail(input: {
-  email: string;
-  password: string;
-}): Promise<{ ok: true; account: LocalAccount } | { ok: false; error: string }> {
-  return loginLocal({ phone: input.email, password: input.password });
-}
-
 export function adminListAccounts(): LocalAccount[] {
   return loadAccounts();
 }
 
-export function adminSetBalance(userId: string, balance: number) {
-  updateLocalBalance(userId, balance);
-  return { ok: true, balance, message: `Balance set to ${balance}` };
+export function adminSetBalance(
+  userId: string,
+  balance: number,
+): { ok: boolean; balance?: number; message: string } {
+  if (!Number.isFinite(balance) || balance < 0) {
+    return { ok: false, message: 'Invalid balance' };
+  }
+  const next = Math.round(balance * 100) / 100;
+  const ok = updateLocalBalance(userId, next);
+  if (!ok) return { ok: false, message: 'User not found' };
+  return { ok: true, balance: next, message: `Balance set to ${next}` };
 }
 
-export function adminAddBalance(userId: string, amount: number) {
-  const list = loadAccounts();
-  const i = list.findIndex((a) => a.id === userId);
-  if (i < 0) return { ok: false, message: 'User not found' };
-  const next = Math.max(0, Math.round((list[i]!.balance + amount) * 100) / 100);
-  list[i] = { ...list[i]!, balance: next };
-  saveAccounts(list);
-  return { ok: true, balance: next, message: `Balance updated to ${next}` };
+export function adminAddBalance(
+  userId: string,
+  amount: number,
+): { ok: boolean; balance?: number; message: string } {
+  if (!Number.isFinite(amount) || amount === 0) {
+    return { ok: false, message: 'Enter a non-zero amount' };
+  }
+  const a = getAccountById(userId);
+  if (!a) return { ok: false, message: 'User not found' };
+  const next = Math.max(0, Math.round((a.balance + amount) * 100) / 100);
+  updateLocalBalance(userId, next);
+  return {
+    ok: true,
+    balance: next,
+    message: amount > 0 ? `Added ${amount} → ${next}` : `Adjusted ${amount} → ${next}`,
+  };
 }
 
 export function adminSetBanned(userId: string, banned: boolean) {
@@ -189,4 +198,29 @@ export function adminSetBanned(userId: string, banned: boolean) {
   if (i < 0) return;
   list[i] = { ...list[i]!, banned };
   saveAccounts(list);
+}
+
+/** Debit registered account if enough funds; returns new balance or -1 for guest */
+export function tryDebitAccount(
+  userId: string,
+  amount: number,
+): { ok: true; balance: number } | { ok: false; message: string } {
+  const a = getAccountById(userId);
+  if (!a) {
+    return { ok: true, balance: -1 };
+  }
+  if (a.balance < amount) {
+    return { ok: false, message: `Need ${amount}, have ${a.balance}` };
+  }
+  const next = Math.round((a.balance - amount) * 100) / 100;
+  updateLocalBalance(userId, next);
+  return { ok: true, balance: next };
+}
+
+export function creditAccount(userId: string, amount: number): number | null {
+  const a = getAccountById(userId);
+  if (!a) return null;
+  const next = Math.round((a.balance + amount) * 100) / 100;
+  updateLocalBalance(userId, next);
+  return next;
 }
