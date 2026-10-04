@@ -52,7 +52,13 @@ export function loadAccounts(): LocalAccount[] {
 }
 
 function saveAccounts(list: LocalAccount[]) {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
+}
+
+function normalizeBalance(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n * 100) / 100);
 }
 
 export async function registerLocal(input: {
@@ -107,13 +113,33 @@ export async function loginLocal(input: {
   return { ok: true, account };
 }
 
-export function updateLocalBalance(userId: string, balance: number) {
+/** Set absolute balance. Returns new balance or null if user not found. */
+export function updateLocalBalance(
+  userId: string,
+  balance: number,
+): number | null {
   const list = loadAccounts();
-  saveAccounts(
-    list.map((a) =>
-      a.id === userId ? { ...a, balance: Math.max(0, balance) } : a,
-    ),
-  );
+  const i = list.findIndex((a) => a.id === userId);
+  if (i < 0) return null;
+  const next = normalizeBalance(balance);
+  list[i] = { ...list[i]!, balance: next };
+  saveAccounts(list);
+  return next;
+}
+
+/** Add (or subtract) amount to current balance. */
+export function addLocalBalance(
+  userId: string,
+  amount: number,
+): number | null {
+  const list = loadAccounts();
+  const i = list.findIndex((a) => a.id === userId);
+  if (i < 0) return null;
+  if (!Number.isFinite(amount)) return list[i]!.balance;
+  const next = normalizeBalance(list[i]!.balance + amount);
+  list[i] = { ...list[i]!, balance: next };
+  saveAccounts(list);
+  return next;
 }
 
 export async function ensureAdminAccount(): Promise<void> {
@@ -203,8 +229,30 @@ export function adminListAccounts(): LocalAccount[] {
   return loadAccounts();
 }
 
-export function adminSetBalance(userId: string, balance: number) {
-  updateLocalBalance(userId, balance);
+export function adminSetBalance(
+  userId: string,
+  balance: number,
+): { ok: boolean; balance?: number; message: string } {
+  const next = updateLocalBalance(userId, balance);
+  if (next == null) return { ok: false, message: 'User not found' };
+  return { ok: true, balance: next, message: `Balance set to ${next}` };
+}
+
+export function adminAddBalance(
+  userId: string,
+  amount: number,
+): { ok: boolean; balance?: number; message: string } {
+  if (!Number.isFinite(amount) || amount === 0) {
+    return { ok: false, message: 'Enter a non-zero amount' };
+  }
+  const next = addLocalBalance(userId, amount);
+  if (next == null) return { ok: false, message: 'User not found' };
+  const sign = amount > 0 ? '+' : '';
+  return {
+    ok: true,
+    balance: next,
+    message: `${sign}${amount} Birr → balance ${next}`,
+  };
 }
 
 export function adminSetBanned(userId: string, banned: boolean) {
