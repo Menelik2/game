@@ -122,6 +122,41 @@ export async function fetchAdminUser(id: string) {
   return adminFetch(`/admin/users/${id}`);
 }
 
+export async function createAdminUser(body: {
+  fullName: string;
+  phone: string;
+  password: string;
+  isAdmin?: boolean;
+  initialBalance?: number;
+}) {
+  return adminFetch('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateAdminUser(
+  id: string,
+  body: {
+    fullName?: string;
+    phone?: string;
+    status?: string;
+    isAdmin?: boolean;
+    password?: string;
+  },
+) {
+  return adminFetch(`/admin/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteAdminUser(id: string, hard = false) {
+  return adminFetch(`/admin/users/${id}${hard ? '?hard=true' : ''}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function setAdminUserStatus(
   id: string,
   status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED',
