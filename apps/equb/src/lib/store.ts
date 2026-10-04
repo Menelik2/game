@@ -14,7 +14,12 @@ import {
 } from './equb-math';
 import { cryptographicDraw, secureRandomInt } from './crypto-rng';
 import { msg } from './i18n/messages';
-import { updateLocalBalance } from './auth-local';
+import {
+  updateLocalBalance,
+  getAccountById,
+  tryDebitAccount,
+  creditAccount,
+} from './auth-local';
 
 export type User = {
   id: string;
@@ -65,6 +70,8 @@ type State = {
   runDraw: (roomId: string) => Promise<{ ok: boolean; message: string }>;
   reopenRoom: (roomId: string) => { ok: boolean; message: string };
   claimReferral: (code: string) => { ok: boolean; message: string };
+  adjustBalance: (delta: number) => { ok: boolean; message: string; balance?: number };
+  refreshBalance: () => void;
 };
 
 const BOT_NAMES = ['አበበ', 'ትግስት', 'ከበደ', 'ሐና', 'ዮናስ', 'ማርታ', 'ዳዊት', 'ሳራ'];
@@ -98,7 +105,13 @@ function freshRound(room: LiveRoom): LiveRoom {
 }
 
 function persistBalance(user: User | null) {
-  if (user?.id) updateLocalBalance(user.id, user.balance);
+  if (!user?.id) return;
+  updateLocalBalance(user.id, user.balance);
+}
+
+function balanceFromLedger(userId: string, fallback: number): number {
+  const a = getAccountById(userId);
+  return a ? a.balance : fallback;
 }
 
 export const useEqubStore = create<State>()(
@@ -110,7 +123,10 @@ export const useEqubStore = create<State>()(
       adminEarningsTotal: 0,
       adminFeeLog: [],
 
-      setSessionUser: (user) => set({ user }),
+      setSessionUser: (user) => {
+        const bal = balanceFromLedger(user.id, user.balance);
+        set({ user: { ...user, balance: bal } });
+      },
 
       loginDemo: (name) => {
         const n = (name || 'ተጫዋች').slice(0, 24);
@@ -190,12 +206,17 @@ export const useEqubStore = create<State>()(
             message: msg('needBirr', { fee, balance: user.balance }),
           };
 
+        const debit = tryDebitAccount(user.id, fee);
+        if (!debit.ok) return { ok: false, message: debit.message };
+
+        const nextBal =
+          debit.balance >= 0
+            ? debit.balance
+            : Math.round((user.balance - fee) * 100) / 100;
+
         const member: EqubMember = { id: user.id, name: user.name, pick };
-        const nextUser = {
-          ...user,
-          balance: Math.round((user.balance - fee) * 100) / 100,
-        };
-        persistBalance(nextUser);
+        const nextUser = { ...user, balance: nextBal };
+        if (debit.balance < 0) persistBalance(nextUser);
         set({
           user: nextUser,
           rooms: get().rooms.map((r) =>
@@ -265,11 +286,13 @@ export const useEqubStore = create<State>()(
           const wasYou = !!(user && winner.id === user.id);
           let nextUser = user;
           if (wasYou && user) {
-            nextUser = {
-              ...user,
-              balance: Math.round((user.balance + winnerPayout) * 100) / 100,
-            };
-            persistBalance(nextUser);
+            const credited = creditAccount(user.id, winnerPayout);
+            const nextBal =
+              credited != null
+                ? credited
+                : Math.round((user.balance + winnerPayout) * 100) / 100;
+            nextUser = { ...user, balance: nextBal };
+            if (credited == null) persistBalance(nextUser);
           }
           const bal = nextUser?.balance ?? 0;
           const canAgain = bal >= room.contribution;
@@ -351,11 +374,53 @@ export const useEqubStore = create<State>()(
         const { rooms } = get();
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
-        // Always allow reopen so 60s auto-cycle can start a new game
         set({
           rooms: rooms.map((r) => (r.id === roomId ? freshRound(r) : r)),
         });
         return { ok: true, message: msg('newRoundOpen') };
+      },
+
+      adjustBalance: (delta) => {
+        const { user } = get();
+        if (!user) return { ok: false, message: msg('signInFirst') };
+        if (!Number.isFinite(delta) || delta === 0) {
+          return { ok: false, message: 'Invalid amount' };
+        }
+        if (delta < 0) {
+          const need = Math.abs(delta);
+          if (user.balance < need) {
+            return {
+              ok: false,
+              message: msg('needBirr', { fee: need, balance: user.balance }),
+            };
+          }
+          const debit = tryDebitAccount(user.id, need);
+          if (!debit.ok) return { ok: false, message: debit.message };
+          const nextBal =
+            debit.balance >= 0
+              ? debit.balance
+              : Math.round((user.balance - need) * 100) / 100;
+          const nextUser = { ...user, balance: nextBal };
+          set({ user: nextUser });
+          if (debit.balance < 0) persistBalance(nextUser);
+          return { ok: true, message: 'ok', balance: nextBal };
+        }
+        const credited = creditAccount(user.id, delta);
+        const nextBal =
+          credited != null
+            ? credited
+            : Math.round((user.balance + delta) * 100) / 100;
+        const nextUser = { ...user, balance: nextBal };
+        set({ user: nextUser });
+        if (credited == null) persistBalance(nextUser);
+        return { ok: true, message: 'ok', balance: nextBal };
+      },
+
+      refreshBalance: () => {
+        const { user } = get();
+        if (!user) return;
+        const bal = balanceFromLedger(user.id, user.balance);
+        if (bal !== user.balance) set({ user: { ...user, balance: bal } });
       },
 
       claimReferral: (code) => {
@@ -374,8 +439,8 @@ export const useEqubStore = create<State>()(
       },
     }),
     {
-      name: 'fast-equb-v5',
-      version: 5,
+      name: 'fast-equb-v6',
+      version: 6,
       migrate: (persisted: unknown) => {
         const p = (persisted || {}) as Record<string, unknown>;
         return {
@@ -385,6 +450,17 @@ export const useEqubStore = create<State>()(
           history: Array.isArray(p.history) ? p.history : [],
           rooms: Array.isArray(p.rooms) ? p.rooms : [],
         };
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state?.user?.id) return;
+        try {
+          const a = getAccountById(state.user.id);
+          if (a && a.balance !== state.user.balance) {
+            state.user = { ...state.user, balance: a.balance };
+          }
+        } catch {
+          /* ignore */
+        }
       },
     },
   ),
