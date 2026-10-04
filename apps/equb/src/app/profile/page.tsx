@@ -12,6 +12,11 @@ import {
 } from '@/lib/auth-local';
 import { formatBirrCompact } from '@/lib/money';
 
+function sessionIsAdmin(user: unknown): boolean {
+  if (!user || typeof user !== 'object') return false;
+  return (user as { role?: string }).role === 'admin';
+}
+
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
   const setSessionUser = useEqubStore((s) => s.setSessionUser);
@@ -171,7 +176,7 @@ export default function ProfilePage() {
           <span className="text-white/40">{t.profile.name}</span>
           <br />
           <strong>{user.name}</strong>
-          {user.role === 'admin' && (
+          {sessionIsAdmin(user) && (
             <span className="ml-2 rounded-full bg-gold-500/20 px-2 py-0.5 text-[10px] font-bold text-gold-400">
               ADMIN
             </span>
@@ -196,13 +201,13 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {user.role === 'admin' && (
+      {sessionIsAdmin(user) && (
         <Link href="/admin" className="btn-gold block w-full text-center">
           Admin dashboard
         </Link>
       )}
 
-      {!user.referredBy && user.role !== 'admin' && (
+      {!user.referredBy && !sessionIsAdmin(user) && (
         <div className="glass rounded-3xl p-5">
           <h2 className="font-semibold">{t.profile.haveCode}</h2>
           <p className="text-xs text-white/40">{t.profile.haveCodeHint}</p>
