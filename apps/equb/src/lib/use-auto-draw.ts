@@ -4,8 +4,11 @@ import { useEffect, useRef } from 'react';
 import { useEqubStore } from '@/lib/store';
 
 /**
- * When countdown hits 0: fill remaining seats with bots, then run crypto draw.
- * Resets timer to 60s after the draw.
+ * Every 60 seconds:
+ * 1. Fill empty seats with bots (if anyone joined)
+ * 2. Crypto draw → one winner
+ * 3. Show result briefly
+ * 4. Auto-reopen room + reset timer → new game
  */
 export function useAutoCryptoDraw(opts: {
   roomId: string | undefined;
@@ -26,23 +29,36 @@ export function useAutoCryptoDraw(opts: {
     if (lock.current) return;
     lock.current = true;
 
-    const room = useEqubStore.getState().rooms.find((r) => r.id === roomId);
-    if (!room || room.status !== 'open') {
-      const t = setTimeout(() => {
+    let cancelled = false;
+
+    const restart = (delayMs = 1500) => {
+      setTimeout(() => {
+        if (cancelled) return;
+        const { reopenRoom, rooms } = useEqubStore.getState();
+        const r = rooms.find((x) => x.id === roomId);
+        if (r && r.status !== 'open') {
+          reopenRoom(roomId);
+        }
         lock.current = false;
         setTick(60);
-      }, 1500);
-      return () => clearTimeout(t);
-    }
+      }, delayMs);
+    };
 
-    let cancelled = false;
+    const room = useEqubStore.getState().rooms.find((r) => r.id === roomId);
+
+    if (!room || room.status !== 'open') {
+      restart(1200);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     (async () => {
       try {
-        const { fillSeats, runDraw, rooms } = useEqubStore.getState();
+        const { fillSeats, runDraw, reopenRoom, rooms } = useEqubStore.getState();
         let r = rooms.find((x) => x.id === roomId);
         if (!r || r.status !== 'open') {
-          lock.current = false;
+          restart(1000);
           return;
         }
 
@@ -50,12 +66,11 @@ export function useAutoCryptoDraw(opts: {
           if (!cancelled) {
             setMsg(
               locale === 'am'
-                ? 'ማንም አልተቀላቀለም — ሰዓት እንደገና'
-                : 'No players joined — timer reset',
+                ? 'ማንም አልተቀላቀለም — አዲስ ዙር በ1 ደቂቃ'
+                : 'No players — new round in 1 minute',
             );
-            lock.current = false;
-            setTick(60);
           }
+          restart(1000);
           return;
         }
 
@@ -65,29 +80,33 @@ export function useAutoCryptoDraw(opts: {
           r = useEqubStore.getState().rooms.find((x) => x.id === roomId);
         }
 
-        if (!r || r.status !== 'open' || r.members.length < r.groupSize) {
-          if (!cancelled) {
-            lock.current = false;
-            setTick(60);
-          }
+        if (!r || r.members.length < r.groupSize) {
+          restart(1000);
           return;
         }
 
         if (!cancelled) setDrawing(true);
         const out = await runDraw(roomId);
-        if (!cancelled) {
-          setMsg(out.message);
-          setDrawing(false);
-          setTimeout(() => {
-            lock.current = false;
-            setTick(60);
-          }, 2500);
-        }
+        if (cancelled) return;
+
+        setMsg(out.message);
+        setDrawing(false);
+
+        setTimeout(() => {
+          if (cancelled) return;
+          reopenRoom(roomId);
+          lock.current = false;
+          setTick(60);
+          setMsg(
+            locale === 'am'
+              ? 'አዲስ ዙር ተጀመረ — 60 ሰከንድ'
+              : 'New round started — 60 seconds',
+          );
+        }, 2800);
       } catch {
         if (!cancelled) {
           setDrawing(false);
-          lock.current = false;
-          setTick(60);
+          restart(1000);
         }
       }
     })();
@@ -98,16 +117,16 @@ export function useAutoCryptoDraw(opts: {
   }, [tick, roomId, enabled, locale, setTick, setMsg, setDrawing]);
 }
 
-/** Demo countdown 60 → 0 */
+/** Continuous countdown 60 → 0 every second (demo mode) */
 export function useDemoCountdown(
-  _tick: number,
+  tick: number,
   setTick: (n: number | ((s: number) => number)) => void,
   paused: boolean,
 ) {
   useEffect(() => {
     if (paused) return;
     const id = setInterval(() => {
-      setTick((s) => (s <= 1 ? 0 : s - 1));
+      setTick((s) => (s <= 0 ? 0 : s - 1));
     }, 1000);
     return () => clearInterval(id);
   }, [paused, setTick]);
