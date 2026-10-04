@@ -52,6 +52,8 @@ export default function RoomDetailPage() {
   const runDraw = useEqubStore((s) => s.runDraw);
   const reopenRoom = useEqubStore((s) => s.reopenRoom);
   const loginDemo = useEqubStore((s) => s.loginDemo);
+  const adjustBalance = useEqubStore((s) => s.adjustBalance);
+  const refreshBalance = useEqubStore((s) => s.refreshBalance);
 
   const [msg, setMsg] = useState('');
   const [pick, setPick] = useState<number | null>(null);
@@ -78,6 +80,7 @@ export default function RoomDetailPage() {
 
   useEffect(() => {
     ensureRooms();
+    refreshBalance();
     if (!wantMp) {
       setConn('offline');
       return;
@@ -100,7 +103,7 @@ export default function RoomDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [wantMp, ensureRooms, templateId]);
+  }, [wantMp, ensureRooms, templateId, refreshBalance]);
 
   useEffect(() => {
     if (!multiplayer || !serverRoom?.id) return;
@@ -197,10 +200,24 @@ export default function RoomDetailPage() {
               setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
               return;
             }
+            if (user && user.balance < room.contribution) {
+              setMsg(
+                locale === 'am'
+                  ? `በቂ ብር የለም (ያስፈልጋል ${room.contribution})`
+                  : `Not enough balance (need ${room.contribution})`,
+              );
+              return;
+            }
             setJoining(true);
             setServerRoom(optimisticJoin(room, pick));
             try {
-              setServerRoom(await mpJoin(templateId!, pick));
+              const joined = await mpJoin(templateId!, pick);
+              setServerRoom(joined);
+              const fee = Number(joined.contribution || room.contribution || 0);
+              if (fee > 0) {
+                const deb = adjustBalance(-fee);
+                if (!deb.ok) setMsg(deb.message);
+              }
               setMsg(`#${String(pick).padStart(2, '0')}`);
             } catch (e: any) {
               setMsg(e?.message || t.common.error);
