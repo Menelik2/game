@@ -146,7 +146,6 @@ export default function RoomDetailPage() {
       <div className="space-y-4 py-12 text-center">
         <PlayBackBar />
         <p className="text-white/40">{t.common.connecting}</p>
-        <p className="text-[10px] text-white/25">Checking game server…</p>
       </div>
     );
   }
@@ -255,11 +254,6 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
-      {wantMp && conn === 'offline' && (
-        <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-center text-[10px] text-amber-200/90">
-          Live server offline — playing demo mode
-        </p>
-      )}
       {!user && (
         <button
           type="button"
