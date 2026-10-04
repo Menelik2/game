@@ -24,6 +24,8 @@ type User = {
   balance: number;
   referralCode: string;
   referredBy?: string;
+  role?: 'player' | 'admin';
+  banned?: boolean;
 };
 
 type HistoryEvent = {
@@ -122,6 +124,7 @@ export const useEqubStore = create<State>()(
             referralCode:
               n.slice(0, 4).toUpperCase() +
               Math.random().toString(36).slice(2, 6).toUpperCase(),
+            role: 'player',
           },
         });
       },
@@ -134,7 +137,6 @@ export const useEqubStore = create<State>()(
           set({ rooms: catalogToRooms() });
           return;
         }
-        // Recover rooms stuck in "drawing" after a failed draw / refresh
         const fixed = current.map((r) =>
           r.status === 'drawing' ? { ...r, status: 'open' as const } : r,
         );
@@ -146,18 +148,17 @@ export const useEqubStore = create<State>()(
       joinRoom: (roomId, pick) => {
         const { user, rooms } = get();
         if (!user) return { ok: false, message: msg('signInFirst') };
+        if (user.banned) return { ok: false, message: 'Account banned' };
 
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
 
-        // Completed round — start a new one only when user joins again
         if (room.status === 'completed') {
           const reset = freshRound(room);
           set({ rooms: rooms.map((r) => (r.id === roomId ? reset : r)) });
           return get().joinRoom(roomId, pick);
         }
 
-        // Stuck mid-draw — reopen seats without wiping members
         if (room.status === 'drawing') {
           set({
             rooms: rooms.map((r) =>
@@ -172,7 +173,6 @@ export const useEqubStore = create<State>()(
           return { ok: false, message: msg('cannotFill') };
         }
 
-        // Full open room must NOT be wiped — that was the main game bug
         if (isFull(live)) {
           return { ok: false, message: msg('alreadyFull') };
         }
@@ -239,9 +239,6 @@ export const useEqubStore = create<State>()(
         if (!room) return { ok: false, message: msg('roomNotFound') };
         if (!isFull(room)) return { ok: false, message: msg('roomNotFull') };
         if (room.status === 'completed') return { ok: false, message: msg('alreadyDrawn') };
-        if (room.status === 'drawing') {
-          // Allow retry if previous draw hung
-        }
 
         set({
           rooms: rooms.map((r) => (r.id === roomId ? { ...r, status: 'drawing' } : r)),
@@ -249,7 +246,6 @@ export const useEqubStore = create<State>()(
 
         try {
           const proof = await cryptographicDraw(room.groupSize);
-          // Prefer exact pick match; if missing (corrupt state), pick random member
           let winner = room.members.find((m) => m.pick === proof.winningNumber);
           if (!winner && room.members.length > 0) {
             winner = room.members[secureRandomInt(room.members.length)];
