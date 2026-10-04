@@ -22,27 +22,31 @@ import {
   ArrowRight,
   Percent,
   Coins,
+  Gamepad2,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   const user = useEqubStore((s) => s.user);
-  const adminEarningsTotal = useEqubStore((s) => s.adminEarningsTotal);
-  const adminFeeLog = useEqubStore((s) => s.adminFeeLog);
-  const history = useEqubStore((s) => s.history);
+  const adminEarningsTotal = useEqubStore((s) => s.adminEarningsTotal ?? 0);
+  const adminFeeLog = useEqubStore((s) => s.adminFeeLog ?? []);
+  const history = useEqubStore((s) => s.history ?? []);
+  const rooms = useEqubStore((s) => s.rooms ?? []);
+
   const [data, setData] = useState<AdminDashboard | null>(null);
   const [local, setLocal] = useState(localAdminSnapshot());
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [apiLoading, setApiLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (soft = false) => {
     setLocal(localAdminSnapshot());
     if (!isApiConfigured()) {
-      setLoading(false);
+      setError('');
+      setApiLoading(false);
       return;
     }
     if (soft) setRefreshing(true);
-    else setLoading(true);
+    else setApiLoading(true);
     setError('');
     try {
       const d = await fetchAdminDashboard();
@@ -50,7 +54,7 @@ export default function AdminDashboardPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load dashboard');
     } finally {
-      setLoading(false);
+      setApiLoading(false);
       setRefreshing(false);
     }
   }, []);
@@ -61,19 +65,18 @@ export default function AdminDashboardPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  /** Prefer fee log; fall back to history rows that include adminFee */
   const feeRows = useMemo(() => {
-    if (adminFeeLog?.length) {
+    if (adminFeeLog.length) {
       return adminFeeLog.map((e) => ({
         roomId: e.roomId,
         winnerName: e.winnerName,
-        grossPot: e.grossPot,
-        winnerPayout: e.winnerPayout,
-        adminFee: e.adminFee,
+        grossPot: Number(e.grossPot) || 0,
+        winnerPayout: Number(e.winnerPayout) || 0,
+        adminFee: Number(e.adminFee) || 0,
         at: e.at,
       }));
     }
-    return (history || [])
+    return history
       .filter((h) => typeof (h as { adminFee?: number }).adminFee === 'number')
       .map((h) => {
         const row = h as {
@@ -87,11 +90,11 @@ export default function AdminDashboardPage() {
         return {
           roomId: row.roomId,
           winnerName: row.winnerName,
-          grossPot: row.amount,
+          grossPot: Number(row.amount) || 0,
           winnerPayout:
-            row.winnerPayout ??
+            Number(row.winnerPayout) ||
             Math.round(row.amount * (1 - ADMIN_FEE_RATE) * 100) / 100,
-          adminFee: row.adminFee,
+          adminFee: Number(row.adminFee) || 0,
           at: row.at,
         };
       });
@@ -100,12 +103,16 @@ export default function AdminDashboardPage() {
   const totalFees =
     Number(adminEarningsTotal) > 0
       ? Number(adminEarningsTotal)
-      : feeRows.reduce((s, r) => s + (r.adminFee || 0), 0);
-  const totalPots = feeRows.reduce((s, r) => s + (r.grossPot || 0), 0);
-  const totalWinner = feeRows.reduce((s, r) => s + (r.winnerPayout || 0), 0);
-  const gamesCount = feeRows.length;
-  const avgFee = gamesCount ? Math.round((totalFees / gamesCount) * 100) / 100 : 0;
+      : feeRows.reduce((s, r) => s + r.adminFee, 0);
+  const totalPots = feeRows.reduce((s, r) => s + r.grossPot, 0);
+  const totalWinner = feeRows.reduce((s, r) => s + r.winnerPayout, 0);
+  const gamesCount = feeRows.length || history.length;
+  const avgFee = feeRows.length
+    ? Math.round((totalFees / feeRows.length) * 100) / 100
+    : 0;
   const feePct = Math.round(ADMIN_FEE_RATE * 100);
+  const openRooms = rooms.filter((r) => r.status === 'open').length;
+  const completedRooms = rooms.filter((r) => r.status === 'completed').length;
 
   if (!user) {
     return (
@@ -122,9 +129,43 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const maxSignups = Math.max(1, ...(data?.signupsByDay?.map((d) => d.count) || [1]));
+  const maxSignups = Math.max(
+    1,
+    ...(data?.signupsByDay?.map((d) => d.count) || [1]),
+  );
 
-  const cards = data
+  const localCards = [
+    {
+      label: 'Admin fees',
+      value: totalFees.toLocaleString(),
+      icon: Percent,
+      sub: `${feePct}% of every pot`,
+      tone: 'from-amber-500/25 to-transparent',
+    },
+    {
+      label: 'Games played',
+      value: gamesCount,
+      icon: Gamepad2,
+      sub: `${openRooms} open · ${completedRooms} done`,
+      tone: 'from-violet-500/20 to-transparent',
+    },
+    {
+      label: 'Gross pots',
+      value: totalPots.toLocaleString(),
+      icon: Wallet,
+      sub: `Winners ${totalWinner.toLocaleString()}`,
+      tone: 'from-emerald-500/20 to-transparent',
+    },
+    {
+      label: 'Local accounts',
+      value: local.total,
+      icon: Users,
+      sub: 'This browser',
+      tone: 'from-sky-500/20 to-transparent',
+    },
+  ];
+
+  const apiCards = data
     ? [
         {
           label: 'Users',
@@ -169,20 +210,14 @@ export default function AdminDashboardPage() {
           tone: 'from-red-500/20 to-transparent',
         },
       ]
-    : [
-        {
-          label: 'Local accounts',
-          value: local.total,
-          icon: Users,
-          sub: 'This browser only',
-          tone: 'from-amber-500/20 to-transparent',
-        },
-      ];
+    : localCards;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-white/45">Live operations snapshot</p>
+        <p className="text-sm text-white/45">
+          {data ? 'Live API + local game fees' : 'Local game fees · API optional'}
+        </p>
         <button
           type="button"
           onClick={() => load(true)}
@@ -194,15 +229,19 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* ——— Total + per-game admin fees ——— */}
+      {/* Always-visible fee board */}
       <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-amber-950/25 to-transparent p-5">
         <div className="mb-4 flex items-center gap-2">
           <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500 text-black">
             <Percent className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-sm font-bold text-amber-50">Admin fees · {feePct}% of every pot</h2>
-            <p className="text-[11px] text-white/40">Winner receives 85% · platform keeps {feePct}%</p>
+            <h2 className="text-sm font-bold text-amber-50">
+              Admin fees · {feePct}% of every pot
+            </h2>
+            <p className="text-[11px] text-white/40">
+              Winner 85% · platform {feePct}% · works without API
+            </p>
           </div>
         </div>
 
@@ -234,7 +273,7 @@ export default function AdminDashboardPage() {
               {totalPots.toLocaleString()}
             </p>
             <p className="text-[10px] text-white/35">
-              winners got {totalWinner.toLocaleString()}
+              winners {totalWinner.toLocaleString()}
             </p>
           </div>
         </div>
@@ -247,7 +286,7 @@ export default function AdminDashboardPage() {
 
           {feeRows.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-center text-xs text-white/40">
-              No completed games yet. After a draw finishes, each game&apos;s 15% fee appears here.
+              No completed games yet. Play a full room draw — the 15% fee will show here.
             </p>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-white/10">
@@ -266,7 +305,10 @@ export default function AdminDashboardPage() {
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {feeRows.map((r, i) => (
-                    <tr key={`${r.at}-${r.roomId}-${i}`} className="bg-black/20 hover:bg-white/[0.03]">
+                    <tr
+                      key={`${r.at}-${r.roomId}-${i}`}
+                      className="bg-black/20 hover:bg-white/[0.03]"
+                    >
                       <td className="whitespace-nowrap px-3 py-2.5 text-white/40">
                         {new Date(r.at).toLocaleString(undefined, {
                           month: 'short',
@@ -276,9 +318,11 @@ export default function AdminDashboardPage() {
                         })}
                       </td>
                       <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-white/50">
-                        {r.roomId.replace(/^equb-/, '')}
+                        {String(r.roomId).replace(/^equb-/, '')}
                       </td>
-                      <td className="px-3 py-2.5 font-medium text-white/75">{r.winnerName}</td>
+                      <td className="px-3 py-2.5 font-medium text-white/75">
+                        {r.winnerName}
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-white/60">
                         {r.grossPot.toLocaleString()}
                       </td>
@@ -294,7 +338,7 @@ export default function AdminDashboardPage() {
                 <tfoot className="border-t border-amber-500/20 bg-amber-500/10">
                   <tr className="font-bold">
                     <td className="px-3 py-2.5 text-amber-100/90" colSpan={3}>
-                      Total ({gamesCount} games)
+                      Total ({feeRows.length} games)
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-white/70">
                       {totalPots.toLocaleString()}
@@ -317,126 +361,124 @@ export default function AdminDashboardPage() {
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100">
           <strong className="font-semibold">API:</strong> {error}
           <span className="mt-1 block text-amber-100/70">
-            Need admin JWT (isAdmin). Local device data may still appear below.
+            Local fees above still work. For full user management, deploy API + seed admin
+            (0918006053 / Admin123!).
           </span>
         </div>
       )}
 
-      {loading ? (
+      {!isApiConfigured() && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/45">
+          <code className="text-amber-200/80">NEXT_PUBLIC_API_URL</code> not set — showing
+          device data only.
+        </div>
+      )}
+
+      {apiLoading && !data ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/5" />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-white/5" />
           ))}
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            {cards.map(({ label, value, icon: Icon, sub, tone }) => (
-              <div
-                key={label}
-                className={`rounded-2xl border border-white/10 bg-gradient-to-b ${tone} p-4 shadow-lg shadow-black/20`}
-              >
-                <div className="flex items-center gap-2 text-white/45">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/30">
-                    <Icon className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
-                </div>
-                <p className="mt-3 text-2xl font-black tabular-nums tracking-tight text-white">
-                  {value}
-                </p>
-                <p className="mt-0.5 text-[11px] text-white/40">{sub}</p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          {apiCards.map(({ label, value, icon: Icon, sub, tone }) => (
+            <div
+              key={label}
+              className={`rounded-2xl border border-white/10 bg-gradient-to-b ${tone} p-4 shadow-lg shadow-black/20`}
+            >
+              <div className="flex items-center gap-2 text-white/45">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/30">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
+              </div>
+              <p className="mt-3 text-2xl font-black tabular-nums tracking-tight text-white">
+                {value}
+              </p>
+              <p className="mt-0.5 text-[11px] text-white/40">{sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data?.signupsByDay && data.signupsByDay.length > 0 && (
+        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-white/85">Signups · last 7 days</h2>
+          </div>
+          <div className="flex h-36 items-end gap-2.5">
+            {data.signupsByDay.map((d) => (
+              <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
+                <span className="text-[11px] font-semibold tabular-nums text-amber-200/80">
+                  {d.count}
+                </span>
+                <div
+                  className="w-full max-w-[40px] rounded-t-lg bg-gradient-to-t from-amber-700 to-amber-400"
+                  style={{
+                    height: `${Math.max(8, (d.count / maxSignups) * 100)}%`,
+                    minHeight: 8,
+                  }}
+                />
+                <span className="text-[10px] text-white/35">{d.date.slice(5)}</span>
               </div>
             ))}
           </div>
+        </section>
+      )}
 
-          {data?.signupsByDay && data.signupsByDay.length > 0 && (
-            <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-bold text-white/85">Signups · last 7 days</h2>
-                <span className="text-[11px] text-white/35">Daily new accounts</span>
-              </div>
-              <div className="flex h-36 items-end gap-2.5">
-                {data.signupsByDay.map((d) => (
-                  <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
-                    <span className="text-[11px] font-semibold tabular-nums text-amber-200/80">
-                      {d.count}
-                    </span>
-                    <div
-                      className="w-full max-w-[40px] rounded-t-lg bg-gradient-to-t from-amber-700 to-amber-400 shadow-md shadow-amber-500/20"
-                      style={{
-                        height: `${Math.max(8, (d.count / maxSignups) * 100)}%`,
-                        minHeight: 8,
-                      }}
-                    />
-                    <span className="text-[10px] text-white/35">{d.date.slice(5)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            {data?.recentUsers && data.recentUsers.length > 0 && (
-              <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-white/85">Recent users</h2>
-                  <Link
-                    href="/admin/users"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-amber-300/90 hover:text-amber-200"
-                  >
-                    Manage <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </div>
-                <ul className="divide-y divide-white/5">
-                  {data.recentUsers.map((u) => (
-                    <li key={u.id} className="flex items-center justify-between gap-3 py-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-equb-500/20 text-sm font-bold text-equb-300">
-                          {(u.fullName || u.phone || '?').charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold">
-                            {u.fullName || u.phone || u.email}
-                          </p>
-                          <p className="truncate font-mono text-[11px] text-white/35">
-                            {u.phone || u.email}
-                          </p>
-                        </div>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                          u.status === 'ACTIVE'
-                            ? 'bg-equb-500/20 text-equb-300'
-                            : 'bg-red-500/20 text-red-300'
-                        }`}
-                      >
-                        {u.status}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {!data && local.users.length > 0 && (
-              <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 lg:col-span-2">
-                <h2 className="mb-3 text-sm font-bold text-white/85">Local accounts (this device)</h2>
-                <ul className="divide-y divide-white/5 text-sm">
-                  {local.users.map((u) => (
-                    <li key={String(u.id)} className="flex justify-between py-3">
-                      <div>
-                        <p className="font-medium">{String(u.fullName)}</p>
-                        <p className="font-mono text-[11px] text-white/35">{String(u.phone)}</p>
-                      </div>
-                      <span className="font-semibold text-amber-300/90">{String(u.balance)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+      {data?.recentUsers && data.recentUsers.length > 0 && (
+        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-white/85">Recent users</h2>
+            <Link
+              href="/admin/users"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-300/90"
+            >
+              Manage <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
-        </>
+          <ul className="divide-y divide-white/5">
+            {data.recentUsers.map((u) => (
+              <li key={u.id} className="flex items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {u.fullName || u.phone || u.email}
+                  </p>
+                  <p className="truncate font-mono text-[11px] text-white/35">
+                    {u.phone || u.email}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                    u.status === 'ACTIVE'
+                      ? 'bg-equb-500/20 text-equb-300'
+                      : 'bg-red-500/20 text-red-300'
+                  }`}
+                >
+                  {u.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {!data && local.users.length > 0 && (
+        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="mb-3 text-sm font-bold text-white/85">Local accounts (this device)</h2>
+          <ul className="divide-y divide-white/5 text-sm">
+            {local.users.map((u) => (
+              <li key={String(u.id)} className="flex justify-between py-3">
+                <div>
+                  <p className="font-medium">{String(u.fullName)}</p>
+                  <p className="font-mono text-[11px] text-white/35">{String(u.phone)}</p>
+                </div>
+                <span className="font-semibold text-amber-300/90">{String(u.balance)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );
