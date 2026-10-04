@@ -1,4 +1,4 @@
-/** Real multiplayer client — NestJS /api/equb */
+/** Real multiplayer client — NestJS /api/equb · falls back when API down */
 
 const API = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 
@@ -14,8 +14,6 @@ export function isMultiplayerEnabled(): boolean {
     ) {
       return false;
     }
-    // Same host as frontend = not a separate API
-    if (u.hostname === window.location.hostname) return false;
   } catch {
     return false;
   }
@@ -53,7 +51,8 @@ function pid() {
 export function getPlayerIdentity() {
   const playerId = pid();
   const name =
-    (typeof window !== 'undefined' && localStorage.getItem('equb_player_name')) || 'Player';
+    (typeof window !== 'undefined' && localStorage.getItem('equb_player_name')) ||
+    'Player';
   return { playerId, name };
 }
 
@@ -63,15 +62,18 @@ export function setPlayerName(name: string) {
   }
 }
 
-async function req<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
-  const timeoutMs = init?.timeoutMs ?? 5000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!API) throw new Error('API not configured');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
   try {
     const res = await fetch(`${API}/api${path}`, {
       ...init,
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers || {}),
+      },
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -82,42 +84,43 @@ async function req<T>(path: string, init?: RequestInit & { timeoutMs?: number })
       throw new Error(msg);
     }
     return (json?.data !== undefined ? json.data : json) as T;
-  } catch (e) {
-    if (e instanceof Error && e.name === 'AbortError') {
-      throw new Error('API timeout');
-    }
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error('API timeout');
     throw e;
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** Returns true if backend health responds quickly */
+export async function probeApi(): Promise<boolean> {
+  if (!isMultiplayerEnabled()) return false;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5_000);
+    const res = await fetch(`${API}/api/health`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function openRoom(templateId: string) {
-  return req<ServerRoom>(`/equb/rooms/${templateId}/open`, {
+  return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(templateId)}/open`, {
     method: 'POST',
     body: '{}',
-    timeoutMs: 4000,
   });
 }
 
 export function fetchRoom(id: string) {
-  return req<ServerRoom>(`/equb/rooms/${id}`, { timeoutMs: 4000 });
+  return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(id)}`);
 }
 
 export function joinRoom(templateId: string, pick: number) {
   const { playerId, name } = getPlayerIdentity();
-  return req<ServerRoom>(`/equb/rooms/${templateId}/join`, {
+  return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(templateId)}/join`, {
     method: 'POST',
     body: JSON.stringify({ playerId, name, pick }),
-    timeoutMs: 4000,
-  });
-}
-
-export function drawRoom(roomId: string) {
-  const { playerId } = getPlayerIdentity();
-  return req<ServerRoom>(`/equb/rooms/${roomId}/draw`, {
-    method: 'POST',
-    body: JSON.stringify({ playerId }),
-    timeoutMs: 8000,
   });
 }
