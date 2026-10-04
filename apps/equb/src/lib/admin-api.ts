@@ -39,11 +39,16 @@ async function adminFetch(path: string, init?: RequestInit) {
 export type AdminDashboard = {
   registeredUsers: number;
   activeUsers: number;
+  suspendedUsers?: number;
+  adminUsers?: number;
   activeGames: number;
   totalTransactions: number;
   transactionsLast24h: number;
+  newUsersLast7d?: number;
   totalDemoBalance: number;
   demoMode: boolean;
+  realMoneyEnabled?: boolean;
+  signupsByDay?: { date: string; count: number }[];
   recentUsers: Array<{
     id: string;
     phone?: string | null;
@@ -60,6 +65,14 @@ export type AdminDashboard = {
     amount: string;
     currency: string;
     status: string;
+    createdAt: string;
+  }>;
+  recentAudit?: Array<{
+    id: string;
+    userId?: string | null;
+    action: string;
+    entity?: string | null;
+    entityId?: string | null;
     createdAt: string;
   }>;
 };
@@ -80,16 +93,33 @@ export async function fetchAdminDashboard(): Promise<AdminDashboard> {
   return adminFetch('/admin/dashboard') as Promise<AdminDashboard>;
 }
 
+export async function fetchAdminHealth() {
+  return adminFetch('/admin/health') as Promise<{
+    ok: boolean;
+    database: string;
+    demoMode: boolean;
+    realMoneyEnabled: boolean;
+    nodeEnv: string;
+    timestamp: string;
+  }>;
+}
+
 export async function fetchAdminUsers(
   page = 1,
   q = '',
+  status = '',
 ): Promise<{ items: AdminUser[]; meta: { page: number; total: number; totalPages: number } }> {
   const qs = new URLSearchParams({ page: String(page), limit: '20' });
   if (q) qs.set('q', q);
+  if (status) qs.set('status', status);
   return adminFetch(`/admin/users?${qs}`) as Promise<{
     items: AdminUser[];
     meta: { page: number; total: number; totalPages: number };
   }>;
+}
+
+export async function fetchAdminUser(id: string) {
+  return adminFetch(`/admin/users/${id}`);
 }
 
 export async function setAdminUserStatus(
@@ -102,7 +132,34 @@ export async function setAdminUserStatus(
   });
 }
 
-/** Local offline admin snapshot from browser accounts */
+export async function setAdminFlag(id: string, isAdmin: boolean) {
+  return adminFetch(`/admin/users/${id}/admin`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isAdmin }),
+  });
+}
+
+export async function creditUser(id: string, amount: number, note?: string) {
+  return adminFetch(`/admin/users/${id}/credit`, {
+    method: 'POST',
+    body: JSON.stringify({ amount, note }),
+  });
+}
+
+export async function fetchAdminAudit(page = 1) {
+  return adminFetch(`/admin/audit?page=${page}&limit=40`) as Promise<{
+    items: Array<{
+      id: string;
+      userId?: string | null;
+      action: string;
+      entity?: string | null;
+      entityId?: string | null;
+      createdAt: string;
+    }>;
+    meta: { page: number; total: number; totalPages: number };
+  }>;
+}
+
 export function localAdminSnapshot() {
   if (typeof window === 'undefined') {
     return { users: [] as Array<Record<string, unknown>>, total: 0 };
