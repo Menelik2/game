@@ -8,6 +8,7 @@ import { KycService } from './kyc/kyc.service';
 import { KycController } from './kyc/kyc.controller';
 import { AmlService } from './aml/aml.service';
 import { ManualReviewController } from './review/manual-review.controller';
+import { RealMoneyGate } from './real-money.gate';
 import { KYC_PROVIDER } from './kyc/kyc-provider.interface';
 import { NullKycProvider } from './kyc/providers/null.kyc-provider';
 import { SandboxKycProvider } from './kyc/providers/sandbox.kyc-provider';
@@ -21,6 +22,7 @@ import { SandboxKycProvider } from './kyc/providers/sandbox.kyc-provider';
   providers: [
     KycService,
     AmlService,
+    RealMoneyGate,
     NullKycProvider,
     SandboxKycProvider,
     {
@@ -31,14 +33,18 @@ import { SandboxKycProvider } from './kyc/providers/sandbox.kyc-provider';
         nullProvider: NullKycProvider,
         sandbox: SandboxKycProvider,
       ) => {
-        const name = (config.get<string>('KYC_PROVIDER') || process.env.KYC_PROVIDER || 'null')
-          .toLowerCase();
-        // Production real-money should set KYC_PROVIDER=sumsub|onfido|… and wire that class.
+        const name = (
+          config.get<string>('KYC_PROVIDER') ||
+          process.env.KYC_PROVIDER ||
+          'null'
+        ).toLowerCase();
+        // Production real-money: set KYC_PROVIDER to a real vendor implementation.
+        // Never map "skip" or "auto_approve" here.
         if (name === 'sandbox') return sandbox;
         return nullProvider;
       },
     },
   ],
-  exports: [KycService, AmlService],
+  exports: [KycService, AmlService, RealMoneyGate],
 })
 export class ComplianceModule {}
