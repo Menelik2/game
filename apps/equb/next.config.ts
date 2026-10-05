@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Do NOT set output: 'export' — API routes need the Node serverless runtime
   env: {
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE || 'true',
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
