@@ -1,3 +1,7 @@
+/**
+ * Database-only auth (Supabase app_users). No localStorage accounts.
+ */
+
 export type ApiUser = {
   id: string;
   fullName: string;
@@ -22,42 +26,44 @@ export async function apiRegister(input: {
   fullName: string;
   phone: string;
   password: string;
-}): Promise<
-  | { ok: true; user: ApiUser; source: 'db' }
-  | { ok: false; error: string; fallbackLocal?: boolean }
-> {
+}): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
   try {
     const { res, json } = await post('/api/auth/register', input);
     if (json?.code === 'DB_NOT_CONFIGURED') {
-      return { ok: false, error: json.message || 'DB not configured', fallbackLocal: true };
+      return {
+        ok: false,
+        error:
+          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then run migration 20261005_app_users.sql in Supabase.',
+      };
     }
     if (!res.ok || !json?.success) {
       return { ok: false, error: json?.message || 'Register failed' };
     }
-    return { ok: true, user: json.data as ApiUser, source: 'db' };
+    return { ok: true, user: json.data as ApiUser };
   } catch {
-    return { ok: false, error: 'Network error', fallbackLocal: true };
+    return { ok: false, error: 'Cannot reach database API' };
   }
 }
 
 export async function apiLogin(input: {
   phone: string;
   password: string;
-}): Promise<
-  | { ok: true; user: ApiUser; source: 'db' }
-  | { ok: false; error: string; fallbackLocal?: boolean }
-> {
+}): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
   try {
     const { res, json } = await post('/api/auth/login', input);
     if (json?.code === 'DB_NOT_CONFIGURED') {
-      return { ok: false, error: json.message || 'DB not configured', fallbackLocal: true };
+      return {
+        ok: false,
+        error:
+          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY on Vercel.',
+      };
     }
     if (!res.ok || !json?.success) {
-      return { ok: false, error: json?.message || 'Login failed' };
+      return { ok: false, error: json?.message || 'Invalid phone or password' };
     }
-    return { ok: true, user: json.data as ApiUser, source: 'db' };
+    return { ok: true, user: json.data as ApiUser };
   } catch {
-    return { ok: false, error: 'Network error', fallbackLocal: true };
+    return { ok: false, error: 'Cannot reach database API' };
   }
 }
 
@@ -76,7 +82,6 @@ export async function apiListUsers(): Promise<ApiUser[] | null> {
   try {
     const res = await fetch('/api/users');
     const json = await res.json();
-    if (json?.code === 'DB_NOT_CONFIGURED') return null;
     if (!res.ok || !json?.success) return null;
     return (json.data?.items || []) as ApiUser[];
   } catch {

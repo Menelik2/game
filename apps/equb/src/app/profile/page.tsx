@@ -1,15 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import {
-  ensureAdminAccount,
-  loginLocal,
-  registerLocal,
-} from '@/lib/auth-local';
 import { apiLogin, apiRegister } from '@/lib/auth-api';
 import { formatBirrCompact } from '@/lib/money';
 
@@ -21,7 +16,6 @@ function sessionIsAdmin(user: unknown): boolean {
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
   const setSessionUser = useEqubStore((s) => s.setSessionUser);
-  const loginDemo = useEqubStore((s) => s.loginDemo);
   const logout = useEqubStore((s) => s.logout);
   const claimReferral = useEqubStore((s) => s.claimReferral);
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -33,102 +27,51 @@ export default function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const { t, locale } = useI18n();
 
-  useEffect(() => {
-    void ensureAdminAccount();
-  }, []);
-
   async function handleAuth() {
     setBusy(true);
     setMsg('');
     try {
       if (mode === 'register') {
-        const db = await apiRegister({ fullName, phone, password });
-        if (db.ok) {
-          setSessionUser({
-            id: db.user.id,
-            name: db.user.fullName,
-            email: `${db.user.phone}@phone.equb`,
-            phone: db.user.phone,
-            balance: db.user.balance,
-            referralCode: db.user.referralCode,
-            role: (db.user.role as 'player' | 'admin') || 'player',
-          });
-          setMsg(
-            locale === 'am'
-              ? 'ተመዝግበዋል (DB) · 5,000 ብር'
-              : 'Registered in database · 5,000 Birr',
-          );
-          return;
-        }
-        if (!db.fallbackLocal) {
-          setMsg(db.error);
-          return;
-        }
-        const r = await registerLocal({ fullName, phone, password });
+        const r = await apiRegister({ fullName, phone, password });
         if (!r.ok) {
           setMsg(r.error);
           return;
         }
         setSessionUser({
-          id: r.account.id,
-          name: r.account.fullName,
-          email: r.account.email || `${r.account.phone}@phone.equb`,
-          phone: r.account.phone,
-          balance: r.account.balance,
-          referralCode: r.account.referralCode,
-          role: r.account.role || 'player',
+          id: r.user.id,
+          name: r.user.fullName,
+          email: `${r.user.phone}@phone.equb`,
+          phone: r.user.phone,
+          balance: r.user.balance,
+          referralCode: r.user.referralCode,
+          role: (r.user.role as 'player' | 'admin') || 'player',
         });
         setMsg(
           locale === 'am'
-            ? 'ተመዝግበዋል (local) · 5,000 ብር'
-            : 'Registered locally · 5,000 Birr',
+            ? 'ተመዝግበዋል · መረጃ በዳታቤዝ ተቀምጧል · 5,000 ብር'
+            : 'Registered · saved in database · 5,000 Birr',
         );
       } else {
-        const db = await apiLogin({ phone, password });
-        if (db.ok) {
-          setSessionUser({
-            id: db.user.id,
-            name: db.user.fullName,
-            email: `${db.user.phone}@phone.equb`,
-            phone: db.user.phone,
-            balance: db.user.balance,
-            referralCode: db.user.referralCode,
-            role: (db.user.role as 'player' | 'admin') || 'player',
-            banned: db.user.banned,
-          });
-          setMsg(
-            db.user.role === 'admin'
-              ? locale === 'am'
-                ? 'አስተዳዳሪ (DB)'
-                : 'Admin (database)'
-              : locale === 'am'
-                ? 'እንኳን ደህና መጡ'
-                : 'Welcome',
-          );
-          return;
-        }
-        if (!db.fallbackLocal) {
-          setMsg(db.error);
-          return;
-        }
-        const r = await loginLocal({ phone, password });
+        const r = await apiLogin({ phone, password });
         if (!r.ok) {
           setMsg(r.error);
           return;
         }
         setSessionUser({
-          id: r.account.id,
-          name: r.account.fullName,
-          email: r.account.email || `${r.account.phone}@phone.equb`,
-          phone: r.account.phone,
-          balance: r.account.balance,
-          referralCode: r.account.referralCode,
-          role: r.account.role || 'player',
-          banned: r.account.banned,
+          id: r.user.id,
+          name: r.user.fullName,
+          email: `${r.user.phone}@phone.equb`,
+          phone: r.user.phone,
+          balance: r.user.balance,
+          referralCode: r.user.referralCode,
+          role: (r.user.role as 'player' | 'admin') || 'player',
+          banned: r.user.banned,
         });
         setMsg(
-          r.account.role === 'admin'
-            ? 'Admin (local)'
+          r.user.role === 'admin'
+            ? locale === 'am'
+              ? 'አስተዳዳሪ ገብተዋል (ዳታቤዝ)'
+              : 'Admin signed in (database)'
             : locale === 'am'
               ? 'እንኳን ደህና መጡ'
               : 'Welcome',
@@ -147,6 +90,11 @@ export default function ProfilePage() {
           <LanguageSwitcher />
         </div>
         <div className="glass space-y-4 rounded-3xl p-6">
+          <p className="text-[11px] text-white/40">
+            {locale === 'am'
+              ? 'መለያ በዳታቤዝ ብቻ ይመዘገባል (localStorage አይደለም)'
+              : 'Accounts are stored in the database only (not localStorage)'}
+          </p>
           <div className="flex gap-2">
             <button
               type="button"
@@ -215,17 +163,16 @@ export default function ProfilePage() {
             onClick={() => void handleAuth()}
             className="btn-gold w-full disabled:opacity-50"
           >
-            {busy ? '…' : mode === 'login' ? (locale === 'am' ? 'ግባ' : 'Sign in') : locale === 'am' ? 'መለያ ፍጠር' : 'Create account'}
+            {busy
+              ? '…'
+              : mode === 'login'
+                ? locale === 'am'
+                  ? 'ግባ'
+                  : 'Sign in'
+                : locale === 'am'
+                  ? 'መለያ ፍጠር'
+                  : 'Create account'}
           </button>
-          <div className="border-t border-white/10 pt-4">
-            <button
-              type="button"
-              onClick={() => loginDemo(fullName || undefined)}
-              className="w-full rounded-2xl border border-white/15 py-3 text-sm text-white/80"
-            >
-              {t.common.startDemo}
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -239,43 +186,72 @@ export default function ProfilePage() {
       </div>
       <div className="glass space-y-3 rounded-3xl p-5 text-sm">
         <p>
-          <span className="text-white/40">{locale === 'am' ? 'ሙሉ ስም' : 'Full name'}</span>
+          <span className="text-white/40">
+            {locale === 'am' ? 'ሙሉ ስም' : 'Full name'}
+          </span>
           <br />
           <strong>{user.name}</strong>
           {sessionIsAdmin(user) && (
-            <span className="ml-2 rounded-full bg-gold-500/20 px-2 py-0.5 text-[10px] font-bold text-gold-400">ADMIN</span>
+            <span className="ml-2 rounded-full bg-gold-500/20 px-2 py-0.5 text-[10px] font-bold text-gold-400">
+              ADMIN
+            </span>
           )}
         </p>
         <p>
-          <span className="text-white/40">{locale === 'am' ? 'ስልክ' : 'Phone'}</span>
+          <span className="text-white/40">
+            {locale === 'am' ? 'ስልክ' : 'Phone'}
+          </span>
           <br />
           <strong className="font-mono text-xs">{user.phone || user.email}</strong>
         </p>
         <p>
           <span className="text-white/40">{t.profile.balance}</span>
           <br />
-          <strong className="text-equb-400">{formatBirrCompact(user.balance, locale)}</strong>
+          <strong className="text-equb-400">
+            {formatBirrCompact(user.balance, locale)}
+          </strong>
         </p>
         <p>
           <span className="text-white/40">{t.profile.inviteCode}</span>
           <br />
           <strong className="font-mono tracking-widest">{user.referralCode}</strong>
         </p>
+        <p className="text-[10px] text-white/30">
+          ID: <span className="font-mono">{user.id}</span>
+        </p>
       </div>
       {sessionIsAdmin(user) && (
-        <Link href="/admin" className="btn-gold block w-full text-center">Admin dashboard</Link>
+        <Link href="/admin" className="btn-gold block w-full text-center">
+          Admin dashboard
+        </Link>
       )}
       {!user.referredBy && !sessionIsAdmin(user) && (
         <div className="glass rounded-3xl p-5">
           <h2 className="font-semibold">{t.profile.haveCode}</h2>
           <div className="mt-3 flex gap-2">
-            <input value={code} onChange={(e) => setCode(e.target.value)} className="flex-1 rounded-xl border border-white/10 bg-surface-800 px-3 py-2 text-sm" />
-            <button type="button" className="rounded-xl bg-equb-500/30 px-4 text-sm font-bold text-equb-300" onClick={() => setMsg(claimReferral(code).message)}>{t.profile.apply}</button>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="flex-1 rounded-xl border border-white/10 bg-surface-800 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              className="rounded-xl bg-equb-500/30 px-4 text-sm font-bold text-equb-300"
+              onClick={() => setMsg(claimReferral(code).message)}
+            >
+              {t.profile.apply}
+            </button>
           </div>
           {msg && <p className="mt-2 text-xs text-amber-300">{msg}</p>}
         </div>
       )}
-      <button type="button" onClick={() => logout()} className="w-full rounded-2xl border border-white/15 py-3 text-sm text-white/70">{t.common.signOut}</button>
+      <button
+        type="button"
+        onClick={() => logout()}
+        className="w-full rounded-2xl border border-white/15 py-3 text-sm text-white/70"
+      >
+        {t.common.signOut}
+      </button>
     </div>
   );
 }
