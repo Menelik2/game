@@ -213,6 +213,7 @@ export default function WalletPage() {
                       entropyHex: h.entropyHex!,
                       commitmentHash: h.commitmentHash!,
                       groupSize: 100,
+                      drawnAt: h.at,
                     });
                     setVerifyMsg(ok ? 'Proof OK' : 'Proof failed');
                   }}
