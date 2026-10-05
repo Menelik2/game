@@ -3,10 +3,17 @@ import { hashPassword, normalizePhone } from '@/lib/password';
 import { dbRegister } from '@/lib/server/db-users';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    let body: Record<string, unknown> = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
     const fullName = String(body.fullName || body.name || '').trim();
     const phoneRaw = String(body.phone || '').trim();
     const password = String(body.password || '');
@@ -37,8 +44,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const passwordHash = await hashPassword(password);
-    const r = await dbRegister({ fullName, phone, passwordHash });
+    const r = await dbRegister({
+      fullName,
+      phone,
+      passwordHash: hashPassword(password),
+    });
 
     if (!r.ok) {
       return NextResponse.json(
@@ -48,9 +58,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, data: r.user });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Register failed';
+    console.error('[auth/register]', message);
     return NextResponse.json(
-      { success: false, message: e?.message || 'Register failed' },
+      { success: false, message: `Register error: ${message}` },
       { status: 500 },
     );
   }

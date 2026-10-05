@@ -1,9 +1,14 @@
-export async function hashPassword(password: string): Promise<string> {
-  const data = new TextEncoder().encode(`equb-v1:${password}`);
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+import { createHash, randomBytes } from 'crypto';
+
+/** Deterministic password hash (Node crypto — Vercel Node runtime) */
+export function hashPassword(password: string): string {
+  return createHash('sha256')
+    .update(`equb-v1:${password}`, 'utf8')
+    .digest('hex');
+}
+
+export async function hashPasswordAsync(password: string): Promise<string> {
+  return hashPassword(password);
 }
 
 export function normalizePhone(raw: string): string | null {
@@ -18,4 +23,10 @@ export function normalizePhone(raw: string): string | null {
     return `+251${digits.slice(1)}`;
   }
   return null;
+}
+
+export function newId(): string {
+  return randomBytes(16)
+    .toString('hex')
+    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 }
