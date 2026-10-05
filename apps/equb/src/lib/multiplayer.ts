@@ -35,16 +35,18 @@ export type ServerRoom = {
   groupSize: number;
   prizePool: number;
   contribution: number;
-  tier: string;
+  tier?: string;
   status: 'open' | 'drawing' | 'completed';
   members: Array<{ playerId: string; name: string; pick: number; joinedAt: number }>;
   winningNumber: number | null;
   winnerId: string | null;
+  winnerName?: string | null;
   entropyHex?: string | null;
   commitmentHash?: string | null;
   drawAt?: number;
   secondsLeft?: number;
   updatedAt?: number;
+  recent?: Array<{ id: string; winningNumber: number; winnerName: string; pot: number; at: number }>;
 };
 
 function pid() {
