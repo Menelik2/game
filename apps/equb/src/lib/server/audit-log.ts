@@ -1,4 +1,4 @@
-/** Server-side audit helpers — not a Next.js route file */
+/** Server audit log — import from here, never from a route.ts */
 
 export type AuditEntry = {
   id: string;
@@ -14,7 +14,7 @@ export type AuditEntry = {
 const g = globalThis as unknown as { __nextAudit?: AuditEntry[] };
 if (!g.__nextAudit) g.__nextAudit = [];
 
-export function pushAudit(
+export function recordAudit(
   entry: Omit<AuditEntry, 'id' | 'at'> & { id?: string; at?: number },
 ) {
   const at = entry.at || Date.now();
@@ -30,6 +30,9 @@ export function pushAudit(
   });
   if (g.__nextAudit!.length > 200) g.__nextAudit!.length = 200;
 }
+
+/** @deprecated use recordAudit */
+export const pushAudit = recordAudit;
 
 export function listAudit(limit = 50): AuditEntry[] {
   return (g.__nextAudit || []).slice(0, limit);
