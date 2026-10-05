@@ -1,43 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { listAudit, auditCount } from '@/lib/server/audit-log';
 
 export const dynamic = 'force-dynamic';
-
-type AuditEntry = {
-  id: string;
-  action: string;
-  entity?: string;
-  entityId?: string;
-  userId?: string;
-  metadata?: Record<string, unknown>;
-  at: number;
-};
-
-const g = globalThis as unknown as { __nextAudit?: AuditEntry[] };
-if (!g.__nextAudit) g.__nextAudit = [];
-
-export function pushAudit(
-  entry: Omit<AuditEntry, 'id' | 'at'> & { id?: string; at?: number },
-) {
-  g.__nextAudit!.unshift({
-    id: entry.id || `a_${Date.now().toString(36)}`,
-    action: entry.action,
-    entity: entry.entity,
-    entityId: entry.entityId,
-    userId: entry.userId,
-    metadata: entry.metadata,
-    at: entry.at || Date.now(),
-  });
-  if (g.__nextAudit!.length > 200) g.__nextAudit!.length = 200;
-}
 
 export async function GET(req: NextRequest) {
   const limit = Math.min(
     100,
     Number(req.nextUrl.searchParams.get('limit')) || 50,
   );
-  const items = (g.__nextAudit || []).slice(0, limit);
+  const page = Math.max(1, Number(req.nextUrl.searchParams.get('page')) || 1);
+  const all = listAudit(200);
+  const total = auditCount();
+  const start = (page - 1) * limit;
+  const items = all.slice(start, start + limit).map((a) => ({
+    id: a.id,
+    action: a.action,
+    entity: a.entity ?? null,
+    entityId: a.entityId ?? null,
+    userId: a.userId ?? null,
+    createdAt: a.createdAt || new Date(a.at).toISOString(),
+  }));
   return NextResponse.json({
     success: true,
-    data: { items, total: (g.__nextAudit || []).length },
+    data: {
+      items,
+      total,
+      meta: {
+        page,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    },
   });
 }
