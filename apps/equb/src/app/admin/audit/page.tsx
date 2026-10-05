@@ -7,7 +7,7 @@ import { fetchAdminAudit } from '@/lib/admin-api';
 import { isApiConfigured } from '@/lib/api';
 import { AlertCircle, ScrollText } from 'lucide-react';
 
-export type AuditRow = {
+type AuditRow = {
   id: string;
   action: string;
   entity?: string | null;
@@ -42,14 +42,14 @@ export default function AdminAuditPage() {
         const res = await fetchAdminAudit(page);
         if (cancelled) return;
         const rows: AuditRow[] = (res.items || []).map((raw) => {
-          const r = raw as AuditRow;
+          const r = raw as Partial<AuditRow> & { id: string; action: string };
           return {
             id: r.id,
             action: r.action,
             entity: r.entity ?? null,
             entityId: r.entityId ?? null,
             userId: r.userId ?? null,
-            createdAt: r.createdAt,
+            createdAt: r.createdAt || new Date().toISOString(),
           };
         });
         setItems(rows);
@@ -95,29 +95,24 @@ export default function AdminAuditPage() {
         <p className="text-sm text-white/40">No audit events yet.</p>
       ) : (
         <ul className="space-y-2">
-          {items.map((row) => {
-            const entityLabel = row.entity || '—';
-            const entityPart = row.entityId ? ` · ${shortId(row.entityId)}` : '';
-            const userPart = row.userId ? ` · user ${shortId(row.userId)}` : '';
-            return (
-              <li
-                key={row.id}
-                className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-amber-100">{row.action}</span>
-                  <span className="text-[11px] text-white/35">
-                    {new Date(row.createdAt).toLocaleString()}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-white/40">
-                  {entityLabel}
-                  {entityPart}
-                  {userPart}
-                </p>
-              </li>
-            );
-          })}
+          {items.map((row) => (
+            <li
+              key={row.id}
+              className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-amber-100">{row.action}</span>
+                <span className="text-[11px] text-white/35">
+                  {new Date(row.createdAt).toLocaleString()}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-white/40">
+                {row.entity || '—'}
+                {row.entityId ? ` · ${shortId(row.entityId)}` : ''}
+                {row.userId ? ` · user ${shortId(row.userId)}` : ''}
+              </p>
+            </li>
+          ))}
         </ul>
       )}
 

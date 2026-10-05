@@ -36,6 +36,15 @@ async function adminFetch(path: string, init?: RequestInit) {
   return body;
 }
 
+export type AdminAuditItem = {
+  id: string;
+  userId?: string | null;
+  action: string;
+  entity?: string | null;
+  entityId?: string | null;
+  createdAt: string;
+};
+
 export type AdminDashboard = {
   registeredUsers: number;
   activeUsers: number;
@@ -67,14 +76,7 @@ export type AdminDashboard = {
     status: string;
     createdAt: string;
   }>;
-  recentAudit?: Array<{
-    id: string;
-    userId?: string | null;
-    action: string;
-    entity?: string | null;
-    entityId?: string | null;
-    createdAt: string;
-  }>;
+  recentAudit?: AdminAuditItem[];
 };
 
 export type AdminUser = {
@@ -181,16 +183,12 @@ export async function creditUser(id: string, amount: number, note?: string) {
   });
 }
 
-export async function fetchAdminAudit(page = 1) {
+export async function fetchAdminAudit(page = 1): Promise<{
+  items: AdminAuditItem[];
+  meta: { page: number; total: number; totalPages: number };
+}> {
   return adminFetch(`/admin/audit?page=${page}&limit=40`) as Promise<{
-    items: Array<{
-      id: string;
-      userId?: string | null;
-      action: string;
-      entity?: string | null;
-      entityId?: string | null;
-      createdAt: string;
-    }>;
+    items: AdminAuditItem[];
     meta: { page: number; total: number; totalPages: number };
   }>;
 }
