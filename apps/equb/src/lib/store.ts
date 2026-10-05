@@ -20,6 +20,8 @@ import {
   tryDebitAccount,
   creditAccount,
 } from './auth-local';
+import { apiAdjustBalance, apiRefreshUser, isDbUserId } from './auth-api';
+import { loadSessionUserId, saveSessionUserId } from './session';
 
 export type User = {
   id: string;
@@ -105,16 +107,16 @@ function freshRound(room: LiveRoom): LiveRoom {
 }
 
 function persistBalance(user: User | null) {
-  if (!user?.id) return;
+  if (!user?.id || isDbUserId(user.id)) return;
   updateLocalBalance(user.id, user.balance);
 }
 
 function balanceFromLedger(userId: string, fallback: number): number {
+  if (isDbUserId(userId)) return fallback;
   const a = getAccountById(userId);
   return a ? a.balance : fallback;
 }
 
-/** Real-time UI: notify LiveBalance listeners in the same tab */
 function emitBalance(balance: number, userId: string) {
   if (typeof window === 'undefined') return;
   try {
@@ -138,20 +140,41 @@ export const useEqubStore = create<State>()(
       adminFeeLog: [],
 
       setSessionUser: (user) => {
-        const bal = balanceFromLedger(user.id, user.balance);
+        const bal = isDbUserId(user.id)
+          ? user.balance
+          : balanceFromLedger(user.id, user.balance);
         const next = { ...user, balance: bal };
         set({ user: next });
+        saveSessionUserId(user.id);
         emitBalance(bal, user.id);
+        if (isDbUserId(user.id)) {
+          void apiRefreshUser(user.id).then((u) => {
+            if (!u) return;
+            const cur = get().user;
+            if (cur?.id !== u.id) return;
+            set({
+              user: {
+                ...cur,
+                name: u.fullName,
+                phone: u.phone,
+                balance: u.balance,
+                role: u.role as any,
+                referralCode: u.referralCode,
+              },
+            });
+            emitBalance(u.balance, u.id);
+          });
+        }
       },
 
       loginDemo: (name) => {
         const n = (name || 'ተጫዋች').slice(0, 24);
         const u = {
-          id: `u_${Date.now().toString(36)}`,
+          id: `demo_${Date.now().toString(36)}`,
           name: n,
           phone: undefined as string | undefined,
           email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
-          balance: 5000,
+          balance: 100,
           referralCode:
             n.slice(0, 4).toUpperCase() +
             Math.random().toString(36).slice(2, 6).toUpperCase(),
@@ -161,7 +184,10 @@ export const useEqubStore = create<State>()(
         emitBalance(u.balance, u.id);
       },
 
-      logout: () => set({ user: null }),
+      logout: () => {
+        saveSessionUserId(null);
+        set({ user: null });
+      },
 
       ensureRooms: () => {
         const current = get().rooms;
@@ -200,15 +226,8 @@ export const useEqubStore = create<State>()(
         }
 
         const live = get().rooms.find((r) => r.id === roomId)!;
-
-        if (live.status !== 'open') {
-          return { ok: false, message: msg('cannotFill') };
-        }
-
-        if (isFull(live)) {
-          return { ok: false, message: msg('alreadyFull') };
-        }
-
+        if (live.status !== 'open') return { ok: false, message: msg('cannotFill') };
+        if (isFull(live)) return { ok: false, message: msg('alreadyFull') };
         if (live.members.some((m) => m.id === user.id))
           return { ok: false, message: msg('alreadyInRound') };
         if (pick < 1 || pick > live.groupSize)
@@ -222,26 +241,17 @@ export const useEqubStore = create<State>()(
             message: msg('needBirr', { fee, balance: user.balance }),
           };
 
-        const debit = tryDebitAccount(user.id, fee);
+        const member: EqubMember = { id: user.id, name: user.name, pick };
+        const debit = get().adjustBalance(-fee);
         if (!debit.ok) return { ok: false, message: debit.message };
 
-        const nextBal =
-          debit.balance >= 0
-            ? debit.balance
-            : Math.round((user.balance - fee) * 100) / 100;
-
-        const member: EqubMember = { id: user.id, name: user.name, pick };
-        const nextUser = { ...user, balance: nextBal };
-        if (debit.balance < 0) persistBalance(nextUser);
         set({
-          user: nextUser,
           rooms: get().rooms.map((r) =>
             r.id === roomId
               ? { ...r, members: [...r.members, member], status: 'open' as const }
               : r,
           ),
         });
-        emitBalance(nextUser.balance, nextUser.id);
         return { ok: true, message: msg('joined', { pick }) };
       },
 
@@ -299,18 +309,11 @@ export const useEqubStore = create<State>()(
 
           const winningNumber = winner.pick;
           const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
-
           const wasYou = !!(user && winner.id === user.id);
-          let nextUser = user;
           if (wasYou && user) {
-            const credited = creditAccount(user.id, winnerPayout);
-            const nextBal =
-              credited != null
-                ? credited
-                : Math.round((user.balance + winnerPayout) * 100) / 100;
-            nextUser = { ...user, balance: nextBal };
-            if (credited == null) persistBalance(nextUser);
+            get().adjustBalance(winnerPayout);
           }
+          const nextUser = get().user;
           const bal = nextUser?.balance ?? 0;
           const canAgain = bal >= room.contribution;
           const again = canAgain ? msg('playAgainHint') : msg('needMoreHint');
@@ -392,9 +395,7 @@ export const useEqubStore = create<State>()(
         const { rooms } = get();
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
-        set({
-          rooms: rooms.map((r) => (r.id === roomId ? freshRound(r) : r)),
-        });
+        set({ rooms: rooms.map((r) => (r.id === roomId ? freshRound(r) : r)) });
         return { ok: true, message: msg('newRoundOpen') };
       },
 
@@ -404,34 +405,65 @@ export const useEqubStore = create<State>()(
         if (!Number.isFinite(delta) || delta === 0) {
           return { ok: false, message: 'Invalid amount' };
         }
-        if (delta < 0) {
-          const need = Math.abs(delta);
-          if (user.balance < need) {
+        if (delta < 0 && user.balance < Math.abs(delta)) {
+          return {
+            ok: false,
+            message: msg('needBirr', {
+              fee: Math.abs(delta),
+              balance: user.balance,
+            }),
+          };
+        }
+
+        if (isDbUserId(user.id)) {
+          const nextBal = Math.round((user.balance + delta) * 100) / 100;
+          if (nextBal < 0) {
             return {
               ok: false,
-              message: msg('needBirr', { fee: need, balance: user.balance }),
+              message: msg('needBirr', {
+                fee: Math.abs(delta),
+                balance: user.balance,
+              }),
             };
           }
+          set({ user: { ...user, balance: nextBal } });
+          emitBalance(nextBal, user.id);
+          void apiAdjustBalance(
+            user.id,
+            delta,
+            delta < 0 ? 'join_fee' : 'prize_win',
+          ).then((r) => {
+            if (!r.ok) {
+              const cur = get().user;
+              if (cur?.id === user.id) {
+                set({ user: { ...cur, balance: user.balance } });
+                emitBalance(user.balance, user.id);
+              }
+              return;
+            }
+            const cur = get().user;
+            if (cur?.id === r.user.id) {
+              set({ user: { ...cur, balance: r.user.balance } });
+              emitBalance(r.user.balance, r.user.id);
+            }
+          });
+          return { ok: true, message: 'ok', balance: nextBal };
+        }
+
+        if (delta < 0) {
+          const need = Math.abs(delta);
           const debit = tryDebitAccount(user.id, need);
           if (!debit.ok) return { ok: false, message: debit.message };
           const nextBal =
             debit.balance >= 0
               ? debit.balance
               : Math.round((user.balance - need) * 100) / 100;
-          const nextUser = { ...user, balance: nextBal };
-          set({ user: nextUser });
-          if (debit.balance < 0) persistBalance(nextUser);
+          set({ user: { ...user, balance: nextBal } });
           emitBalance(nextBal, user.id);
           return { ok: true, message: 'ok', balance: nextBal };
         }
-        const credited = creditAccount(user.id, delta);
-        const nextBal =
-          credited != null
-            ? credited
-            : Math.round((user.balance + delta) * 100) / 100;
-        const nextUser = { ...user, balance: nextBal };
-        set({ user: nextUser });
-        if (credited == null) persistBalance(nextUser);
+        const nextBal = Math.round((user.balance + delta) * 100) / 100;
+        set({ user: { ...user, balance: nextBal } });
         emitBalance(nextBal, user.id);
         return { ok: true, message: 'ok', balance: nextBal };
       },
@@ -439,6 +471,25 @@ export const useEqubStore = create<State>()(
       refreshBalance: () => {
         const { user } = get();
         if (!user) return;
+        if (isDbUserId(user.id)) {
+          void apiRefreshUser(user.id).then((u) => {
+            if (!u) return;
+            const cur = get().user;
+            if (!cur || cur.id !== u.id) return;
+            if (cur.balance !== u.balance) {
+              set({
+                user: {
+                  ...cur,
+                  balance: u.balance,
+                  name: u.fullName,
+                  role: u.role as any,
+                },
+              });
+              emitBalance(u.balance, u.id);
+            }
+          });
+          return;
+        }
         const bal = balanceFromLedger(user.id, user.balance);
         if (bal !== user.balance) {
           set({ user: { ...user, balance: bal } });
@@ -451,40 +502,45 @@ export const useEqubStore = create<State>()(
         if (!user) return { ok: false, message: msg('signInFirst') };
         if (user.referredBy) return { ok: false, message: msg('alreadyClaimed') };
         if (!code.trim()) return { ok: false, message: msg('invalidCode') };
+        get().adjustBalance(100);
         const nextUser = {
-          ...user,
+          ...get().user!,
           referredBy: code.trim().toUpperCase(),
-          balance: user.balance + 100,
         };
-        persistBalance(nextUser);
         set({ user: nextUser });
-        emitBalance(nextUser.balance, nextUser.id);
         return { ok: true, message: msg('referralOk') };
       },
     }),
     {
-      name: 'fast-equb-v6',
-      version: 6,
-      migrate: (persisted: unknown) => {
-        const p = (persisted || {}) as Record<string, unknown>;
-        return {
-          ...p,
-          adminEarningsTotal: Number(p.adminEarningsTotal) || 0,
-          adminFeeLog: Array.isArray(p.adminFeeLog) ? p.adminFeeLog : [],
-          history: Array.isArray(p.history) ? p.history : [],
-          rooms: Array.isArray(p.rooms) ? p.rooms : [],
-        };
-      },
-      onRehydrateStorage: () => (state) => {
-        if (!state?.user?.id) return;
-        try {
-          const a = getAccountById(state.user.id);
-          if (a && a.balance !== state.user.balance) {
-            state.user = { ...state.user, balance: a.balance };
+      name: 'fast-equb-v7',
+      version: 7,
+      partialize: (s) => ({
+        rooms: s.rooms,
+        history: s.history,
+        adminEarningsTotal: s.adminEarningsTotal,
+        adminFeeLog: s.adminFeeLog,
+      }),
+      onRehydrateStorage: () => () => {
+        const id = loadSessionUserId();
+        if (!id || !isDbUserId(id)) return;
+        void apiRefreshUser(id).then((u) => {
+          if (!u) {
+            saveSessionUserId(null);
+            return;
           }
-        } catch {
-          /* ignore */
-        }
+          useEqubStore.setState({
+            user: {
+              id: u.id,
+              name: u.fullName,
+              email: `${u.phone}@phone.equb`,
+              phone: u.phone,
+              balance: u.balance,
+              referralCode: u.referralCode,
+              role: u.role as 'player' | 'admin',
+              banned: u.banned,
+            },
+          });
+        });
       },
     },
   ),
