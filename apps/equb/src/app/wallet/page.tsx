@@ -3,268 +3,153 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
-import { LiveBalance } from '@/components/LiveBalance';
-import { EthDateBadge } from '@/components/EthDateBadge';
-import { ArrowDownToLine, ArrowUpFromLine, History, Copy } from 'lucide-react';
+import { Copy } from 'lucide-react';
 
-const SEND_TO = '0977832379';
-const ACCOUNT_NAME = 'Menelik';
+type Cfg = {
+  merchantName: string;
+  merchantPhone: string;
+  checkoutAvailable: boolean;
+  instruction: string;
+  environment: string;
+};
 
-type Tab = 'deposit' | 'withdraw' | 'history';
-
-type Claim = {
+type Deposit = {
   id: string;
-  amount: number | null;
-  txnRef: string;
+  amount: number;
   status: string;
+  merchantOrderId: string;
   createdAt: string;
+  failureReason: string | null;
 };
 
 export default function WalletPage() {
   const user = useEqubStore((s) => s.user);
-  const { t, locale } = useI18n();
-  const [tab, setTab] = useState<Tab>('deposit');
-  const [sms, setSms] = useState('');
+  const adjustBalance = useEqubStore((s) => s.adjustBalance);
+  const { locale } = useI18n();
+  const [tab, setTab] = useState<'deposit' | 'withdraw' | 'history'>('deposit');
+  const [cfg, setCfg] = useState<Cfg | null>(null);
+  const [amount, setAmount] = useState('100.00');
+  const [txn, setTxn] = useState('');
+  const [deposit, setDeposit] = useState<Deposit | null>(null);
+  const [items, setItems] = useState<Deposit[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const [claims, setClaims] = useState<Claim[]>([]);
   const [copied, setCopied] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
 
-  const loadClaims = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!user) return;
-    try {
-      const res = await fetch(
-        `/api/payments/telebirr/claims?userId=${encodeURIComponent(user.id)}`,
-      );
-      const json = await res.json();
-      if (json?.success) setClaims(json.data?.items || []);
-    } catch {
-      /* ignore */
+    const res = await fetch(`/api/wallet/deposits?userId=${encodeURIComponent(user.id)}`);
+    const json = await res.json();
+    if (json?.success) {
+      setCfg(json.config);
+      setItems(json.deposits || []);
+      if (json.wallet?.balance != null) setBalance(json.wallet.balance);
     }
   }, [user]);
 
-  useEffect(() => {
-    void loadClaims();
-  }, [loadClaims]);
+  useEffect(() => { void load(); }, [load]);
 
-  async function copyPhone() {
-    try {
-      await navigator.clipboard.writeText(SEND_TO);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  async function verify() {
+  async function start() {
     if (!user) return;
     setBusy(true);
     setMsg('');
     try {
-      const res = await fetch('/api/payments/telebirr', {
+      const res = await fetch('/api/wallet/deposits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          phone: user.phone,
-          sms,
-        }),
+        body: JSON.stringify({ userId: user.id, amount: Number(amount), paymentMethod: 'telebirr' }),
       });
       const json = await res.json();
-      if (!res.ok || !json?.success) {
-        setMsg(json?.message || 'Could not submit');
+      if (!res.ok || !json.success) {
+        setMsg(json.message || 'Could not create deposit');
         return;
       }
-      setMsg(
-        locale === 'am'
-          ? 'ተልካል። ቀሪ ሂሳብ ከተረጋገጠ በሃዋ ይገምራል።'
-          : json.data?.message ||
-              'Submitted. Balance updates after verification.',
-      );
-      setSms('');
-      setTab('history');
-      await loadClaims();
-    } catch {
-      setMsg('Network error');
-    } finally {
-      setBusy(false);
-    }
+      setDeposit(json.deposit);
+      if (json.payment?.checkoutUrl) window.location.href = json.payment.checkoutUrl;
+      else setMsg(locale === 'am' ? 'ትዕዛዝ ተፈጥሯል። የግብይት ቁጥር ያስገቡ።' : 'Order created. Pay, then enter the transaction number.');
+    } finally { setBusy(false); }
   }
 
-  if (!user) {
-    return (
-      <p className="py-12 text-center text-white/50">{t.wallet.signInFirst}</p>
-    );
+  async function verify() {
+    if (!user || !deposit) {
+      setMsg('Create the deposit first');
+      return;
+    }
+    setBusy(true);
+    setMsg('Verifying…');
+    try {
+      const res = await fetch(`/api/wallet/deposits/${deposit.id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, transactionNumber: txn }),
+      });
+      const json = await res.json();
+      setMsg(json.message || 'Unable to verify the payment right now.');
+      if (json.success && json.status === 'CONFIRMED') {
+        if (json.balance != null) setBalance(json.balance);
+        const delta = Number(json.amount || 0);
+        if (delta > 0) adjustBalance(delta);
+      }
+      await load();
+    } catch {
+      setMsg('Unable to verify the payment right now. Please try again.');
+    } finally { setBusy(false); }
   }
+
+  if (!user) return <p className="py-12 text-center text-white/50">Sign in first</p>;
+  const shown = balance ?? user.balance;
+  const phone = cfg?.merchantPhone || '0977832379';
+  const name = cfg?.merchantName || 'Menelik';
 
   return (
-    <div className="mx-auto max-w-lg space-y-4 pb-8">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-gold-400 bg-white/5 text-white/70">
-            <span className="text-lg">👤</span>
-          </div>
-          <div>
-            <p className="font-bold">{user.name}</p>
-            <p className="text-xs text-white/40">{user.phone || ''}</p>
-          </div>
+    <div className="mx-auto max-w-lg space-y-4 pb-10">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="font-bold">{user.name}</p>
+          <p className="text-xs text-white/45">{user.phone}</p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] font-bold tracking-wide text-gold-400">
-            BALANCE
-          </p>
-          <LiveBalance size="md" />
-          <EthDateBadge short />
+          <p className="text-[10px] font-bold text-amber-400">BALANCE</p>
+          <p className="text-2xl font-black">{shown.toFixed(2)} ETB</p>
+          <p className="text-[11px] text-white/40">Withdrawable: {shown.toFixed(2)}</p>
         </div>
       </div>
-
-      <div className="grid grid-cols-3 overflow-hidden rounded-2xl bg-white/5 p-1">
-        {(
-          [
-            ['deposit', locale === 'am' ? 'አስገባ' : 'Deposit', ArrowDownToLine],
-            ['withdraw', locale === 'am' ? 'አውጣ' : 'Withdraw', ArrowUpFromLine],
-            ['history', locale === 'am' ? 'ታሪክ' : 'History', History],
-          ] as const
-        ).map(([key, label, Icon]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={
-              tab === key
-                ? 'flex items-center justify-center gap-1 rounded-xl bg-gold-500 py-2.5 text-sm font-black text-black'
-                : 'flex items-center justify-center gap-1 py-2.5 text-sm text-white/70'
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {label}
+      <div className="grid grid-cols-3 rounded-2xl bg-white/5 p-1">
+        {(['deposit', 'withdraw', 'history'] as const).map((k) => (
+          <button key={k} type="button" onClick={() => setTab(k)} className={tab === k ? 'rounded-xl bg-amber-400 py-2.5 text-sm font-black text-black' : 'py-2.5 text-sm text-white/70'}>
+            {k === 'deposit' ? 'Deposit' : k === 'withdraw' ? 'Withdraw' : 'History'}
           </button>
         ))}
       </div>
-
       {tab === 'deposit' && (
         <div className="space-y-4">
-          <div>
-            <p className="mb-2 text-sm text-white/60">
-              {locale === 'am' ? 'የክፍያ ዘዴ' : 'Payment Method'}
-            </p>
-            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm">
-              Telebirr
+          <div className="rounded-2xl border border-white/10 px-4 py-3">Telebirr</div>
+          <div className="rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4">
+            <div className="flex items-center justify-between">
+              <p>Send payment to: <span className="text-xl font-black underline">{phone}</span></p>
+              <button type="button" className="rounded-xl bg-amber-400 p-2 text-black" onClick={() => { void navigator.clipboard.writeText(phone); setCopied(true); }}><Copy className="h-4 w-4" /></button>
             </div>
+            {copied && <p className="text-[11px] text-amber-300">Copied</p>}
+            <p className="mt-2 text-sm">Telebirr account name: <b>{name}</b></p>
+            <p className="mt-2 text-xs text-white/40">{cfg?.instruction || 'Complete your Telebirr payment and verify the transaction.'}</p>
           </div>
-
-          <div className="rounded-2xl border border-gold-500/40 bg-gold-500/5 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm text-white/70">
-                {locale === 'am' ? 'ላክ ወደ' : 'Send to'}:{' '}
-                <span className="text-xl font-black tracking-wide text-white underline">
-                  {SEND_TO}
-                </span>
-              </p>
-              <button
-                type="button"
-                onClick={() => void copyPhone()}
-                className="rounded-xl bg-gold-500 p-2 text-black"
-                aria-label="Copy"
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-            </div>
-            {copied && (
-              <p className="mt-1 text-[11px] text-gold-300">
-                {locale === 'am' ? 'ተቀድቷል' : 'Copied'}
-              </p>
-            )}
-            <p className="mt-2 text-sm text-white/70">
-              Telebirr account name:{' '}
-              <span className="font-bold text-white">{ACCOUNT_NAME}</span>
-            </p>
-            <p className="mt-2 text-xs text-white/50">
-              {locale === 'am'
-                ? 'ገንዘብ ላክ፣ ከዚያም የማረጋገጫ SMS እዚህ ለጥፍ።'
-                : 'Send money, then paste your confirmation SMS below.'}
-            </p>
-          </div>
-
-          <div>
-            <p className="mb-2 text-sm text-white/70">
-              {locale === 'am'
-                ? 'የማረጋገጫ SMS ወይም የግብይት ቁጥር'
-                : 'Confirmation SMS or Transaction Number'}
-            </p>
-            <textarea
-              value={sms}
-              onChange={(e) => setSms(e.target.value)}
-              rows={5}
-              placeholder={
-                locale === 'am'
-                  ? 'ሙሉ SMS ወይም የግብይት ቁጥር ለጥፍ'
-                  : 'Paste the whole confirmation SMS here — or just the transaction number.'
-              }
-              className="w-full rounded-2xl border border-gold-500/30 bg-black/40 px-4 py-3 text-sm outline-none"
-            />
-          </div>
-
-          <button
-            type="button"
-            disabled={busy || sms.trim().length < 4}
-            onClick={() => void verify()}
-            className="w-full rounded-2xl bg-gold-500 py-3.5 text-base font-black text-black disabled:opacity-40"
-          >
-            {busy
-              ? '…'
-              : locale === 'am'
-                ? 'ተቀማጅ አረጋግጥ'
-                : 'Verify Deposit'}
-          </button>
-          {msg && <p className="text-center text-xs text-equb-300">{msg}</p>}
-          <p className="text-center text-[10px] text-white/35">
-            {locale === 'am'
-              ? 'ቀሪ ሂሳብ ከተረጋገጠ በሃዋ ብቻ ይገምራል።'
-              : 'Balance is credited only after the SMS is verified — not instantly.'}
-          </p>
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3" />
+          <button type="button" disabled={busy} onClick={() => void start()} className="w-full rounded-2xl border border-white/15 py-3 text-sm font-bold">Create deposit order</button>
+          <input value={txn} onChange={(e) => setTxn(e.target.value)} placeholder="Telebirr transaction number" className="w-full rounded-2xl border border-amber-400/30 bg-black/40 px-4 py-3" />
+          <button type="button" disabled={busy || !deposit} onClick={() => void verify()} className="w-full rounded-2xl bg-amber-400 py-3.5 font-black text-black disabled:opacity-40">{busy ? 'Verifying…' : 'Verify Deposit'}</button>
+          {msg && <p className="text-center text-sm text-amber-200">{msg}</p>}
+          <p className="text-center text-[11px] text-white/35">Your wallet is credited only after the transaction is successfully verified.</p>
         </div>
       )}
-
-      {tab === 'withdraw' && (
-        <div className="rounded-2xl border border-white/10 p-4 text-sm text-white/60">
-          {locale === 'am'
-            ? 'መውጣት በቴሌብር ወደ ስልክዎ። አስተዳዳሪ ካረጋገጠ በሃዋ ይላካል።'
-            : 'Withdrawals go to your Telebirr number after admin approval.'}
-        </div>
-      )}
-
+      {tab === 'withdraw' && <p className="rounded-2xl border border-white/10 p-4 text-sm text-white/55">Withdrawals require admin approval.</p>}
       {tab === 'history' && (
         <ul className="space-y-2">
-          {claims.length === 0 && (
-            <p className="text-sm text-white/40">
-              {locale === 'am' ? 'ገና የለም' : 'No deposits yet'}
-            </p>
-          )}
-          {claims.map((c) => (
-            <li
-              key={c.id}
-              className="rounded-xl border border-white/10 px-3 py-2 text-sm"
-            >
-              <div className="flex justify-between">
-                <span className="font-mono text-xs">{c.txnRef}</span>
-                <span
-                  className={
-                    c.status === 'APPROVED'
-                      ? 'text-equb-300'
-                      : c.status === 'REJECTED'
-                        ? 'text-red-300'
-                        : 'text-gold-300'
-                  }
-                >
-                  {c.status}
-                </span>
-              </div>
-              <p className="text-[11px] text-white/40">
-                {c.amount != null ? `${c.amount} ETB · ` : ''}
-                {new Date(c.createdAt).toLocaleString()}
-              </p>
+          {items.length === 0 && <p className="text-sm text-white/40">No deposits yet</p>}
+          {items.map((d) => (
+            <li key={d.id} className="rounded-xl border border-white/10 px-3 py-2 text-sm">
+              <div className="flex justify-between"><span>+{d.amount.toFixed(2)} ETB</span><span>{d.status}</span></div>
+              <p className="text-[11px] text-white/40">{d.merchantOrderId}</p>
             </li>
           ))}
         </ul>
