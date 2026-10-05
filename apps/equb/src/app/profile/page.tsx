@@ -48,8 +48,8 @@ export default function ProfilePage() {
         });
         setMsg(
           locale === 'am'
-            ? 'ተመዝግበዋል · መረጃ በዳታቤዝ ተቀምጧል · 5,000 ብር'
-            : 'Registered · saved in database · 5,000 Birr',
+            ? 'ተመዝግበዋል · መረጃ በዳታቤዝ ተቀምጧል · 100 ብር'
+            : 'Registered · saved in database · 100 Birr',
         );
       } else {
         const r = await apiLogin({ phone, password });
@@ -92,8 +92,8 @@ export default function ProfilePage() {
         <div className="glass space-y-4 rounded-3xl p-6">
           <p className="text-[11px] text-white/40">
             {locale === 'am'
-              ? 'መለያ በዳታቤዝ ብቻ ይመዘገባል (localStorage አይደለም)'
-              : 'Accounts are stored in the database only (not localStorage)'}
+              ? 'መለያ በዳታቤዝ ብቻ · መጀመሪያ 100 ብር'
+              : 'Database accounts only · starting balance 100 Birr'}
           </p>
           <div className="flex gap-2">
             <button
@@ -215,9 +215,6 @@ export default function ProfilePage() {
           <span className="text-white/40">{t.profile.inviteCode}</span>
           <br />
           <strong className="font-mono tracking-widest">{user.referralCode}</strong>
-        </p>
-        <p className="text-[10px] text-white/30">
-          ID: <span className="font-mono">{user.id}</span>
         </p>
       </div>
       {sessionIsAdmin(user) && (

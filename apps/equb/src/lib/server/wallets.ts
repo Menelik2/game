@@ -1,4 +1,4 @@
-const STARTING = 5000;
+const STARTING = 100;
 
 export type Wallet = {
   playerId: string;
