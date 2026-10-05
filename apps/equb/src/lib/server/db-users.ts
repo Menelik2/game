@@ -165,7 +165,7 @@ export async function dbRegister(input: {
     }
 
     return memRegister(input);
-  } catch (e: any) {
+  } catch {
     return memRegister(input);
   }
 }
@@ -285,8 +285,9 @@ export async function dbEnsureAdmin(phone: string, passwordHash: string) {
   try {
     if (!isDbConfigured()) {
       if (![...mem.values()].some((u) => u.role === 'admin')) {
-        mem.set(randomUUID(), {
-          id: randomUUID(),
+        const id = randomUUID();
+        mem.set(id, {
+          id,
           fullName: 'Admin',
           phone,
           passwordHash,
