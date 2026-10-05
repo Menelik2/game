@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { buildCatalog, findOpen, withTimer } from '@/lib/server/equb-rooms';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET() {
   const catalog = buildCatalog(9000).map((t) => {
