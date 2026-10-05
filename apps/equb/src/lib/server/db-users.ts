@@ -49,7 +49,7 @@ function memByPhone(phone: string): MemUser | undefined {
 
 function mapUser(raw: any): DbUser {
   if (!raw || typeof raw !== 'object') {
-    throw new Error('Invalid user payload from database');
+    throw new Error('Invalid user payload');
   }
   const r = Array.isArray(raw) ? raw[0] : raw;
   return {
@@ -64,8 +64,15 @@ function mapUser(raw: any): DbUser {
 }
 
 function publicUser(u: MemUser): DbUser {
-  const { passwordHash: _, ...rest } = u;
-  return rest;
+  return {
+    id: u.id,
+    fullName: u.fullName,
+    phone: u.phone,
+    balance: u.balance,
+    referralCode: u.referralCode,
+    role: u.role,
+    banned: u.banned,
+  };
 }
 
 function referralCode(): string {
@@ -107,252 +114,166 @@ function memLogin(input: {
   return { ok: true, user: publicUser(u) };
 }
 
-async function registerViaTable(input: {
-  fullName: string;
-  phone: string;
-  passwordHash: string;
-}): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
-  const code = referralCode();
-  const { data, error } = await sb()
-    .from('app_users')
-    .insert({
-      full_name: input.fullName,
-      phone: input.phone,
-      password_hash: input.passwordHash,
-      balance: 100,
-      referral_code: code,
-      role: 'player',
-    })
-    .select('id, full_name, phone, balance, referral_code, role, banned')
-    .single();
-
-  if (error) {
-    const m = error.message || '';
-    if (m.toLowerCase().includes('duplicate') || m.includes('unique')) {
-      return { ok: false, error: 'Phone already registered' };
-    }
-    return { ok: false, error: m || 'Register failed' };
-  }
-  return { ok: true, user: mapUser(data) };
-}
-
-async function loginViaTable(input: {
-  phone: string;
-  passwordHash: string;
-}): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
-  const { data, error } = await sb()
-    .from('app_users')
-    .select(
-      'id, full_name, phone, balance, referral_code, role, banned, password_hash',
-    )
-    .eq('phone', input.phone)
-    .maybeSingle();
-
-  if (error || !data) {
-    return { ok: false, error: 'Invalid phone or password' };
-  }
-  if (data.banned) return { ok: false, error: 'Account banned' };
-  if (String(data.password_hash) !== input.passwordHash) {
-    return { ok: false, error: 'Invalid phone or password' };
-  }
-  return { ok: true, user: mapUser(data) };
-}
-
 export async function dbRegister(input: {
   fullName: string;
   phone: string;
   passwordHash: string;
 }): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
-  if (!isDbConfigured()) {
-    return memRegister(input);
-  }
-
   try {
-    const { data, error } = await sb().rpc('app_register', {
-      p_full_name: input.fullName,
-      p_phone: input.phone,
-      p_password_hash: input.passwordHash,
-    });
-    if (!error && data) {
-      try {
-        return { ok: true, user: mapUser(data) };
-      } catch {
-        /* fall through */
+    if (!isDbConfigured()) return memRegister(input);
+
+    try {
+      const { data, error } = await sb().rpc('app_register', {
+        p_full_name: input.fullName,
+        p_phone: input.phone,
+        p_password_hash: input.passwordHash,
+      });
+      if (!error && data) {
+        try {
+          return { ok: true, user: mapUser(data) };
+        } catch {
+          /* */
+        }
       }
-    }
-    if (error) {
-      const m = (error.message || '').toLowerCase();
-      if (m.includes('phone_exists') || m.includes('already')) {
+      if (error?.message?.toLowerCase().includes('phone_exists')) {
         return { ok: false, error: 'Phone already registered' };
       }
-      if (
-        m.includes('function') ||
-        m.includes('does not exist') ||
-        m.includes('schema cache') ||
-        m.includes('could not find')
-      ) {
-        const viaTable = await registerViaTable(input);
-        if (viaTable.ok) return viaTable;
-        return memRegister(input);
-      }
-      const viaTable = await registerViaTable(input);
-      if (viaTable.ok) return viaTable;
-      return { ok: false, error: error.message || 'Register failed' };
+    } catch {
+      /* */
     }
-  } catch {
-    const viaTable = await registerViaTable(input).catch(() => null);
-    if (viaTable?.ok) return viaTable;
+
+    try {
+      const code = referralCode();
+      const { data, error } = await sb()
+        .from('app_users')
+        .insert({
+          full_name: input.fullName,
+          phone: input.phone,
+          password_hash: input.passwordHash,
+          balance: 100,
+          referral_code: code,
+          role: 'player',
+        })
+        .select('id, full_name, phone, balance, referral_code, role, banned')
+        .single();
+      if (!error && data) return { ok: true, user: mapUser(data) };
+      if (error?.message?.toLowerCase().includes('duplicate')) {
+        return { ok: false, error: 'Phone already registered' };
+      }
+    } catch {
+      /* */
+    }
+
+    return memRegister(input);
+  } catch (e: any) {
     return memRegister(input);
   }
-
-  return memRegister(input);
 }
 
 export async function dbLogin(input: {
   phone: string;
   passwordHash: string;
 }): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
-  if (!isDbConfigured()) {
+  try {
+    if (isDbConfigured()) {
+      try {
+        const { data, error } = await sb().rpc('app_login', {
+          p_phone: input.phone,
+          p_password_hash: input.passwordHash,
+        });
+        if (!error && data) {
+          try {
+            return { ok: true, user: mapUser(data) };
+          } catch {
+            /* */
+          }
+        }
+      } catch {
+        /* */
+      }
+
+      try {
+        const { data } = await sb()
+          .from('app_users')
+          .select(
+            'id, full_name, phone, balance, referral_code, role, banned, password_hash',
+          )
+          .eq('phone', input.phone)
+          .maybeSingle();
+        if (data && String(data.password_hash) === input.passwordHash) {
+          if (data.banned) return { ok: false, error: 'Account banned' };
+          return { ok: true, user: mapUser(data) };
+        }
+      } catch {
+        /* */
+      }
+    }
+
+    return memLogin(input);
+  } catch {
     return memLogin(input);
   }
-
-  try {
-    const { data, error } = await sb().rpc('app_login', {
-      p_phone: input.phone,
-      p_password_hash: input.passwordHash,
-    });
-    if (!error && data) {
-      try {
-        return { ok: true, user: mapUser(data) };
-      } catch {
-        /* fall through */
-      }
-    }
-    if (error) {
-      const m = (error.message || '').toLowerCase();
-      if (m.includes('banned')) return { ok: false, error: 'Account banned' };
-      if (
-        m.includes('function') ||
-        m.includes('does not exist') ||
-        m.includes('schema cache')
-      ) {
-        const viaTable = await loginViaTable(input);
-        if (viaTable.ok) return viaTable;
-        return memLogin(input);
-      }
-    }
-    const viaTable = await loginViaTable(input);
-    if (viaTable.ok) return viaTable;
-  } catch {
-    /* fall through */
-  }
-
-  const local = memLogin(input);
-  if (local.ok) return local;
-  return { ok: false, error: 'Invalid phone or password' };
 }
 
 export async function dbGetUser(id: string): Promise<DbUser | null> {
-  const local = mem.get(id);
-  if (local) return publicUser(local);
-
-  if (!isDbConfigured()) return null;
   try {
-    const { data, error } = await sb().rpc('app_get_user', { p_id: id });
-    if (!error && data) return mapUser(data);
+    const local = mem.get(id);
+    if (local) return publicUser(local);
+    if (!isDbConfigured()) return null;
+    try {
+      const { data } = await sb()
+        .from('app_users')
+        .select('id, full_name, phone, balance, referral_code, role, banned')
+        .eq('id', id)
+        .maybeSingle();
+      if (data) return mapUser(data);
+    } catch {
+      /* */
+    }
+    return null;
   } catch {
-    /* */
+    return null;
   }
-  try {
-    const { data } = await sb()
-      .from('app_users')
-      .select('id, full_name, phone, balance, referral_code, role, banned')
-      .eq('id', id)
-      .maybeSingle();
-    if (data) return mapUser(data);
-  } catch {
-    /* */
-  }
-  return null;
 }
 
-export async function dbSetBalance(
-  id: string,
-  balance: number,
-  _reason = 'admin_adjust',
-) {
+export async function dbSetBalance(id: string, balance: number, _reason = 'admin_adjust') {
   const local = mem.get(id);
   if (local) {
     local.balance = Math.max(0, balance);
-    mem.set(id, local);
     return publicUser(local);
   }
   if (!isDbConfigured()) throw new Error('User not found');
-  const { data, error } = await sb().rpc('app_set_balance', {
-    p_id: id,
-    p_balance: balance,
-    p_reason: _reason,
-  });
-  if (error) {
-    const { error: e2 } = await sb()
-      .from('app_users')
-      .update({ balance, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (e2) throw new Error(e2.message);
-    const u = await dbGetUser(id);
-    if (!u) throw new Error('User not found');
-    return u;
-  }
-  return mapUser(data);
+  const { error } = await sb().from('app_users').update({ balance }).eq('id', id);
+  if (error) throw new Error(error.message);
+  const u = await dbGetUser(id);
+  if (!u) throw new Error('User not found');
+  return u;
 }
 
-export async function dbAdjustBalance(
-  id: string,
-  delta: number,
-  _reason = 'adjust',
-) {
+export async function dbAdjustBalance(id: string, delta: number, _reason = 'adjust') {
   const local = mem.get(id);
   if (local) {
     const next = Math.round((local.balance + delta) * 100) / 100;
     if (next < 0) throw new Error('Insufficient balance');
     local.balance = next;
-    mem.set(id, local);
     return { id, balance: next };
   }
   if (!isDbConfigured()) throw new Error('User not found');
-  const { data, error } = await sb().rpc('app_adjust_balance', {
-    p_id: id,
-    p_delta: delta,
-    p_reason: _reason,
-  });
-  if (error) {
-    const u = await dbGetUser(id);
-    if (!u) throw new Error('User not found');
-    const next = Math.round((u.balance + delta) * 100) / 100;
-    if (next < 0) throw new Error('Insufficient balance');
-    await sb().from('app_users').update({ balance: next }).eq('id', id);
-    return { id, balance: next };
-  }
-  return data as { id: string; balance: number };
+  const u = await dbGetUser(id);
+  if (!u) throw new Error('User not found');
+  const next = Math.round((u.balance + delta) * 100) / 100;
+  if (next < 0) throw new Error('Insufficient balance');
+  await sb().from('app_users').update({ balance: next }).eq('id', id);
+  return { id, balance: next };
 }
 
 export async function dbListUsers(): Promise<DbUser[]> {
   const fromMem = [...mem.values()].map(publicUser);
   if (!isDbConfigured()) return fromMem;
   try {
-    const { data, error } = await sb().rpc('app_list_users');
-    if (!error && data) {
-      const arr = Array.isArray(data) ? data : [];
-      return arr.map(mapUser);
-    }
-  } catch {
-    /* */
-  }
-  try {
     const { data } = await sb()
       .from('app_users')
-      .select('id, full_name, phone, balance, referral_code, role, banned')
-      .order('created_at', { ascending: false });
+      .select('id, full_name, phone, balance, referral_code, role, banned');
     if (data?.length) return data.map(mapUser);
   } catch {
     /* */
@@ -361,33 +282,26 @@ export async function dbListUsers(): Promise<DbUser[]> {
 }
 
 export async function dbEnsureAdmin(phone: string, passwordHash: string) {
-  if (!isDbConfigured()) {
-    if (![...mem.values()].some((u) => u.role === 'admin')) {
-      const id = randomUUID();
-      mem.set(id, {
-        id,
-        fullName: 'Admin',
-        phone,
-        passwordHash,
-        balance: 1_000_000,
-        referralCode: 'ADMIN001',
-        role: 'admin',
-        banned: false,
-      });
-    }
-    return;
-  }
   try {
-    await sb().rpc('app_ensure_admin', {
-      p_phone: phone,
-      p_password_hash: passwordHash,
-      p_full_name: 'Admin',
-    });
-  } catch {
+    if (!isDbConfigured()) {
+      if (![...mem.values()].some((u) => u.role === 'admin')) {
+        mem.set(randomUUID(), {
+          id: randomUUID(),
+          fullName: 'Admin',
+          phone,
+          passwordHash,
+          balance: 1_000_000,
+          referralCode: 'ADMIN001',
+          role: 'admin',
+          banned: false,
+        });
+      }
+      return;
+    }
     const existing = await sb()
       .from('app_users')
       .select('id')
-      .eq('role', 'admin')
+      .eq('phone', phone)
       .maybeSingle();
     if (!existing.data) {
       await sb().from('app_users').insert({
@@ -399,5 +313,7 @@ export async function dbEnsureAdmin(phone: string, passwordHash: string) {
         role: 'admin',
       });
     }
+  } catch {
+    /* never throw */
   }
 }
