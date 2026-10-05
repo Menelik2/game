@@ -76,7 +76,7 @@ type State = {
   refreshBalance: () => void;
 };
 
-const BOT_NAMES = ['አበበ', 'ትግስት', 'ከበደ', 'ሐና', 'ዮናስ', 'ማርታ', 'ዳዊት', 'ሳራ'];
+const BOT_NAMES = ['አበበ', 'ትግስት', 'ከበደ', 'ሀና', 'ዮናስ', 'ማርታ', 'ዳዊት', 'ሳራ'];
 
 function catalogToRooms(): LiveRoom[] {
   return buildRoomCatalog({ maxPrize: 9000 }).map((t) => ({
@@ -89,6 +89,7 @@ function catalogToRooms(): LiveRoom[] {
     members: [],
     winningNumber: null,
     winnerId: null,
+    winnerName: null,
   }));
 }
 
@@ -99,6 +100,7 @@ function freshRound(room: LiveRoom): LiveRoom {
     status: 'open',
     winningNumber: null,
     winnerId: null,
+    winnerName: null,
     lastAdminFee: undefined,
     lastWinnerPayout: undefined,
     entropyHex: undefined,
@@ -336,9 +338,10 @@ export const useEqubStore = create<State>()(
               r.id === roomId
                 ? {
                     ...r,
-                    status: 'completed',
+                    status: 'completed' as const,
                     winningNumber,
                     winnerId: winner!.id,
+                    winnerName: winner!.name,
                     lastAdminFee: adminFee,
                     lastWinnerPayout: winnerPayout,
                     entropyHex: proof.entropyHex,
