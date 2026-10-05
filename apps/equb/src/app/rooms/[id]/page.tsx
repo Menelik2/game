@@ -86,22 +86,35 @@ export default function RoomDetailPage() {
       return;
     }
     let cancelled = false;
+    const hardTimeout = setTimeout(() => {
+      if (!cancelled) setConn((c) => (c === 'checking' ? 'offline' : c));
+    }, 5000);
     (async () => {
-      const ok = await probeApi();
-      if (cancelled) return;
-      if (!ok) {
-        setConn('offline');
-        return;
-      }
-      setConn('online');
       try {
-        setServerRoom(await openRoom(templateId!));
+        const ok = await Promise.race([
+          probeApi(),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 4500)),
+        ]);
+        if (cancelled) return;
+        if (!ok) {
+          setConn('offline');
+          return;
+        }
+        try {
+          const room = await openRoom(templateId!);
+          if (cancelled) return;
+          setServerRoom(room);
+          setConn('online');
+        } catch {
+          if (!cancelled) setConn('offline');
+        }
       } catch {
         if (!cancelled) setConn('offline');
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(hardTimeout);
     };
   }, [wantMp, ensureRooms, templateId, refreshBalance]);
 
@@ -116,11 +129,45 @@ export default function RoomDetailPage() {
   }, [multiplayer, serverRoom?.id]);
 
   useDemoCountdown(tick, setTick, multiplayer && serverRoom?.secondsLeft != null);
+
   useEffect(() => {
     if (multiplayer && serverRoom?.secondsLeft != null) {
       setTick(Number(serverRoom.secondsLeft));
     }
   }, [multiplayer, serverRoom?.secondsLeft]);
+
+  useEffect(() => {
+    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed') return;
+    if (!user) return;
+    const identity = getPlayerIdentity();
+    if (serverRoom.winnerId !== identity.playerId) return;
+    const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}`;
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key)) return;
+    const payout = Math.round(Number(serverRoom.prizePool || 0) * 0.85 * 100) / 100;
+    if (payout > 0) {
+      adjustBalance(payout);
+      setMsg(
+        locale === 'am'
+          ? `አሸንፈዋል! +${payout} ብር`
+          : `You won! +${payout} Birr`,
+      );
+      try {
+        sessionStorage.setItem(key, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [
+    multiplayer,
+    serverRoom?.status,
+    serverRoom?.id,
+    serverRoom?.winnerId,
+    serverRoom?.winningNumber,
+    serverRoom?.prizePool,
+    user,
+    adjustBalance,
+    locale,
+  ]);
 
   useAutoCryptoDraw({
     roomId: id,
@@ -149,6 +196,7 @@ export default function RoomDetailPage() {
       <div className="space-y-4 py-12 text-center">
         <PlayBackBar />
         <p className="text-white/40">{t.common.connecting}</p>
+        <p className="text-[10px] text-white/25">Checking game server…</p>
       </div>
     );
   }
@@ -200,26 +248,35 @@ export default function RoomDetailPage() {
               setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
               return;
             }
-            if (user && user.balance < room.contribution) {
+            if (!user) {
+              setMsg(t.common.signIn || 'Sign in first');
+              return;
+            }
+            const fee = Number(room.contribution || 0);
+            if (fee > 0 && user.balance < fee) {
               setMsg(
                 locale === 'am'
-                  ? `በቂ ብር የለም (ያስፈልጋል ${room.contribution})`
-                  : `Not enough balance (need ${room.contribution})`,
+                  ? `በቂ ብር የለም (ያስፈልጋል ${fee})`
+                  : `Need ${fee} Birr (have ${user.balance})`,
               );
               return;
             }
             setJoining(true);
+            if (fee > 0) {
+              const deb = adjustBalance(-fee);
+              if (!deb.ok) {
+                setMsg(deb.message);
+                setJoining(false);
+                return;
+              }
+            }
             setServerRoom(optimisticJoin(room, pick));
             try {
               const joined = await mpJoin(templateId!, pick);
               setServerRoom(joined);
-              const fee = Number(joined.contribution || room.contribution || 0);
-              if (fee > 0) {
-                const deb = adjustBalance(-fee);
-                if (!deb.ok) setMsg(deb.message);
-              }
               setMsg(`#${String(pick).padStart(2, '0')}`);
             } catch (e: any) {
+              if (fee > 0) adjustBalance(fee);
               setMsg(e?.message || t.common.error);
               void refreshServer();
             } finally {
@@ -271,6 +328,11 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
+      {conn === 'offline' && (
+        <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-center text-[10px] text-white/40">
+          Local demo mode
+        </p>
+      )}
       {!user && (
         <button
           type="button"
@@ -302,16 +364,16 @@ export default function RoomDetailPage() {
         locale={locale}
         onSelect={setPick}
         onBet={() => {
-          if (!user) {
-            loginDemo();
-            setMsg(t.common.error);
-            return;
-          }
           if (pick == null) {
             setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
             return;
           }
-          setMsg(joinLocal(room.id, pick).message);
+          if (!useEqubStore.getState().user) {
+            loginDemo();
+          }
+          const res = joinLocal(room.id, pick);
+          setMsg(res.message);
+          if (res.ok) setPick(null);
         }}
         onFillBots={() => setMsg(fillSeats(room.id).message)}
         onDraw={async () => {
