@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
-import { Copy } from 'lucide-react';
+import { Copy, ExternalLink } from 'lucide-react';
 
 type Cfg = {
   merchantName: string;
@@ -11,6 +11,7 @@ type Cfg = {
   checkoutAvailable: boolean;
   instruction: string;
   environment: string;
+  verifier?: string;
 };
 
 type Deposit = {
@@ -48,7 +49,9 @@ export default function WalletPage() {
     }
   }, [user]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   async function start() {
     if (!user) return;
@@ -66,9 +69,14 @@ export default function WalletPage() {
         return;
       }
       setDeposit(json.deposit);
-      if (json.payment?.checkoutUrl) window.location.href = json.payment.checkoutUrl;
-      else setMsg(locale === 'am' ? 'ትዕዛዝ ተፈጥሯል። የግብይት ቁጥር ያስገቡ።' : 'Order created. Pay, then enter the transaction number.');
-    } finally { setBusy(false); }
+      setMsg(
+        locale === 'am'
+          ? 'ትዕዛዝ ተፈጥሯል። ቴሌብር ይላኩ፣ ከዚያ የግብይት ቁጥር ያስገቡ።'
+          : 'Order created. Send Telebirr, then paste the transaction number.',
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verify() {
@@ -77,7 +85,7 @@ export default function WalletPage() {
       return;
     }
     setBusy(true);
-    setMsg('Verifying…');
+    setMsg(locale === 'am' ? 'በ Verify.ET እየተረጋገጠ ነው…' : 'Verifying with Verify.ET…');
     try {
       const res = await fetch(`/api/wallet/deposits/${deposit.id}/verify`, {
         method: 'POST',
@@ -94,7 +102,9 @@ export default function WalletPage() {
       await load();
     } catch {
       setMsg('Unable to verify the payment right now. Please try again.');
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!user) return <p className="py-12 text-center text-white/50">Sign in first</p>;
@@ -115,40 +125,125 @@ export default function WalletPage() {
           <p className="text-[11px] text-white/40">Withdrawable: {shown.toFixed(2)}</p>
         </div>
       </div>
+
       <div className="grid grid-cols-3 rounded-2xl bg-white/5 p-1">
         {(['deposit', 'withdraw', 'history'] as const).map((k) => (
-          <button key={k} type="button" onClick={() => setTab(k)} className={tab === k ? 'rounded-xl bg-amber-400 py-2.5 text-sm font-black text-black' : 'py-2.5 text-sm text-white/70'}>
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={
+              tab === k
+                ? 'rounded-xl bg-amber-400 py-2.5 text-sm font-black text-black'
+                : 'py-2.5 text-sm text-white/70'
+            }
+          >
             {k === 'deposit' ? 'Deposit' : k === 'withdraw' ? 'Withdraw' : 'History'}
           </button>
         ))}
       </div>
+
       {tab === 'deposit' && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-white/10 px-4 py-3">Telebirr</div>
+          <div className="flex items-center justify-between rounded-2xl border border-white/10 px-4 py-3">
+            <span className="font-semibold">Telebirr</span>
+            <a
+              href="https://verify.et/verify/telebirr"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-amber-300"
+            >
+              Verify.ET <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+
           <div className="rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4">
-            <div className="flex items-center justify-between">
-              <p>Send payment to: <span className="text-xl font-black underline">{phone}</span></p>
-              <button type="button" className="rounded-xl bg-amber-400 p-2 text-black" onClick={() => { void navigator.clipboard.writeText(phone); setCopied(true); }}><Copy className="h-4 w-4" /></button>
+            <div className="flex items-center justify-between gap-2">
+              <p>
+                Send payment to:{' '}
+                <span className="text-xl font-black underline">{phone}</span>
+              </p>
+              <button
+                type="button"
+                className="rounded-xl bg-amber-400 p-2 text-black"
+                onClick={() => {
+                  void navigator.clipboard.writeText(phone);
+                  setCopied(true);
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </button>
             </div>
             {copied && <p className="text-[11px] text-amber-300">Copied</p>}
-            <p className="mt-2 text-sm">Telebirr account name: <b>{name}</b></p>
-            <p className="mt-2 text-xs text-white/40">{cfg?.instruction || 'Complete your Telebirr payment and verify the transaction.'}</p>
+            <p className="mt-2 text-sm">
+              Telebirr account name: <b>{name}</b>
+            </p>
+            <p className="mt-2 text-xs text-white/45">
+              {cfg?.instruction ||
+                'Complete your Telebirr payment and verify the transaction with Verify.ET.'}
+            </p>
           </div>
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3" />
-          <button type="button" disabled={busy} onClick={() => void start()} className="w-full rounded-2xl border border-white/15 py-3 text-sm font-bold">Create deposit order</button>
-          <input value={txn} onChange={(e) => setTxn(e.target.value)} placeholder="Telebirr transaction number" className="w-full rounded-2xl border border-amber-400/30 bg-black/40 px-4 py-3" />
-          <button type="button" disabled={busy || !deposit} onClick={() => void verify()} className="w-full rounded-2xl bg-amber-400 py-3.5 font-black text-black disabled:opacity-40">{busy ? 'Verifying…' : 'Verify Deposit'}</button>
+
+          <label className="block text-xs text-white/50">
+            Amount (ETB)
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              className="mt-1 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm"
+            />
+          </label>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void start()}
+            className="w-full rounded-2xl border border-white/15 py-3 text-sm font-bold"
+          >
+            Create deposit order
+          </button>
+
+          <label className="block text-xs text-white/50">
+            Telebirr transaction number
+            <input
+              value={txn}
+              onChange={(e) => setTxn(e.target.value)}
+              placeholder="e.g. DET8FJGUJ4"
+              className="mt-1 w-full rounded-2xl border border-amber-400/30 bg-black/40 px-4 py-3 text-sm"
+            />
+          </label>
+
+          <button
+            type="button"
+            disabled={busy || !deposit}
+            onClick={() => void verify()}
+            className="w-full rounded-2xl bg-amber-400 py-3.5 font-black text-black disabled:opacity-40"
+          >
+            {busy ? 'Verifying…' : 'Verify with Verify.ET'}
+          </button>
+
           {msg && <p className="text-center text-sm text-amber-200">{msg}</p>}
-          <p className="text-center text-[11px] text-white/35">Your wallet is credited only after the transaction is successfully verified.</p>
+          <p className="text-center text-[11px] text-white/35">
+            Wallet credit happens only after Verify.ET confirms the receipt and amount.
+          </p>
         </div>
       )}
-      {tab === 'withdraw' && <p className="rounded-2xl border border-white/10 p-4 text-sm text-white/55">Withdrawals require admin approval.</p>}
+
+      {tab === 'withdraw' && (
+        <p className="rounded-2xl border border-white/10 p-4 text-sm text-white/55">
+          Withdrawals require admin approval.
+        </p>
+      )}
+
       {tab === 'history' && (
         <ul className="space-y-2">
           {items.length === 0 && <p className="text-sm text-white/40">No deposits yet</p>}
           {items.map((d) => (
             <li key={d.id} className="rounded-xl border border-white/10 px-3 py-2 text-sm">
-              <div className="flex justify-between"><span>+{d.amount.toFixed(2)} ETB</span><span>{d.status}</span></div>
+              <div className="flex justify-between">
+                <span>+{d.amount.toFixed(2)} ETB</span>
+                <span>{d.status}</span>
+              </div>
               <p className="text-[11px] text-white/40">{d.merchantOrderId}</p>
             </li>
           ))}
