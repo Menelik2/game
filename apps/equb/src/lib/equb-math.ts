@@ -97,6 +97,7 @@ export type LiveRoom = {
   members: EqubMember[];
   winningNumber: number | null;
   winnerId: string | null;
+  winnerName?: string | null;
   /** Last draw split (set when completed) */
   lastAdminFee?: number;
   lastWinnerPayout?: number;
