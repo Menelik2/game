@@ -1,223 +1,140 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
-import { apiListUsers, apiSetBalance, type ApiUser } from '@/lib/auth-api';
-import { formatBirrCompact } from '@/lib/money';
-import { useI18n } from '@/lib/i18n/LanguageContext';
-import clsx from 'clsx';
 
-function sessionIsAdmin(user: unknown): boolean {
-  if (!user || typeof user !== 'object') return false;
-  return (user as { role?: string }).role === 'admin';
+type U = { id: string; fullName?: string; name?: string; phone: string; balance: number; role?: string; banned?: boolean };
+type Stats = { users: number; admins: number; banned: number; totalBalance: number; deposits: number; pendingDeposits: number };
+
+function isAdmin(user: unknown) {
+  return !!user && typeof user === 'object' && (user as { role?: string }).role === 'admin';
 }
 
 export default function AdminPage() {
   const router = useRouter();
-  const { locale } = useI18n();
-  const user = useEqubStore((s) => s.user);
-  const setSessionUser = useEqubStore((s) => s.setSessionUser);
-  const history = useEqubStore((s) => s.history);
-  const rooms = useEqubStore((s) => s.rooms);
-  const adminEarningsTotal = useEqubStore((s) => s.adminEarningsTotal);
-  const [users, setUsers] = useState<ApiUser[]>([]);
+  const me = useEqubStore((s) => s.user);
+  const [tab, setTab] = useState<'overview' | 'users' | 'create'>('overview');
+  const [users, setUsers] = useState<U[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [q, setQ] = useState('');
   const [msg, setMsg] = useState('');
-  const [editBal, setEditBal] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ fullName: '', phone: '', password: '123456', balance: '100', role: 'player' });
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const list = await apiListUsers();
-    if (list) setUsers(list);
-    else setUsers([]);
-    setLoading(false);
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/users');
+    const json = await res.json();
+    if (json?.success) {
+      setUsers(json.data.users || []);
+      setStats(json.data.stats);
+    } else setMsg(json?.message || 'Could not load users');
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (me && !isAdmin(me)) router.replace('/'); }, [me, router]);
 
-  useEffect(() => {
-    if (user && !sessionIsAdmin(user)) router.replace('/');
-  }, [user, router]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return users;
+    return users.filter((u) => `${u.fullName || u.name || ''} ${u.phone} ${u.role}`.toLowerCase().includes(s));
+  }, [users, q]);
 
-  async function saveBalance(u: ApiUser) {
-    const raw = editBal[u.id];
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) {
-      setMsg('Invalid balance');
-      return;
-    }
-    const r = await apiSetBalance(u.id, n, 'admin_set');
-    if (!r.ok) {
-      setMsg(r.error);
-      return;
-    }
-    setMsg(`Updated ${u.fullName} → ${r.user.balance} Birr (database)`);
-    if (user?.id === u.id) {
-      setSessionUser({ ...user, balance: r.user.balance });
-    }
-    await refresh();
+  async function createUser() {
+    const res = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, balance: Number(form.balance) }) });
+    const json = await res.json();
+    setMsg(json.success ? 'User created' : json.message || 'Create failed');
+    if (json.success) { setForm({ fullName: '', phone: '', password: '123456', balance: '100', role: 'player' }); await load(); setTab('users'); }
   }
 
-  async function addBalance(u: ApiUser, amount: number) {
-    const r = await apiSetBalance(u.id, u.balance + amount, 'admin_add');
-    if (!r.ok) {
-      setMsg(r.error);
-      return;
-    }
-    setMsg(`+${amount} Birr → ${u.fullName} (database)`);
-    if (user?.id === u.id) {
-      setSessionUser({ ...user, balance: r.user.balance });
-    }
-    await refresh();
+  async function patch(id: string, body: Record<string, unknown>, ok: string) {
+    const res = await fetch(`/api/admin/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const json = await res.json();
+    setMsg(json.success ? ok : json.message || 'Update failed');
+    if (json.success) await load();
   }
 
-  if (!user) {
-    return (
-      <div className="glass mx-auto max-w-md space-y-4 rounded-2xl p-6 text-center">
-        <h1 className="text-xl font-bold">Admin</h1>
-        <p className="text-sm text-white/50">
-          Sign in as admin from Profile (database).
-        </p>
-        <p className="rounded-xl bg-black/30 p-3 font-mono text-xs text-equb-300">
-          Phone: 0900000000
-          <br />
-          Password: Admin123!
-        </p>
-        <Link href="/profile" className="btn-gold inline-block px-6">
-          Profile login
-        </Link>
-      </div>
-    );
+  async function remove(id: string) {
+    if (!confirm('Delete this user?')) return;
+    const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    setMsg(json.success ? 'User deleted' : json.message || 'Delete failed');
+    if (json.success) await load();
   }
 
-  if (!sessionIsAdmin(user)) {
-    return (
-      <div className="py-12 text-center text-sm text-red-300">
-        Access denied — admin only.
-      </div>
-    );
-  }
-
-  const openRooms = rooms.filter((r) => r.status === 'open').length;
+  if (!me) return <p className="py-10 text-center text-white/50">Sign in as admin</p>;
+  if (!isAdmin(me)) return <p className="py-10 text-center text-white/50">Admin only</p>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-black">Admin dashboard</h1>
-        <p className="mt-1 text-xs text-white/40">
-          Users & balances from Supabase database (not localStorage)
-        </p>
+    <div className="mx-auto max-w-4xl space-y-4 pb-10">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-black">Admin</h1>
+        <div className="flex gap-2 text-xs">
+          <Link href="/admin/deposits" className="rounded-lg border border-white/10 px-3 py-1.5">Deposits</Link>
+          <Link href="/admin/audit" className="rounded-lg border border-white/10 px-3 py-1.5">Audit</Link>
+        </div>
       </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: 'Users (DB)', value: users.length },
-          { label: 'Open rooms', value: openRooms },
-          {
-            label: 'Admin fees',
-            value: formatBirrCompact(adminEarningsTotal, locale),
-          },
-          { label: 'Draws', value: history.length },
-        ].map((c) => (
-          <div key={c.label} className="glass rounded-2xl p-4 text-center">
-            <p className="text-[10px] uppercase text-white/40">{c.label}</p>
-            <p className="mt-1 text-lg font-bold text-equb-300">{c.value}</p>
-          </div>
+      <div className="grid grid-cols-3 gap-1 rounded-2xl bg-white/5 p-1 text-sm">
+        {(['overview', 'users', 'create'] as const).map((t) => (
+          <button key={t} type="button" onClick={() => setTab(t)} className={tab === t ? 'rounded-xl bg-amber-400 py-2 font-black text-black' : 'py-2 text-white/70'}>{t}</button>
         ))}
       </div>
-
-      {msg && (
-        <p className="rounded-xl bg-equb-500/15 px-4 py-2 text-xs text-equb-300">
-          {msg}
-        </p>
-      )}
-
-      <div className="glass overflow-hidden rounded-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <h2 className="font-bold">Database users</h2>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="text-xs text-equb-400"
-          >
-            Refresh
-          </button>
+      {msg && <p className="rounded-xl bg-white/5 px-3 py-2 text-sm text-amber-200">{msg}</p>}
+      {tab === 'overview' && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {[
+            ['Users', stats?.users ?? '—'],
+            ['Admins', stats?.admins ?? '—'],
+            ['Banned', stats?.banned ?? '—'],
+            ['Balances', stats ? `${stats.totalBalance.toFixed(0)} ETB` : '—'],
+            ['Deposits', stats?.deposits ?? '—'],
+            ['Pending pay', stats?.pendingDeposits ?? '—'],
+          ].map(([k, v]) => (
+            <div key={String(k)} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p className="text-[11px] uppercase text-white/40">{k}</p>
+              <p className="text-xl font-black">{v}</p>
+            </div>
+          ))}
         </div>
-        {loading ? (
-          <p className="p-6 text-center text-sm text-white/40">Loading…</p>
-        ) : users.length === 0 ? (
-          <p className="p-6 text-center text-sm text-white/40">
-            No users yet — or database not configured
-          </p>
-        ) : (
-          <ul className="divide-y divide-white/5">
-            {users.map((u) => (
-              <li key={u.id} className="space-y-2 px-4 py-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold">
-                      {u.fullName}{' '}
-                      {u.role === 'admin' && (
-                        <span className="text-[10px] text-gold-400">ADMIN</span>
-                      )}
-                    </p>
-                    <p className="font-mono text-[11px] text-white/40">{u.phone}</p>
-                  </div>
-                  <p
-                    className={clsx(
-                      'font-mono font-bold',
-                      u.balance > 0 ? 'text-equb-400' : 'text-white/40',
-                    )}
-                  >
-                    {formatBirrCompact(u.balance, locale)}
-                  </p>
+      )}
+      {tab === 'create' && (
+        <div className="space-y-2 rounded-2xl border border-white/10 p-4">
+          <input placeholder="Full name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} className="w-full rounded-xl bg-black/40 px-3 py-2" />
+          <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-xl bg-black/40 px-3 py-2" />
+          <input placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full rounded-xl bg-black/40 px-3 py-2" />
+          <input placeholder="Start balance" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} className="w-full rounded-xl bg-black/40 px-3 py-2" />
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full rounded-xl bg-black/40 px-3 py-2">
+            <option value="player">player</option>
+            <option value="admin">admin</option>
+          </select>
+          <button type="button" onClick={() => void createUser()} className="w-full rounded-xl bg-amber-400 py-3 font-black text-black">Create user</button>
+        </div>
+      )}
+      {tab === 'users' && (
+        <div className="space-y-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or phone" className="w-full rounded-xl bg-black/40 px-3 py-2" />
+          {filtered.map((u) => (
+            <div key={u.id} className="rounded-2xl border border-white/10 p-3 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-bold">{u.fullName || u.name || 'User'}</p>
+                  <p className="text-xs text-white/40">{u.phone} · {u.role || 'player'} {u.banned ? '· BANNED' : ''}</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Set balance"
-                    value={editBal[u.id] ?? ''}
-                    onChange={(e) =>
-                      setEditBal((m) => ({ ...m, [u.id]: e.target.value }))
-                    }
-                    className="w-28 rounded-lg border border-white/10 bg-surface-800 px-2 py-1 text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void saveBalance(u)}
-                    className="rounded-lg bg-equb-500/25 px-3 py-1 text-xs font-bold text-equb-300"
-                  >
-                    Set
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void addBalance(u, 100)}
-                    className="rounded-lg bg-white/10 px-3 py-1 text-xs"
-                  >
-                    +100
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void addBalance(u, 500)}
-                    className="rounded-lg bg-white/10 px-3 py-1 text-xs"
-                  >
-                    +500
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <Link href="/" className="block text-center text-sm text-white/50">
-        ← Home
-      </Link>
+                <p className="font-black text-amber-300">{Number(u.balance || 0).toFixed(0)} ETB</p>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                <button type="button" className="rounded-lg bg-white/10 px-2 py-1" onClick={() => void patch(u.id, { balance: Number(u.balance) + 100 }, '+100 ETB')}>+100</button>
+                <button type="button" className="rounded-lg bg-white/10 px-2 py-1" onClick={() => void patch(u.id, { balance: Number(u.balance) + 500 }, '+500 ETB')}>+500</button>
+                <button type="button" className="rounded-lg bg-white/10 px-2 py-1" onClick={() => { const n = Number(prompt('Set balance', String(u.balance))); if (Number.isFinite(n) && n >= 0) void patch(u.id, { balance: n }, 'Balance set'); }}>Set</button>
+                <button type="button" className="rounded-lg bg-white/10 px-2 py-1" onClick={() => void patch(u.id, { banned: !u.banned }, u.banned ? 'Unbanned' : 'Banned')}>{u.banned ? 'Unban' : 'Ban'}</button>
+                <button type="button" className="rounded-lg bg-white/10 px-2 py-1" onClick={() => void patch(u.id, { role: u.role === 'admin' ? 'player' : 'admin' }, 'Role updated')}>{u.role === 'admin' ? 'Make player' : 'Make admin'}</button>
+                <button type="button" className="rounded-lg bg-red-500/20 px-2 py-1 text-red-200" onClick={() => void remove(u.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && <p className="text-white/40">No users</p>}
+        </div>
+      )}
     </div>
   );
 }
