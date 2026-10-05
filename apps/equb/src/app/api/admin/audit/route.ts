@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listAudit, auditCount } from '@/lib/server/audit-log';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
+/** Only GET is exported — helpers live in @/lib/server/audit-log */
 export async function GET(req: NextRequest) {
   const limit = Math.min(
     100,
@@ -20,6 +22,7 @@ export async function GET(req: NextRequest) {
     userId: a.userId ?? null,
     createdAt: a.createdAt || new Date(a.at).toISOString(),
   }));
+
   return NextResponse.json({
     success: true,
     data: {

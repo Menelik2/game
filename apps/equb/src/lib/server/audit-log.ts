@@ -1,3 +1,5 @@
+/** Server-side audit helpers — not a Next.js route file */
+
 export type AuditEntry = {
   id: string;
   action: string;
