@@ -9,6 +9,7 @@ export type SharedRoom = {
   status: 'open' | 'completed'; members: Member[]; winningNumber: number | null;
   winnerId: string | null; winnerName: string | null; entropyHex: string | null;
   commitmentHash: string | null; drawAt: number; secondsLeft: number; updatedAt: number;
+  recent?: Array<{ id: string; winningNumber: number; winnerName: string; pot: number; at: number }>;
 };
 
 function sb() {
@@ -29,7 +30,7 @@ function fresh(templateId: string): SharedRoom {
     id: `${templateId}-${now.toString(36)}`, templateId, groupSize, prizePool,
     contribution: Math.round((prizePool / groupSize) * 100) / 100, status: 'open', members: [],
     winningNumber: null, winnerId: null, winnerName: null, entropyHex: null, commitmentHash: null,
-    drawAt: now + ROUND_MS, secondsLeft: 60, updatedAt: now,
+    drawAt: now + ROUND_MS, secondsLeft: 60, updatedAt: now, recent: [],
   };
 }
 async function read(templateId: string): Promise<SharedRoom | null> {
@@ -59,28 +60,31 @@ function draw(room: SharedRoom): SharedRoom {
   room.entropyHex = entropyHex;
   room.commitmentHash = createHash('sha256').update(`${entropyHex}:${winningNumber}`).digest('hex');
   room.updatedAt = Date.now();
+  const row = { id: room.id, winningNumber, winnerName: winner?.name || 'Player', pot: room.prizePool, at: Date.now() };
+  room.recent = [row, ...(room.recent || [])].slice(0, 20);
   return withTimer(room);
 }
-export async function openShared(templateId: string) {
+export async function openShared(templateId: string): Promise<SharedRoom> {
   let room = await read(templateId);
-  if (!room || room.status === 'completed') room = fresh(templateId);
+  const recent = room?.recent || [];
+  if (!room || room.status === 'completed') { room = fresh(templateId); room.recent = recent; }
   else room = draw(room);
-  if (room.status === 'completed') room = fresh(templateId);
+  if (room.status === 'completed') { const kept = room.recent || recent; room = fresh(templateId); room.recent = kept; }
   await write(room);
   return withTimer(room);
 }
-export async function getShared(templateId: string) {
+export async function getShared(templateId: string): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
   room = draw(room);
   await write(room);
   return withTimer(room);
 }
-export async function joinShared(templateId: string, playerId: string, name: string, pick: number) {
+export async function joinShared(templateId: string, playerId: string, name: string, pick: number): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
   room = draw(room);
-  if (room.status !== 'open') room = fresh(templateId);
+  if (room.status !== 'open') { const kept = room.recent || []; room = fresh(templateId); room.recent = kept; }
   if (room.members.some((m) => m.playerId === playerId)) throw new Error('Already in this room');
   if (pick < 1 || pick > room.groupSize) throw new Error('Invalid number');
   if (room.members.some((m) => m.pick === pick)) throw new Error('Number taken');
