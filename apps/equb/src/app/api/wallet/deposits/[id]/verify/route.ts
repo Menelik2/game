@@ -13,15 +13,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const result = await verifyDeposit({ depositId: id, userId, transactionNumber });
   const unavailable = /unavailable/i.test(result.message || '');
   const http = result.ok ? 200 : unavailable ? 503 : 400;
+  const balance = 'balance' in result ? result.balance : undefined;
+  const deposit = 'deposit' in result ? result.deposit : undefined;
   return NextResponse.json(
     {
       success: result.ok,
       status: result.status,
       message: result.message,
-      amount: result.deposit?.amount,
+      amount: deposit?.amount,
       currency: 'ETB',
-      balance: result.balance,
-      deposit: result.deposit,
+      balance,
+      deposit,
     },
     { status: http },
   );
