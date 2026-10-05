@@ -1,5 +1,3 @@
-/** Database-only auth + wallet. No localStorage accounts. */
-
 export type ApiUser = {
   id: string;
   fullName: string;
@@ -27,19 +25,15 @@ export async function apiRegister(input: {
 }): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
   try {
     const { res, json } = await post('/api/auth/register', input);
-    if (json?.code === 'DB_NOT_CONFIGURED') {
+    if (!res.ok || !json?.success) {
       return {
         ok: false,
-        error:
-          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then run migration 20261005_app_users.sql.',
+        error: json?.message || `Register failed (${res.status})`,
       };
     }
-    if (!res.ok || !json?.success) {
-      return { ok: false, error: json?.message || 'Register failed' };
-    }
     return { ok: true, user: json.data as ApiUser };
-  } catch {
-    return { ok: false, error: 'Cannot reach database API' };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Cannot reach register API' };
   }
 }
 
@@ -49,18 +43,15 @@ export async function apiLogin(input: {
 }): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
   try {
     const { res, json } = await post('/api/auth/login', input);
-    if (json?.code === 'DB_NOT_CONFIGURED') {
+    if (!res.ok || !json?.success) {
       return {
         ok: false,
-        error: 'Database not configured. Set Supabase env vars on Vercel.',
+        error: json?.message || `Login failed (${res.status})`,
       };
     }
-    if (!res.ok || !json?.success) {
-      return { ok: false, error: json?.message || 'Invalid phone or password' };
-    }
     return { ok: true, user: json.data as ApiUser };
-  } catch {
-    return { ok: false, error: 'Cannot reach database API' };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Cannot reach login API' };
   }
 }
 
