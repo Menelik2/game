@@ -11,7 +11,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const transactionNumber = String(body.transactionNumber || body.sms || '').trim();
   if (!userId) return NextResponse.json({ success: false, message: 'Sign in first' }, { status: 401 });
   const result = await verifyDeposit({ depositId: id, userId, transactionNumber });
-  const status = result.status === 'UNAVAILABLE' ? 503 : result.ok ? 200 : 400;
+  const unavailable = /unavailable/i.test(result.message || '');
+  const http = result.ok ? 200 : unavailable ? 503 : 400;
   return NextResponse.json(
     {
       success: result.ok,
@@ -22,6 +23,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       balance: result.balance,
       deposit: result.deposit,
     },
-    { status },
+    { status: http },
   );
 }
