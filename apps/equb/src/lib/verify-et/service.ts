@@ -14,17 +14,9 @@ export type VerifyEtResult = {
   settlementMatched?: boolean;
 };
 
-type VerifyPayload = {
-  bank: 'telebirr';
-  transactionNumber: string;
-  settlementAccount?: string;
-  expectedAmount?: number;
-};
-
 /**
  * Submit Telebirr receipt check to Verify.ET.
  * Docs: https://verify.et/docs/api — POST /api/verify
- * Public UI: https://verify.et/verify
  */
 export async function verifyTelebirrWithVerifyEt(input: {
   transactionNumber: string;
@@ -41,15 +33,14 @@ export async function verifyTelebirrWithVerifyEt(input: {
       verified: false,
       status: 'UNAVAILABLE',
       message:
-        'Verify.ET is not configured yet. Set VERIFY_ET_API_KEY in Vercel, then redeploy. Until then deposits stay pending for admin review.',
+        'VERIFY_ET_API_KEY is missing on this deployment. In Vercel → Project → Settings → Environment Variables, add VERIFY_ET_API_KEY for Production (and Preview), then Redeploy. Open /api/verify-et/status to confirm the key is loaded.',
     };
   }
 
-  const body: VerifyPayload = {
-    bank: 'telebirr',
+  const body = {
+    bank: 'telebirr' as const,
     transactionNumber: txn,
     settlementAccount: cfg.settlementAccount,
-    expectedAmount: input.expectedAmount,
   };
 
   try {
@@ -81,12 +72,16 @@ export async function verifyTelebirrWithVerifyEt(input: {
         json?.message ||
         json?.error?.message ||
         (res.status === 401 || res.status === 403
-          ? 'Verify.ET API key rejected. Check VERIFY_ET_API_KEY.'
+          ? 'Verify.ET rejected the API key. Create a new key at verify.et and update VERIFY_ET_API_KEY, then redeploy.'
           : `Verify.ET error (${res.status})`);
       return { verified: false, status: 'FAILED', message: String(msg), requestId };
     }
 
-    const verified = Boolean(item?.verified || item?.status === 'success' || json?.success && item?.verified !== false);
+    const verified = Boolean(
+      item?.verified === true ||
+        item?.status === 'success' ||
+        (json?.success === true && item?.verified !== false && item?.status !== 'failed'),
+    );
     const amount = Number(item?.amount ?? item?.settledAmount ?? item?.paidAmount);
     const currency = String(item?.currency || 'ETB').toUpperCase();
     const settlement = item?.settlementAccountMatch;
