@@ -1,6 +1,4 @@
-/**
- * Database-only auth (Supabase app_users). No localStorage accounts.
- */
+/** Database-only auth + wallet. No localStorage accounts. */
 
 export type ApiUser = {
   id: string;
@@ -33,7 +31,7 @@ export async function apiRegister(input: {
       return {
         ok: false,
         error:
-          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then run migration 20261005_app_users.sql in Supabase.',
+          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then run migration 20261005_app_users.sql.',
       };
     }
     if (!res.ok || !json?.success) {
@@ -54,8 +52,7 @@ export async function apiLogin(input: {
     if (json?.code === 'DB_NOT_CONFIGURED') {
       return {
         ok: false,
-        error:
-          'Database not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY on Vercel.',
+        error: 'Database not configured. Set Supabase env vars on Vercel.',
       };
     }
     if (!res.ok || !json?.success) {
@@ -87,4 +84,48 @@ export async function apiListUsers(): Promise<ApiUser[] | null> {
   } catch {
     return null;
   }
+}
+
+export async function apiSetBalance(
+  userId: string,
+  balance: number,
+  reason = 'admin_set',
+): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
+  try {
+    const { res, json } = await post(
+      `/api/users/${encodeURIComponent(userId)}/balance`,
+      { balance, reason },
+    );
+    if (!res.ok || !json?.success) {
+      return { ok: false, error: json?.message || 'Set balance failed' };
+    }
+    return { ok: true, user: json.data as ApiUser };
+  } catch {
+    return { ok: false, error: 'Network error' };
+  }
+}
+
+export async function apiAdjustBalance(
+  userId: string,
+  delta: number,
+  reason = 'adjust',
+): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
+  try {
+    const { res, json } = await post(
+      `/api/users/${encodeURIComponent(userId)}/balance`,
+      { delta, reason },
+    );
+    if (!res.ok || !json?.success) {
+      return { ok: false, error: json?.message || 'Adjust failed' };
+    }
+    return { ok: true, user: json.data as ApiUser };
+  } catch {
+    return { ok: false, error: 'Network error' };
+  }
+}
+
+export function isDbUserId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    id,
+  );
 }
