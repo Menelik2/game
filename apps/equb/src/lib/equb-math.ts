@@ -112,6 +112,8 @@ export type LiveRoom = {
   winnerName?: string | null;
   adminFee?: number | null;
   winnerPayout?: number | null;
+  lastAdminFee?: number | null;
+  lastWinnerPayout?: number | null;
   drawAt?: number;
   secondsLeft?: number;
 };
@@ -146,6 +148,7 @@ export function numberPool(groupSize: number) {
 export function validatePicks(
   groupSize: number,
   picks: number[],
+  taken?: Set<number> | number[],
 ): { ok: true; picks: number[] } | { ok: false; message: string } {
   const max = maxPicksForGroup(groupSize);
   const clean = [...new Set(picks.map((n) => Math.floor(Number(n))))].filter(
@@ -162,6 +165,14 @@ export function validatePicks(
           ? `Max 1 number for 5-player room`
           : `Max 2 numbers for ${groupSize}-player room`,
     };
+  }
+  if (taken) {
+    const set = taken instanceof Set ? taken : new Set(taken);
+    for (const n of clean) {
+      if (set.has(n)) {
+        return { ok: false, message: `Number ${n} is already taken` };
+      }
+    }
   }
   return { ok: true, picks: clean };
 }
