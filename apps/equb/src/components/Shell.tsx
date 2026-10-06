@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEqubStore } from '@/lib/store';
-import { Home, Users, Wallet, User, Sparkles, Shield } from 'lucide-react';
+import { Home, Users, Wallet, User, Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { BackButton } from '@/components/BackButton';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { EthDateBadge } from '@/components/EthDateBadge';
 import { LiveBalance } from '@/components/LiveBalance';
+import { BrandLogo } from '@/components/BrandLogo';
 
 function sessionIsAdmin(user: unknown): boolean {
   if (!user || typeof user !== 'object') return false;
@@ -19,7 +20,7 @@ function sessionIsAdmin(user: unknown): boolean {
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const user = useEqubStore((s) => s.user);
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const isPlay = path.startsWith('/rooms/');
   const isRoomsHub = path === '/rooms';
   const isAdmin = path.startsWith('/admin');
@@ -63,15 +64,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 className="shrink-0 !px-2 !py-1.5 text-xs lg:hidden"
               />
             )}
-            <Link href="/" className="flex min-w-0 items-center gap-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-equb-500 to-equb-700 shadow-lg shadow-equb-500/25 lg:h-10 lg:w-10">
-                <Sparkles className="h-5 w-5 text-white" />
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold leading-tight lg:text-base">{t.brand}</p>
-                <p className="truncate text-[10px] text-equb-400">{t.brandSub}</p>
-              </div>
-            </Link>
+            <BrandLogo size={40} title={t.brand} subtitle={t.brandSub} />
           </div>
 
           <nav className="hidden items-center gap-1 lg:flex">
