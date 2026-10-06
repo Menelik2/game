@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { PickRuleBadge } from '@/components/PickRule';
 import { useEqubStore } from '@/lib/store';
 import {
   takenPicks,
@@ -325,15 +326,18 @@ export default function RoomDetailPage() {
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
-        <p className="text-center text-[11px] text-equb-300">
-          {inRoom
-            ? locale === 'am'
-              ? `ተቀላቅለዋል · ቁጥሮችዎ: #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
-              : `Joined · your numbers: #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
-            : locale === 'am'
-              ? `1) ቁጥር ይምረጡ (እስከ ${maxP})  2) BET ይጫኑ · እውነተኛ ተጫዋቾች ብቻ`
-              : `1) Select numbers (up to ${maxP})  2) Press BET · real players only`}
-        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2 text-center text-[11px] text-equb-300">
+          <PickRuleBadge groupSize={room.groupSize} locale={locale} />
+          <span>
+            {inRoom
+              ? locale === 'am'
+                ? `ተቀላቅለዋል · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+                : `Joined · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+              : locale === 'am'
+                ? `ቁጥር ይምረጡ (ከፍተኛ ${maxP}) · ከዚያ BET`
+                : `Select numbers (max ${maxP}) · then BET`}
+          </span>
+        </div>
         {room.status === 'completed' && (room.winnerName || room.winnerId) && (
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
             Winner: {room.winnerName || room.winnerId} · #
@@ -362,6 +366,7 @@ export default function RoomDetailPage() {
             room.status === 'open' && !inRoom && !joining && picks.length > 0
           }
           locale={locale}
+          maxSelect={maxP}
           onToggleSelect={(n) => {
             if (inRoom || room.status !== 'open' || joining) return;
             togglePick(n, room.groupSize, taken);
@@ -469,15 +474,18 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
-      <p className="text-center text-[11px] text-equb-300">
-        {inRoom
-          ? locale === 'am'
-            ? `ተቀላቅለዋል · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
-            : `Joined · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
-          : locale === 'am'
-            ? `1) ቁጥር ይምረጡ (እስከ ${maxP})  2) BET · እውነተኛ ተጫዋቾች`
-            : `1) Select numbers (up to ${maxP})  2) BET · real players only`}
-      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2 text-center text-[11px] text-equb-300">
+        <PickRuleBadge groupSize={room.groupSize} locale={locale} />
+        <span>
+          {inRoom
+            ? locale === 'am'
+              ? `ተቀላቅለዋል · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+              : `Joined · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+            : locale === 'am'
+              ? `ቁጥር ይምረጡ (ከፍተኛ ${maxP}) · ከዚያ BET`
+              : `Select numbers (max ${maxP}) · then BET`}
+        </span>
+      </div>
       {room.status === 'completed' && room.winnerName && (
         <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
           Winner: {room.winnerName} · #
@@ -506,6 +514,7 @@ export default function RoomDetailPage() {
         canFillBots={false}
         canDraw={inRoom && full && room.status === 'open'}
         locale={locale}
+        maxSelect={maxP}
         onToggleSelect={(n) => {
           if (inRoom || room.status !== 'open') return;
           togglePick(n, room.groupSize, taken);
