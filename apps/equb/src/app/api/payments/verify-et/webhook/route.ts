@@ -6,10 +6,13 @@ import { verifyEtConfig } from '@/lib/verify-et/config';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-function validSignature(raw: string, signatureHeader: string | null, secret: string): boolean {
+function validSignature(
+  raw: string,
+  signatureHeader: string | null,
+  secret: string,
+): boolean {
   if (!secret || !signatureHeader) return !secret;
   try {
-    // Verify.ET: timestamp.rawBody HMAC-SHA256 (see docs/sdk)
     const parts = signatureHeader.split(',');
     let ts = '';
     let sig = signatureHeader;
@@ -38,27 +41,47 @@ export async function POST(req: NextRequest) {
   if (cfg.webhookSecret) {
     const ok = validSignature(
       raw,
-      req.headers.get('x-verify-signature') || req.headers.get('x-signature') || req.headers.get('signature'),
+      req.headers.get('x-verify-signature') ||
+        req.headers.get('x-signature') ||
+        req.headers.get('signature'),
       cfg.webhookSecret,
     );
-    if (!ok) return NextResponse.json({ success: false, message: 'Invalid signature' }, { status: 401 });
+    if (!ok) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid signature' },
+        { status: 401 },
+      );
+    }
   }
 
-  let body: any = {};
+  let body: Record<string, unknown> = {};
   try {
     body = JSON.parse(raw || '{}');
   } catch {
-    return NextResponse.json({ success: false, message: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: 'Invalid JSON' },
+      { status: 400 },
+    );
   }
 
-  const item = Array.isArray(body?.data) ? body.data[0] : body?.data || body?.verification || body;
+  const data = body?.data;
+  const item = (
+    Array.isArray(data)
+      ? data[0]
+      : data || body?.verification || body
+  ) as Record<string, unknown> | undefined;
+
   if (!item?.verified && item?.status !== 'success') {
     return new NextResponse(null, { status: 204 });
   }
 
-  const result = creditFromWebhook({
-    transactionNumber: String(item.transactionNumber || item.referenceNumber || ''),
-    providerTransactionId: String(item.referenceNumber || item.transactionNumber || item.id || ''),
+  const result = await creditFromWebhook({
+    transactionNumber: String(
+      item.transactionNumber || item.referenceNumber || '',
+    ),
+    providerTransactionId: String(
+      item.referenceNumber || item.transactionNumber || item.id || '',
+    ),
     amount: Number(item.amount || 0),
     currency: String(item.currency || 'ETB'),
   });
