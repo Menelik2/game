@@ -21,6 +21,7 @@ import {
   probeApi,
   type ServerRoom,
 } from '@/lib/multiplayer';
+import { optimisticJoin } from '@/lib/optimistic';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { EqubTable, type TablePlayer, type TableResult } from '@/components/EqubTable';
 import { mergeRoundResults } from '@/lib/round-results';
@@ -44,8 +45,8 @@ function PlayBackBar() {
 function allTaken(room: ServerRoom): Set<number> {
   const s = new Set<number>();
   for (const m of room.members || []) {
-    const list = m.picks && m.picks.length ? m.picks : [m.pick];
-    for (const p of list) s.add(p);
+    const list = m.picks && m.picks.length ? m.picks : m.pick != null ? [m.pick] : [];
+    for (const p of list) if (Number.isFinite(p)) s.add(Number(p));
   }
   return s;
 }
@@ -77,16 +78,22 @@ export default function RoomDetailPage() {
   const multiplayer = wantMp && conn === 'online';
 
   const refreshServer = useCallback(async () => {
-    if (!wantMp || !id || conn === 'offline') return;
+    if (!wantMp || !templateId || conn === 'offline') return;
     try {
-      if (serverRoom?.id) setServerRoom(await fetchRoom(serverRoom.id));
-      else setServerRoom(await openRoom(templateId!));
+      // Prefer GET so we do not reset an open shared room
+      const room = await fetchRoom(templateId);
+      setServerRoom(room);
       setConn('online');
     } catch {
-      setConn('offline');
-      setServerRoom(null);
+      try {
+        setServerRoom(await openRoom(templateId));
+        setConn('online');
+      } catch {
+        setConn('offline');
+        setServerRoom(null);
+      }
     }
-  }, [wantMp, id, templateId, serverRoom?.id, conn]);
+  }, [wantMp, templateId, conn]);
 
   useEffect(() => {
     ensureRooms();
@@ -111,7 +118,13 @@ export default function RoomDetailPage() {
           return;
         }
         try {
-          const room = await openRoom(templateId!);
+          // Load existing open room first (keeps other players' seats)
+          let room: ServerRoom;
+          try {
+            room = await fetchRoom(templateId!);
+          } catch {
+            room = await openRoom(templateId!);
+          }
           if (cancelled) return;
           setServerRoom(room);
           setConn('online');
@@ -129,14 +142,16 @@ export default function RoomDetailPage() {
   }, [wantMp, ensureRooms, templateId, refreshBalance]);
 
   useEffect(() => {
-    if (!multiplayer || !serverRoom?.id) return;
+    if (!multiplayer || !templateId) return;
     const iv = setInterval(() => {
-      void fetchRoom(serverRoom.id)
+      void fetchRoom(templateId)
         .then(setServerRoom)
-        .catch(() => setConn('offline'));
-    }, 3000);
+        .catch(() => {
+          /* keep last state */
+        });
+    }, 2500);
     return () => clearInterval(iv);
-  }, [multiplayer, serverRoom?.id]);
+  }, [multiplayer, templateId]);
 
   useDemoCountdown(tick, setTick, multiplayer && serverRoom?.secondsLeft != null);
   useEffect(() => {
@@ -165,9 +180,7 @@ export default function RoomDetailPage() {
     const res = adjustBalance(payout);
     if (res.ok) {
       setMsg(
-        locale === 'am'
-          ? `አሸንፈዋል! +${payout} ብር`
-          : `You won! +${payout} Birr`,
+        locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`,
       );
       try {
         sessionStorage.setItem(key, '1');
@@ -212,7 +225,7 @@ export default function RoomDetailPage() {
         setMsg(
           locale === 'am'
             ? `ከፍተኛ ${max} ቁጥር (${groupSize}÷5)`
-            : `Max ${max} numbers for this room`,
+            : `Max ${max} numbers for this room (${groupSize}÷5)`,
         );
         return prev;
       }
@@ -238,14 +251,17 @@ export default function RoomDetailPage() {
     const yourPicks = me
       ? me.picks && me.picks.length
         ? me.picks
-        : [me.pick]
+        : me.pick != null
+          ? [me.pick]
+          : []
       : [];
     const inRoom = yourPicks.length > 0;
+    const maxP = maxPicksForGroup(room.groupSize);
     const players: TablePlayer[] = room.members.map((m) => ({
       id: m.playerId,
       name: m.name,
       pick: m.pick,
-      picks: m.picks,
+      picks: m.picks && m.picks.length ? m.picks : m.pick != null ? [m.pick] : [],
       isYou: m.playerId === identity.playerId,
       status:
         room.status === 'completed'
@@ -258,6 +274,11 @@ export default function RoomDetailPage() {
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
+        <p className="text-center text-[11px] text-equb-300">
+          {locale === 'am'
+            ? `ከፍተኛ ${maxP} ቁጥር ይምረጡ · ነፃ መቀመጫዎችን ይንኩ`
+            : `Tap free seats · up to ${maxP} numbers (${room.groupSize}÷5)`}
+        </p>
         {room.status === 'completed' && (room.winnerName || room.winnerId) && (
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
             Winner: {room.winnerName || room.winnerId} · #
@@ -269,7 +290,7 @@ export default function RoomDetailPage() {
           prizePool={room.prizePool}
           contribution={room.contribution}
           taken={taken}
-          selected={inRoom ? [] : picks}
+          selected={inRoom ? yourPicks : picks}
           yourPicks={yourPicks}
           winningNumber={room.winningNumber}
           status={room.status}
@@ -279,18 +300,25 @@ export default function RoomDetailPage() {
           roomId={room.id}
           lastAdminFee={room.adminFee}
           lastWinnerPayout={room.winnerPayout}
-          disabled={inRoom || room.status !== 'open' || joining}
+          disabled={inRoom || room.status !== 'open'}
           joining={joining}
           canBet={room.status === 'open' && !inRoom && picks.length > 0}
           locale={locale}
-          onToggleSelect={(n) => togglePick(n, room.groupSize, taken)}
+          onToggleSelect={(n) => {
+            if (inRoom || room.status !== 'open' || joining) return;
+            togglePick(n, room.groupSize, taken);
+          }}
           onBet={async () => {
             if (picks.length === 0) {
               setMsg(
                 locale === 'am'
-                  ? 'ቁጥር ይምረጡ'
+                  ? 'ቢያንስ 1 ቁጥር ይምረጡ'
                   : 'Select at least one number',
               );
+              return;
+            }
+            if (picks.length > maxP) {
+              setMsg(`Max ${maxP} numbers`);
               return;
             }
             if (!user) {
@@ -317,13 +345,14 @@ export default function RoomDetailPage() {
                 return;
               }
             }
+            setServerRoom(optimisticJoin(room, picks));
             try {
               const joined = await mpJoin(templateId!, picks);
               setServerRoom(joined);
-              setPicks([]);
               setMsg(
                 `Joined · #${picks.map((p) => String(p).padStart(2, '0')).join(' · #')}`,
               );
+              setPicks([]);
             } catch (e: unknown) {
               if (fee > 0) adjustBalance(fee);
               setMsg(e instanceof Error ? e.message : t.common.error);
@@ -359,6 +388,7 @@ export default function RoomDetailPage() {
   const yourPicks = me ? memberPicks(me) : [];
   const inRoom = yourPicks.length > 0;
   const full = isFull(room);
+  const maxP = maxPicksForGroup(room.groupSize);
   const players: TablePlayer[] = room.members.map((m) => ({
     id: m.id,
     name: m.name,
@@ -376,6 +406,11 @@ export default function RoomDetailPage() {
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
+      <p className="text-center text-[11px] text-equb-300">
+        {locale === 'am'
+          ? `ከፍተኛ ${maxP} ቁጥር (${room.groupSize}÷5)`
+          : `Up to ${maxP} numbers (${room.groupSize}÷5)`}
+      </p>
       {room.status === 'completed' && room.winnerName && (
         <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
           Winner: {room.winnerName} · #
@@ -387,7 +422,7 @@ export default function RoomDetailPage() {
         prizePool={room.prizePool}
         contribution={room.contribution}
         taken={taken}
-        selected={inRoom ? [] : picks}
+        selected={inRoom ? yourPicks : picks}
         yourPicks={yourPicks}
         winningNumber={room.winningNumber}
         status={room.status}
@@ -404,7 +439,10 @@ export default function RoomDetailPage() {
         canFillBots={inRoom && !full && room.status === 'open'}
         canDraw={inRoom && full && room.status === 'open'}
         locale={locale}
-        onToggleSelect={(n) => togglePick(n, room.groupSize, taken)}
+        onToggleSelect={(n) => {
+          if (inRoom || room.status !== 'open') return;
+          togglePick(n, room.groupSize, taken);
+        }}
         onBet={() => {
           if (picks.length === 0) {
             setMsg(
