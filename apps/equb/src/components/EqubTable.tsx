@@ -2,9 +2,13 @@
 
 import { useMemo } from 'react';
 import clsx from 'clsx';
-import { formatBirrCompact } from '@/lib/money';
 import { useLocale } from '@/lib/i18n/LanguageContext';
 import { maxPicksForGroup, splitPot } from '@/lib/equb-math';
+
+function birr(amount: number): string {
+  const n = Math.round(Number(amount) || 0);
+  return `${n.toLocaleString()} ብር`;
+}
 
 export type TablePlayer = {
   id: string;
@@ -81,11 +85,9 @@ export function EqubTable({
   const maxSelect = maxSelectProp ?? maxPicksForGroup(groupSize);
   const pot = Number(prizePool) || 0;
   const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
-
   const takenSet = useMemo(() => new Set(taken), [taken]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const atMax = selected.length >= maxSelect;
-
   const payoutHint =
     preview?.winnerPayout != null
       ? preview.winnerPayout
@@ -103,9 +105,7 @@ export function EqubTable({
               : `Pick numbers · max ${maxSelect}`}
           </span>
           {payoutHint != null && (
-            <span className="text-gold-400/80">
-              ~{formatBirrCompact(payoutHint, locale)}
-            </span>
+            <span className="text-gold-400/80">~{birr(payoutHint)}</span>
           )}
         </div>
         <div
@@ -124,7 +124,6 @@ export function EqubTable({
               !isYours && (isTaken || (atMax && !selectedSet.has(n)));
             const canClick =
               !disabled && status === 'open' && !locked && !isTaken;
-
             return (
               <button
                 key={n}
@@ -146,7 +145,6 @@ export function EqubTable({
             );
           })}
         </div>
-
         <div className="mt-3 flex flex-wrap gap-2">
           {canBet && (
             <button
@@ -169,19 +167,15 @@ export function EqubTable({
             </button>
           )}
         </div>
-
         {status === 'completed' &&
           (lastAdminFee != null || lastWinnerPayout != null) && (
             <p className="mt-2 text-center text-[11px] text-white/40">
-              {lastAdminFee != null ? formatBirrCompact(lastAdminFee, locale) : ''}
+              {lastAdminFee != null ? birr(lastAdminFee) : ''}
               {' · '}
-              {lastWinnerPayout != null
-                ? formatBirrCompact(lastWinnerPayout, locale)
-                : ''}
+              {lastWinnerPayout != null ? birr(lastWinnerPayout) : ''}
             </p>
           )}
       </div>
-
       <div className="order-2 rounded-2xl border border-white/10 bg-black/30 p-3">
         <p className="text-[10px] font-bold uppercase text-white/40">
           {locale === 'am' ? 'ተጫዋች' : 'Players'}
@@ -201,21 +195,15 @@ export function EqubTable({
             >
               <span className="truncate">{pl.name}</span>
               <span className="font-mono text-white/50">
-                #
-                {(pl.picks || [pl.pick])
-                  .map((x) => String(x).padStart(2, '0'))
-                  .join(',')}
+                #{(pl.picks || [pl.pick]).map((x) => String(x).padStart(2, '0')).join(',')}
               </span>
             </li>
           ))}
         </ul>
         {secondsLeft != null && status === 'open' && (
-          <p className="mt-2 text-center font-mono text-xs text-amber-300/80">
-            {secondsLeft}s
-          </p>
+          <p className="mt-2 text-center font-mono text-xs text-amber-300/80">{secondsLeft}s</p>
         )}
       </div>
-
       <div className="order-3 rounded-2xl border border-white/10 bg-black/30 p-3">
         <p className="text-[10px] font-bold uppercase text-white/40">
           {locale === 'am' ? 'ውጤቶች' : 'Results'}
@@ -228,15 +216,12 @@ export function EqubTable({
             <li key={r.id || i} className="flex justify-between gap-1">
               <span className="truncate">{r.winnerName}</span>
               <span className="shrink-0 font-mono text-gold-400/80">
-                #{String(r.winningNumber).padStart(2, '0')} ·{' '}
-                {formatBirrCompact(r.pot, locale)}
+                #{String(r.winningNumber).padStart(2, '0')} · {birr(r.pot)}
               </span>
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-[10px] text-white/30">
-          {formatBirrCompact(contribution, locale)} / seat
-        </p>
+        <p className="mt-2 text-[10px] text-white/30">{birr(contribution)} / seat</p>
       </div>
     </div>
   );
