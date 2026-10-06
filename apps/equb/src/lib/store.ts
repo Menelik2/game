@@ -8,6 +8,11 @@ import {
   type EqubMember,
   isFull,
   takenPicks,
+  seatsTaken,
+  seatsLeft,
+  memberPicks,
+  maxPicksForGroup,
+  validatePicks,
   numberPool,
   splitPot,
   ADMIN_FEE_RATE,
@@ -72,7 +77,11 @@ type State = {
   loginDemo: (name?: string) => void;
   logout: () => void;
   ensureRooms: () => void;
-  joinRoom: (roomId: string, pick: number) => { ok: boolean; message: string };
+  /** pick: single number or array (max = groupSize/5) */
+  joinRoom: (
+    roomId: string,
+    pick: number | number[],
+  ) => { ok: boolean; message: string };
   fillSeats: (roomId: string) => { ok: boolean; message: string };
   runDraw: (roomId: string) => Promise<{ ok: boolean; message: string }>;
   reopenRoom: (roomId: string) => { ok: boolean; message: string };
@@ -133,10 +142,8 @@ function emitBalance(balance: number, userId: string) {
 }
 
 function restoreUserFromStorage(): User | null {
-  // 1) Full snapshot
   const snap = loadSessionUser();
   if (snap?.id) {
-    // Prefer live local ledger balance
     if (!isDbUserId(snap.id)) {
       const a = getAccountById(snap.id);
       if (a) {
@@ -154,8 +161,6 @@ function restoreUserFromStorage(): User | null {
     }
     return snap as User;
   }
-
-  // 2) Id only → local account registry
   const id = loadSessionUserId();
   if (!id) return null;
   if (!isDbUserId(id)) {
@@ -216,7 +221,6 @@ export const useEqubStore = create<State>()(
       },
 
       loginDemo: (name) => {
-        // Do not replace an existing logged-in session
         if (get().user) return;
         const n = (name || 'ተጫዋች').slice(0, 24);
         const u: User = {
@@ -231,7 +235,6 @@ export const useEqubStore = create<State>()(
           role: 'player',
         };
         set({ user: u });
-        // Demo guests are ephemeral — do not saveSessionUser
         emitBalance(u.balance, u.id);
       },
 
@@ -254,7 +257,7 @@ export const useEqubStore = create<State>()(
         }
       },
 
-      joinRoom: (roomId, pick) => {
+      joinRoom: (roomId, pickOrPicks) => {
         const { user, rooms } = get();
         if (!user) return { ok: false, message: msg('signInFirst') };
         if (user.banned) return { ok: false, message: 'Account banned' };
@@ -265,7 +268,7 @@ export const useEqubStore = create<State>()(
         if (room.status === 'completed') {
           const reset = freshRound(room);
           set({ rooms: rooms.map((r) => (r.id === roomId ? reset : r)) });
-          return get().joinRoom(roomId, pick);
+          return get().joinRoom(roomId, pickOrPicks);
         }
 
         if (room.status === 'drawing') {
@@ -281,18 +284,30 @@ export const useEqubStore = create<State>()(
         if (isFull(live)) return { ok: false, message: msg('alreadyFull') };
         if (live.members.some((m) => m.id === user.id))
           return { ok: false, message: msg('alreadyInRound') };
-        if (pick < 1 || pick > live.groupSize)
-          return { ok: false, message: msg('pickRange', { size: live.groupSize }) };
-        if (takenPicks(live).has(pick)) return { ok: false, message: msg('numberTaken') };
 
-        const fee = live.contribution;
+        const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+        const validated = validatePicks(live.groupSize, raw, takenPicks(live));
+        if (!validated.ok) return { ok: false, message: validated.message };
+        const picks = validated.picks;
+
+        if (seatsTaken(live) + picks.length > live.groupSize) {
+          return { ok: false, message: msg('alreadyFull') };
+        }
+
+        const fee =
+          Math.round(live.contribution * picks.length * 100) / 100;
         if (user.balance < fee)
           return {
             ok: false,
             message: msg('needBirr', { fee, balance: user.balance }),
           };
 
-        const member: EqubMember = { id: user.id, name: user.name, pick };
+        const member: EqubMember = {
+          id: user.id,
+          name: user.name,
+          pick: picks[0]!,
+          picks,
+        };
         const debit = get().adjustBalance(-fee);
         if (!debit.ok) return { ok: false, message: debit.message };
 
@@ -303,15 +318,19 @@ export const useEqubStore = create<State>()(
               : r,
           ),
         });
-        return { ok: true, message: msg('joined', { pick }) };
+        return {
+          ok: true,
+          message: `Joined · #${picks.map((p) => String(p).padStart(2, '0')).join(', #')} · max ${maxPicksForGroup(live.groupSize)}`,
+        };
       },
 
       fillSeats: (roomId) => {
         const rooms = get().rooms;
         const room = rooms.find((r) => r.id === roomId);
-        if (!room || room.status !== 'open') return { ok: false, message: msg('cannotFill') };
+        if (!room || room.status !== 'open')
+          return { ok: false, message: msg('cannotFill') };
         const taken = takenPicks(room);
-        const need = room.groupSize - room.members.length;
+        const need = seatsLeft(room);
         if (need <= 0) return { ok: false, message: msg('alreadyFull') };
         const free = numberPool(room.groupSize).filter((n) => !taken.has(n));
         for (let i = free.length - 1; i > 0; i--) {
@@ -322,6 +341,7 @@ export const useEqubStore = create<State>()(
           id: `bot_${roomId}_${i}_${Date.now()}`,
           name: BOT_NAMES[i % BOT_NAMES.length]! + i,
           pick,
+          picks: [pick],
           isBot: true,
         }));
         set({
@@ -337,17 +357,28 @@ export const useEqubStore = create<State>()(
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
         if (!isFull(room)) return { ok: false, message: msg('roomNotFull') };
-        if (room.status === 'completed') return { ok: false, message: msg('alreadyDrawn') };
+        if (room.status === 'completed')
+          return { ok: false, message: msg('alreadyDrawn') };
 
         set({
-          rooms: rooms.map((r) => (r.id === roomId ? { ...r, status: 'drawing' } : r)),
+          rooms: rooms.map((r) =>
+            r.id === roomId ? { ...r, status: 'drawing' } : r,
+          ),
         });
 
         try {
           const proof = await cryptographicDraw(room.groupSize);
-          let winner = room.members.find((m) => m.pick === proof.winningNumber);
+          const allPicks = room.members.flatMap((m) => memberPicks(m));
+          let winningNumber = proof.winningNumber;
+          if (!allPicks.includes(winningNumber)) {
+            winningNumber = allPicks[secureRandomInt(allPicks.length)]!;
+          }
+          let winner = room.members.find((m) =>
+            memberPicks(m).includes(winningNumber),
+          );
           if (!winner && room.members.length > 0) {
             winner = room.members[secureRandomInt(room.members.length)];
+            winningNumber = winner!.pick;
           }
           if (!winner) {
             set({
@@ -358,7 +389,6 @@ export const useEqubStore = create<State>()(
             return { ok: false, message: msg('drawError') };
           }
 
-          const winningNumber = winner.pick;
           const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
           const wasYou = !!(user && winner.id === user.id);
           if (wasYou && user) {
@@ -384,7 +414,8 @@ export const useEqubStore = create<State>()(
 
           set({
             user: nextUser,
-            adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
+            adminEarningsTotal:
+              Math.round((adminEarningsTotal + adminFee) * 100) / 100,
             adminFeeLog: [feeEvent, ...adminFeeLog].slice(0, 100),
             rooms: get().rooms.map((r) =>
               r.id === roomId
@@ -583,19 +614,16 @@ export const useEqubStore = create<State>()(
       name: 'fast-equb-v8',
       version: 8,
       partialize: (s) => ({
-        // Persist user so refresh keeps login
         user: s.user && !String(s.user.id).startsWith('demo_') ? s.user : null,
         rooms: s.rooms,
         history: s.history,
         adminEarningsTotal: s.adminEarningsTotal,
         adminFeeLog: s.adminFeeLog,
       }),
-      onRehydrateStorage: () => (state) => {
-        // Sync from localStorage session (more reliable than partial alone)
+      onRehydrateStorage: () => () => {
         const restored = restoreUserFromStorage();
         if (restored) {
           useEqubStore.setState({ user: restored, hydrated: true });
-          // Refresh DB user in background
           if (isDbUserId(restored.id)) {
             void apiRefreshUser(restored.id).then((u) => {
               if (!u) return;
@@ -613,8 +641,6 @@ export const useEqubStore = create<State>()(
               saveSessionUser(next);
             });
           }
-        } else if (state) {
-          useEqubStore.setState({ hydrated: true });
         } else {
           useEqubStore.setState({ hydrated: true });
         }
@@ -623,7 +649,6 @@ export const useEqubStore = create<State>()(
   ),
 );
 
-// Client bootstrap: restore session immediately if store not yet hydrated
 if (typeof window !== 'undefined') {
   const early = restoreUserFromStorage();
   if (early && !useEqubStore.getState().user) {
