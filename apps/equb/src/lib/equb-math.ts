@@ -1,13 +1,25 @@
 /** Fast Equb: pick numbers → computer draws → one winner */
 
-export const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
+/** Group sizes: multiples of 5 (5, 10, 15, … 100) */
+export const GROUP_SIZES = [
+  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100,
+] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
+
+/**
+ * Number Selection Rule:
+ * Max numbers a player may choose = Group Size ÷ 5
+ * 5→1, 10→2, 15→3, 20→4, 25→5, …
+ */
+export function maxPicksForGroup(groupSize: number): number {
+  const n = Math.floor(Number(groupSize) / 5);
+  return Math.max(1, n);
+}
 
 /** Platform / admin share of each pot when a game completes */
 export const ADMIN_FEE_RATE = 0.15;
 export const WINNER_SHARE_RATE = 1 - ADMIN_FEE_RATE; // 0.85
 
-/** Split pot: winner 85%, admin 15% */
 export function splitPot(prizePool: number): {
   grossPot: number;
   adminFee: number;
@@ -83,7 +95,10 @@ export function buildRoomCatalog(opts?: { maxPrize?: number }): RoomTemplate[] {
 export type EqubMember = {
   id: string;
   name: string;
+  /** Primary pick (first selected) — kept for compatibility */
   pick: number;
+  /** All numbers this player holds (length ≤ maxPicksForGroup) */
+  picks?: number[];
   isBot?: boolean;
 };
 
@@ -98,25 +113,66 @@ export type LiveRoom = {
   winningNumber: number | null;
   winnerId: string | null;
   winnerName?: string | null;
-  /** Last draw split (set when completed) */
   lastAdminFee?: number;
   lastWinnerPayout?: number;
   entropyHex?: string;
   commitmentHash?: string;
 };
 
+/** Normalize member picks array */
+export function memberPicks(m: EqubMember): number[] {
+  if (m.picks && m.picks.length > 0) return [...m.picks];
+  return [m.pick];
+}
+
+/** How many seats are taken (sum of all picks) */
+export function seatsTaken(r: LiveRoom): number {
+  return r.members.reduce((n, m) => n + memberPicks(m).length, 0);
+}
+
 export function seatsLeft(r: LiveRoom) {
-  return Math.max(0, r.groupSize - r.members.length);
+  return Math.max(0, r.groupSize - seatsTaken(r));
 }
 
 export function isFull(r: LiveRoom) {
-  return r.members.length >= r.groupSize;
+  return seatsTaken(r) >= r.groupSize;
 }
 
 export function takenPicks(r: LiveRoom) {
-  return new Set(r.members.map((m) => m.pick));
+  const s = new Set<number>();
+  for (const m of r.members) {
+    for (const p of memberPicks(m)) s.add(p);
+  }
+  return s;
 }
 
 export function numberPool(groupSize: number) {
   return Array.from({ length: groupSize }, (_, i) => i + 1);
+}
+
+/** Validate a player's selection against the rule */
+export function validatePicks(
+  groupSize: number,
+  picks: number[],
+  alreadyTaken: Set<number>,
+): { ok: true; picks: number[] } | { ok: false; message: string } {
+  const max = maxPicksForGroup(groupSize);
+  const unique = [...new Set(picks.map((n) => Math.floor(Number(n))))].filter(
+    (n) => n >= 1 && n <= groupSize,
+  );
+  if (unique.length === 0) {
+    return { ok: false, message: `Pick 1–${max} number(s)` };
+  }
+  if (unique.length > max) {
+    return {
+      ok: false,
+      message: `Max ${max} number(s) for ${groupSize}-player room (size ÷ 5)`,
+    };
+  }
+  for (const p of unique) {
+    if (alreadyTaken.has(p)) {
+      return { ok: false, message: `Number ${p} is taken` };
+    }
+  }
+  return { ok: true, picks: unique.sort((a, b) => a - b) };
 }
