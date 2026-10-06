@@ -41,7 +41,10 @@ export type SharedRoom = {
 };
 
 function maxPicks(groupSize: number) {
-  return Math.max(1, Math.floor(groupSize / 5));
+  // 5 → 1 pick; 10+ → max 2 picks
+  const size = Math.floor(Number(groupSize) || 0);
+  if (size <= 5) return 1;
+  return 2;
 }
 function memberPicks(m: Member): number[] {
   if (m.picks && m.picks.length) return m.picks;
@@ -279,7 +282,7 @@ export async function joinShared(
   );
   if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
   if (picks.length > max) {
-    throw new Error(`Max ${max} numbers for ${room.groupSize}-player room`);
+    throw new Error(`Max ${max} number(s) for this room`);
   }
   const taken = takenSet(room);
   for (const p of picks) {

@@ -51,7 +51,10 @@ if (!g.__equbRooms) g.__equbRooms = new Map();
 const rooms = g.__equbRooms;
 
 function maxPicks(groupSize: number) {
-  return Math.max(1, Math.floor(groupSize / 5));
+  // 5 → 1 pick; 10+ → max 2 picks
+  const size = Math.floor(Number(groupSize) || 0);
+  if (size <= 5) return 1;
+  return 2;
 }
 
 function memberPicks(m: Member): number[] {
@@ -95,7 +98,6 @@ export function withTimer(room: Room): Room {
 function createRoom(templateId: string): Room {
   const match = /^equb-(\d+)-(\d+)$/.exec(templateId);
   if (!match) {
-    // also accept size-prize
     const parts = String(templateId).split('-');
     const groupSize = Number(parts[parts[0] === 'equb' ? 1 : 0]) || 10;
     const prizePool = Number(parts[parts[0] === 'equb' ? 2 : 1]) || 1000;
@@ -343,7 +345,7 @@ export function joinRoom(
   );
   if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
   if (picks.length > max) {
-    throw new Error(`Max ${max} numbers for ${raw.groupSize}-player room`);
+    throw new Error(`Max ${max} number(s) for this room`);
   }
 
   const taken = takenSet(raw);
