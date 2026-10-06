@@ -169,11 +169,6 @@ export function AuthForm({
             : 'ስልክ ቁጥርዎን እና የይለፍ ቃል ያስገቡ'}
         </p>
 
-        <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-white/40">
-          Admin: phone <span className="font-mono text-amber-300">0900000000</span>{' '}
-          · password <span className="font-mono text-amber-300">Admin123!</span>
-        </p>
-
         {hint && !error && (
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
             {hint}
