@@ -1,6 +1,5 @@
 /**
  * Server-side wallet settlement for Equb bets and wins.
- * Balance lives in app_users (Supabase) or in-memory fallback.
  */
 import { dbAdjustBalance, dbGetUser, isDbConfigured } from './db-users';
 import { applyDelta, ensureWallet } from './wallets';
@@ -44,10 +43,33 @@ export async function readBalance(userId: string): Promise<number | null> {
   }
 }
 
-/** Debit join fee. Idempotent per room+user+picks. Throws if insufficient funds. */
+async function adjust(userId: string, delta: number, reason: string) {
+  if (isUuid(userId)) {
+    const r = await dbAdjustBalance(userId, delta, reason);
+    try {
+      applyDelta(userId, delta, reason);
+    } catch {
+      /* optional mirror for SSE */
+    }
+    return r.balance;
+  }
+  if (delta < 0) {
+    const w = ensureWallet(userId);
+    if (w.balance < Math.abs(delta)) {
+      throw new Error(`Insufficient balance: need ${Math.abs(delta)}, have ${w.balance}`);
+    }
+  }
+  return applyDelta(userId, delta, reason).balance;
+}
+
+/**
+ * Debit join fee once per live round instance.
+ * feeKey must include the live room instance id (not only template).
+ */
 export async function settleJoinFee(input: {
   userId: string;
   amount: number;
+  /** Unique live room id for this round */
   roomId: string;
   picks: number[];
 }): Promise<{ balance: number; debited: boolean }> {
@@ -56,44 +78,21 @@ export async function settleJoinFee(input: {
     return { balance: (await readBalance(input.userId)) ?? 0, debited: false };
   }
 
-  const feeKey = `fee:${input.userId}:${input.roomId}:${[...input.picks].sort((a, b) => a - b).join(',')}`;
+  const feeKey = `fee:${input.userId}:${input.roomId}`;
   if (g.__feeKeys!.has(feeKey)) {
     return { balance: (await readBalance(input.userId)) ?? 0, debited: false };
   }
 
-  if (isUuid(input.userId)) {
-    try {
-      // Prefer DB when configured
-      if (isDbConfigured() || true) {
-        const r = await dbAdjustBalance(
-          input.userId,
-          -amount,
-          `join_fee:${input.roomId}`,
-        );
-        g.__feeKeys!.add(feeKey);
-        try {
-          applyDelta(input.userId, -amount, 'join_fee');
-        } catch {
-          /* mirror optional */
-        }
-        return { balance: r.balance, debited: true };
-      }
-    } catch (e: any) {
-      throw new Error(e?.message || 'Insufficient balance');
-    }
+  try {
+    const balance = await adjust(input.userId, -amount, `join_fee:${input.roomId}`);
+    g.__feeKeys!.add(feeKey);
+    return { balance, debited: true };
+  } catch (e: any) {
+    throw new Error(e?.message || 'Insufficient balance');
   }
-
-  // Non-UUID / guest wallet
-  const w = ensureWallet(input.userId);
-  if (w.balance < amount) {
-    throw new Error(`Insufficient balance: need ${amount}, have ${w.balance}`);
-  }
-  const next = applyDelta(input.userId, -amount, 'join_fee');
-  g.__feeKeys!.add(feeKey);
-  return { balance: next.balance, debited: true };
 }
 
-/** Credit winner. Idempotent per room+user+number. */
+/** Credit winner once per room+number. */
 export async function settleWinPayout(input: {
   userId: string;
   amount: number;
@@ -110,40 +109,27 @@ export async function settleWinPayout(input: {
     return { balance: (await readBalance(input.userId)) ?? 0, credited: false };
   }
 
-  if (isUuid(input.userId)) {
-    try {
-      const r = await dbAdjustBalance(
-        input.userId,
-        amount,
-        `win:${input.roomId}:#${input.winningNumber}`,
-      );
-      g.__paidKeys!.add(payKey);
-      try {
-        applyDelta(input.userId, amount, 'prize_win');
-      } catch {
-        /* */
-      }
-      return { balance: r.balance, credited: true };
-    } catch (e: any) {
-      throw new Error(e?.message || 'Credit failed');
-    }
+  try {
+    const balance = await adjust(
+      input.userId,
+      amount,
+      `win:${input.roomId}:#${input.winningNumber}`,
+    );
+    g.__paidKeys!.add(payKey);
+    return { balance, credited: true };
+  } catch (e: any) {
+    throw new Error(e?.message || 'Credit failed');
   }
-
-  const next = applyDelta(input.userId, amount, 'prize_win');
-  g.__paidKeys!.add(payKey);
-  return { balance: next.balance, credited: true };
 }
 
-/** Refund a failed join (idempotent inverse of fee key). */
 export async function refundJoinFee(input: {
   userId: string;
   amount: number;
   roomId: string;
-  picks: number[];
 }): Promise<void> {
   const amount = Math.round(Number(input.amount) * 100) / 100;
   if (!(amount > 0)) return;
-  const feeKey = `fee:${input.userId}:${input.roomId}:${[...input.picks].sort((a, b) => a - b).join(',')}`;
+  const feeKey = `fee:${input.userId}:${input.roomId}`;
   if (!g.__feeKeys!.has(feeKey)) return;
   try {
     await settleWinPayout({
@@ -155,4 +141,8 @@ export async function refundJoinFee(input: {
   } finally {
     g.__feeKeys!.delete(feeKey);
   }
+}
+
+export function isDbUser(id: string) {
+  return isUuid(id);
 }

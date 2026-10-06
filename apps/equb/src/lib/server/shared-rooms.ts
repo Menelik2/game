@@ -79,7 +79,7 @@ function fresh(templateId: string): SharedRoom {
   const prizePool = Number(m[2]);
   const now = Date.now();
   return {
-    id: `${templateId}-${now.toString(36)}`,
+    id: `${templateId}-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     templateId,
     groupSize,
     prizePool,
@@ -122,7 +122,12 @@ async function write(room: SharedRoom) {
   if (error) throw new Error(error.message);
 }
 
-/** Awaited draw + wallet credit for the single winner */
+/** Read without drawing / rotating — for claim-win */
+export async function peekShared(templateId: string): Promise<SharedRoom | null> {
+  const room = await read(templateId);
+  return room ? withTimer(room) : null;
+}
+
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.status === 'completed' || room.status === 'drawing') {
     return withTimer(room);
@@ -130,6 +135,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
   if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
+    room.updatedAt = Date.now();
     return withTimer(room);
   }
 
@@ -171,32 +177,33 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   }
 
   room.status = 'completed';
-  const row = {
-    id: room.id,
-    winningNumber,
-    winnerName: winner?.name || 'Player',
-    pot: room.prizePool,
-    at: Date.now(),
-  };
-  room.recent = [row, ...(room.recent || [])].slice(0, 20);
+  room.recent = [
+    {
+      id: room.id,
+      winningNumber,
+      winnerName: winner?.name || 'Player',
+      pot: room.prizePool,
+      at: Date.now(),
+    },
+    ...(room.recent || []),
+  ].slice(0, 20);
   return withTimer(room);
 }
 
 export async function openShared(templateId: string): Promise<SharedRoom> {
   let room = await read(templateId);
   const recent = room?.recent || [];
-  if (!room || room.status === 'completed') {
+  if (!room) {
     room = fresh(templateId);
     room.recent = recent;
+  } else if (room.status === 'completed') {
+    // Keep completed result ~20s so clients can claim + show winner
+    if (Date.now() - (room.updatedAt || 0) > 20_000) {
+      room = fresh(templateId);
+      room.recent = recent;
+    }
   } else {
     room = await drawAsync(room);
-  }
-  // Keep completed room visible briefly so clients see winner + paidOut
-  // New round starts only after clients have had a chance to poll, or if already paid
-  if (room.status === 'completed' && room.paidOut && Date.now() - room.updatedAt > 15_000) {
-    const kept = room.recent || recent;
-    room = fresh(templateId);
-    room.recent = kept;
   }
   await write(room);
   return withTimer(room);
@@ -205,7 +212,13 @@ export async function openShared(templateId: string): Promise<SharedRoom> {
 export async function getShared(templateId: string): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
-  room = await drawAsync(room);
+  else if (room.status === 'completed' && Date.now() - (room.updatedAt || 0) > 20_000) {
+    const recent = room.recent || [];
+    room = fresh(templateId);
+    room.recent = recent;
+  } else {
+    room = await drawAsync(room);
+  }
   await write(room);
   return withTimer(room);
 }

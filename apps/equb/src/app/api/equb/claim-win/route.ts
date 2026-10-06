@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { settleWinPayout, readBalance, computePayout } from '@/lib/server/wallet-settle';
-import { getShared, sharedEnabled } from '@/lib/server/shared-rooms';
+import { peekShared, sharedEnabled } from '@/lib/server/shared-rooms';
 import { getRoom } from '@/lib/server/equb-rooms';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/**
- * Client fallback if server payout was missed: winner claims once.
- * Body: { userId, roomId, templateId?, winningNumber }
- */
+/** Winner claims payout once (idempotent). Does not rotate the room. */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -27,13 +24,24 @@ export async function POST(req: NextRequest) {
     let roomId = templateId;
     let winnerId: string | null = null;
     let paidOut = false;
+    let status = '';
 
     if (sharedEnabled()) {
-      const room = await getShared(templateId);
+      const room = await peekShared(templateId);
+      if (!room) {
+        return NextResponse.json({ success: false, message: 'Room not found' }, { status: 404 });
+      }
+      status = room.status;
       prizePool = Number(room.prizePool || 0);
       roomId = room.id;
       winnerId = room.winnerId;
       paidOut = Boolean(room.paidOut);
+      if (room.status !== 'completed') {
+        return NextResponse.json(
+          { success: false, message: 'Round not completed yet' },
+          { status: 400 },
+        );
+      }
       if (room.winningNumber !== winningNumber) {
         return NextResponse.json(
           { success: false, message: 'Winning number mismatch' },
@@ -41,14 +49,22 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      const room = getRoom(templateId) || getRoom(body.roomId);
+      const room =
+        getRoom(String(body.roomId || '')) || getRoom(templateId);
       if (!room) {
         return NextResponse.json({ success: false, message: 'Room not found' }, { status: 404 });
       }
+      status = room.status;
       prizePool = room.prizePool;
       roomId = room.id;
       winnerId = room.winnerId;
       paidOut = Boolean(room.paidOut);
+      if (room.status !== 'completed') {
+        return NextResponse.json(
+          { success: false, message: 'Round not completed yet' },
+          { status: 400 },
+        );
+      }
       if (room.winningNumber !== winningNumber) {
         return NextResponse.json(
           { success: false, message: 'Winning number mismatch' },
@@ -78,6 +94,7 @@ export async function POST(req: NextRequest) {
       alreadyPaid: paidOut && !result.credited,
       balance: result.balance ?? (await readBalance(userId)),
       amount: winnerPayout,
+      status,
     });
   } catch (e: any) {
     return NextResponse.json(

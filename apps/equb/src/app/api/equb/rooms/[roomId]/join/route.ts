@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { joinRoom, ensureOpen } from '@/lib/server/equb-rooms';
-import { joinShared, sharedEnabled, getShared } from '@/lib/server/shared-rooms';
+import {
+  joinShared,
+  sharedEnabled,
+  getShared,
+  peekShared,
+} from '@/lib/server/shared-rooms';
 import {
   settleJoinFee,
   readBalance,
@@ -32,27 +37,48 @@ export async function POST(
       );
     }
 
-    const id = decodeURIComponent(roomId);
+    const templateId = decodeURIComponent(roomId);
 
+    // Resolve open room (live instance id needed for fee key)
     let contribution = 0;
-    let groupSize = 5;
-    try {
-      if (sharedEnabled()) {
-        const r = await getShared(id);
-        contribution = Number(r.contribution || 0);
-        groupSize = Number(r.groupSize || 5);
-      } else {
-        const open = ensureOpen(id);
-        contribution = Number(open.contribution || 0);
-        groupSize = Number(open.groupSize || 5);
+    let liveRoomId = templateId;
+    let alreadyIn = false;
+
+    if (sharedEnabled()) {
+      const r = await getShared(templateId);
+      contribution = Number(r.contribution || 0);
+      liveRoomId = r.id;
+      alreadyIn = r.members.some((m) => m.playerId === playerId);
+      if (r.status !== 'open') {
+        return NextResponse.json(
+          { success: false, message: 'Round closed — wait for next round' },
+          { status: 400 },
+        );
       }
-    } catch {
-      const m = /^equb-(\d+)-(\d+)/.exec(id);
-      if (m) {
-        groupSize = Number(m[1]);
-        const pot = Number(m[2]);
-        contribution = Math.round((pot / groupSize) * 100) / 100;
+    } else {
+      const open = ensureOpen(templateId);
+      contribution = Number(open.contribution || 0);
+      liveRoomId = open.id;
+      alreadyIn = open.members.some((m) => m.playerId === playerId);
+      if (open.status !== 'open') {
+        return NextResponse.json(
+          { success: false, message: 'Round closed — wait for next round' },
+          { status: 400 },
+        );
       }
+    }
+
+    if (alreadyIn) {
+      const room = sharedEnabled()
+        ? await peekShared(templateId)
+        : ensureOpen(templateId);
+      return NextResponse.json({
+        success: true,
+        data: room,
+        fee: 0,
+        balance: await readBalance(playerId),
+        alreadyJoined: true,
+      });
     }
 
     const fee = Math.round(contribution * picks.length * 100) / 100;
@@ -62,7 +88,7 @@ export async function POST(
       const settled = await settleJoinFee({
         userId: playerId,
         amount: fee,
-        roomId: id,
+        roomId: liveRoomId,
         picks,
       });
       balanceAfter = settled.balance;
@@ -80,11 +106,11 @@ export async function POST(
     let room;
     try {
       room = sharedEnabled()
-        ? await joinShared(id, playerId, name, picks)
-        : joinRoom(id, playerId, name, picks);
+        ? await joinShared(templateId, playerId, name, picks)
+        : joinRoom(templateId, playerId, name, picks);
     } catch (e: unknown) {
       try {
-        await refundJoinFee({ userId: playerId, amount: fee, roomId: id, picks });
+        await refundJoinFee({ userId: playerId, amount: fee, roomId: liveRoomId });
       } catch {
         /* */
       }
