@@ -13,6 +13,7 @@ import {
   buildCatalog,
   contributionOf,
   ROUND_MS,
+  splitPot,
 } from './equb.types';
 import { cryptographicDraw, secureRandomInt } from './equb-crypto';
 
@@ -21,7 +22,12 @@ const BOT_NAMES = [
   'Biruk', 'Selam', 'Nahom', 'Rahel', 'Elias', 'Kidist', 'Samuel', 'Bethlehem',
 ];
 
-/** Multiplayer Equb — unlimited successive rounds. */
+/**
+ * Multiplayer Equb
+ * - Many distinct playerIds (accounts) join the same open room
+ * - Each pick is unique
+ * - Draw selects EXACTLY ONE winner among joined members
+ */
 @Injectable()
 export class EqubService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EqubService.name);
@@ -104,6 +110,9 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
       members: [],
       winningNumber: null,
       winnerId: null,
+      winnerName: null,
+      adminFee: null,
+      winnerPayout: null,
       entropyHex: null,
       commitmentHash: null,
       drawAt: now + ROUND_MS,
@@ -127,13 +136,21 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
 
     let room = this.ensureOpenRoom(template);
 
+    // Full open room → close it and open a new instance (do not wipe mid-join)
     if (room.members.length >= room.groupSize) {
-      room.status = 'completed';
-      this.instances.set(room.id, room);
+      if (room.status === 'open') {
+        this.executeDraw(room);
+      }
       room = this.ensureOpenRoom(template);
     }
 
-    if (room.members.some((m) => m.playerId === player.playerId)) {
+    const playerId = String(player.playerId || '').trim();
+    if (!playerId || playerId.length < 4) {
+      throw new BadRequestException('Valid playerId required');
+    }
+
+    // Same account cannot join twice in one round
+    if (room.members.some((m) => m.playerId === playerId)) {
       throw new ConflictException('Already joined this round — wait for draw');
     }
     if (pick < 1 || pick > room.groupSize) {
@@ -144,7 +161,7 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     }
 
     const member: EqubMember = {
-      playerId: player.playerId,
+      playerId,
       name: (player.name || 'Player').slice(0, 40),
       pick,
       joinedAt: Date.now(),
@@ -152,10 +169,12 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     room.members.push(member);
     room.updatedAt = Date.now();
     this.instances.set(room.id, room);
+    this.logger.log(
+      `Join ${room.id}: ${member.name} (#${pick}) — ${room.members.length}/${room.groupSize} players`,
+    );
     return this.withTimer(room);
   }
 
-  /** Fill empty seats with demo bots (for solo testing / demos). */
   fillBots(roomId: string, count?: number): EqubRoom {
     const room = this.instances.get(roomId);
     if (!room) throw new NotFoundException('Room not found');
@@ -207,28 +226,40 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     return this.withTimer(this.executeDraw(room));
   }
 
-  /** Fair draw: uniform among members who actually joined (their picks only). */
+  /**
+   * Fair single-winner draw among joined members only.
+   * Uniform random index over members[] → exactly one winnerId.
+   */
   private executeDraw(room: EqubRoom): EqubRoom {
+    if (room.status === 'completed') return room;
     room.status = 'drawing';
     const members = room.members;
     if (members.length < 1) {
       throw new BadRequestException('No members');
     }
 
+    // Exactly ONE winner among real joined seats
     const idx = secureRandomInt(members.length);
     const winner = members[idx]!;
     const proof = cryptographicDraw(Math.max(2, room.groupSize));
+    const { adminFee, winnerPayout } = splitPot(room.prizePool);
 
     room.status = 'completed';
     room.winningNumber = winner.pick;
     room.winnerId = winner.playerId;
+    room.winnerName = winner.name;
+    room.adminFee = adminFee;
+    room.winnerPayout = winnerPayout;
     room.entropyHex = proof.entropyHex;
     room.commitmentHash = proof.commitmentHash;
     room.updatedAt = Date.now();
     room.secondsLeft = 0;
     this.instances.set(room.id, room);
-    this.logger.log(`Draw ${room.id}: #${winner.pick} → ${winner.name}`);
+    this.logger.log(
+      `Draw ${room.id}: ONE winner ${winner.name} (#${winner.pick}) payout=${winnerPayout} fee=${adminFee} among ${members.length} players`,
+    );
     this.broadcast?.(room.id);
+    // Open next round instance for other players
     this.ensureOpenRoom(room.templateId || room.id.match(/^equb-\d+-\d+/)![0]);
     return room;
   }
@@ -237,6 +268,7 @@ export class EqubService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     for (const room of this.instances.values()) {
       if (room.status !== 'open') continue;
+      // Full table of different accounts → draw once
       if (room.members.length >= room.groupSize) {
         this.executeDraw(room);
         continue;

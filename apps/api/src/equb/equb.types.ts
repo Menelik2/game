@@ -17,7 +17,12 @@ export type EqubRoom = {
   status: EqubRoomStatus;
   members: EqubMember[];
   winningNumber: number | null;
+  /** Exactly one winner per completed game */
   winnerId: string | null;
+  winnerName?: string | null;
+  /** Platform fee (15%) and winner payout (85%) */
+  adminFee?: number | null;
+  winnerPayout?: number | null;
   entropyHex: string | null;
   commitmentHash: string | null;
   drawAt: number;
@@ -25,6 +30,15 @@ export type EqubRoom = {
   createdAt: number;
   updatedAt: number;
 };
+
+export const ADMIN_FEE_RATE = 0.15;
+
+export function splitPot(prizePool: number) {
+  const gross = Math.round(Number(prizePool) * 100) / 100;
+  const adminFee = Math.round(gross * ADMIN_FEE_RATE * 100) / 100;
+  const winnerPayout = Math.round((gross - adminFee) * 100) / 100;
+  return { grossPot: gross, adminFee, winnerPayout };
+}
 
 export function roomTemplateId(groupSize: number, prizePool: number) {
   return `equb-${groupSize}-${prizePool}`;
