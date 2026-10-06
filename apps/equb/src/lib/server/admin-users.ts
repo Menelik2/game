@@ -73,7 +73,6 @@ export async function adminUpdate(
   if (patch.phone != null && String(patch.phone).trim()) {
     const phone = normalizePhone(String(patch.phone));
     if (!phone) throw new Error('Invalid phone number');
-    // Ensure phone unique
     const { data: existing } = await sb()
       .from('app_users')
       .select('id')
