@@ -14,9 +14,51 @@ export type VerifyEtResult = {
   settlementMatched?: boolean;
 };
 
+function backendBase(): string {
+  return (
+    process.env.VERIFY_ET_BACKEND_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    'https://game-rho-eight-15.vercel.app'
+  ).replace(/\/$/, '');
+}
+
+/** Prefer local key; otherwise call backend where VERIFY_ET_API_KEY is set. */
+async function verifyViaBackend(input: {
+  transactionNumber: string;
+  expectedAmount: number;
+}): Promise<VerifyEtResult> {
+  try {
+    const res = await fetch(`${backendBase()}/api/verify-et/telebirr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transactionNumber: input.transactionNumber,
+        expectedAmount: input.expectedAmount,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    return {
+      verified: Boolean(json.verified || json.success),
+      status: (json.status as VerifyEtResult['status']) || (res.ok ? 'CONFIRMED' : 'FAILED'),
+      message: String(json.message || 'Backend verify response'),
+      amount: json.amount != null ? Number(json.amount) : undefined,
+      currency: json.currency,
+      providerTransactionId: json.providerTransactionId,
+      requestId: json.requestId,
+    };
+  } catch (e: any) {
+    return {
+      verified: false,
+      status: 'UNAVAILABLE',
+      message: e?.message || 'Could not reach backend Verify.ET proxy.',
+    };
+  }
+}
+
 /**
  * Submit Telebirr receipt check to Verify.ET.
  * Docs: https://verify.et/docs/api — POST /api/verify
+ * Falls back to backend API (game-rho-eight-15) if local key is missing.
  */
 export async function verifyTelebirrWithVerifyEt(input: {
   transactionNumber: string;
@@ -28,13 +70,9 @@ export async function verifyTelebirrWithVerifyEt(input: {
     return { verified: false, status: 'FAILED', message: 'Enter a valid Telebirr transaction number.' };
   }
 
+  // No local key → use backend where you added VERIFY_ET_API_KEY
   if (!cfg.configured) {
-    return {
-      verified: false,
-      status: 'UNAVAILABLE',
-      message:
-        'VERIFY_ET_API_KEY is missing on this deployment. In Vercel → Project → Settings → Environment Variables, add VERIFY_ET_API_KEY for Production (and Preview), then Redeploy. Open /api/verify-et/status to confirm the key is loaded.',
-    };
+    return verifyViaBackend(input);
   }
 
   const body = {
@@ -68,11 +106,16 @@ export async function verifyTelebirrWithVerifyEt(input: {
     }
 
     if (!res.ok) {
+      // Bad local key → try backend once
+      if (res.status === 401 || res.status === 403) {
+        const viaBackend = await verifyViaBackend(input);
+        if (viaBackend.status !== 'UNAVAILABLE') return viaBackend;
+      }
       const msg =
         json?.message ||
         json?.error?.message ||
         (res.status === 401 || res.status === 403
-          ? 'Verify.ET rejected the API key. Create a new key at verify.et and update VERIFY_ET_API_KEY, then redeploy.'
+          ? 'Verify.ET rejected the API key.'
           : `Verify.ET error (${res.status})`);
       return { verified: false, status: 'FAILED', message: String(msg), requestId };
     }
@@ -137,6 +180,8 @@ export async function verifyTelebirrWithVerifyEt(input: {
       settlementMatched: true,
     };
   } catch (e: any) {
+    const viaBackend = await verifyViaBackend(input);
+    if (viaBackend.status !== 'UNAVAILABLE') return viaBackend;
     return {
       verified: false,
       status: 'UNAVAILABLE',

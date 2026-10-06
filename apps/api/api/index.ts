@@ -1,5 +1,5 @@
 /**
- * Vercel serverless — Equb + wallet + admin audit
+ * Vercel serverless — Equb + wallet + admin audit + Verify.ET (Telebirr)
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomBytes, createHash } from 'crypto';
@@ -25,6 +25,158 @@ if (!g.__a) g.__a = [];
 const rooms: Map<string, Room> = g.__r;
 const wallets: Map<string, Wallet> = g.__w;
 const audits: Audit[] = g.__a;
+
+function firstEnv(...keys: string[]): string {
+  for (const k of keys) {
+    const v = process.env[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+function verifyEtConfig() {
+  const apiKey = firstEnv(
+    'VERIFY_ET_API_KEY',
+    'VERIFY_BANK_ET_API_KEY',
+    'VERIFY_ET_KEY',
+    'VERIFYET_API_KEY',
+    'VERIFY_API_KEY',
+  );
+  const baseUrl = (firstEnv('VERIFY_ET_BASE_URL') || 'https://verify.et').replace(/\/$/, '');
+  const settlementAccount =
+    firstEnv('TELEBIRR_MERCHANT_PHONE', 'WALLET_MERCHANT_PHONE') || '0977832379';
+  const merchantName =
+    firstEnv('TELEBIRR_MERCHANT_NAME', 'WALLET_MERCHANT_NAME') || 'Menelik';
+  return {
+    apiKey,
+    baseUrl,
+    settlementAccount,
+    merchantName,
+    configured: apiKey.length > 8,
+    keyHint: apiKey ? `${apiKey.slice(0, 8)}…(${apiKey.length} chars)` : null,
+  };
+}
+
+/** Server-side Telebirr check via Verify.ET official API */
+async function verifyTelebirr(input: {
+  transactionNumber: string;
+  expectedAmount: number;
+}) {
+  const cfg = verifyEtConfig();
+  const txn = String(input.transactionNumber || '').trim();
+  if (txn.length < 6) {
+    return {
+      verified: false,
+      status: 'FAILED',
+      message: 'Enter a valid Telebirr transaction number.',
+    };
+  }
+  if (!cfg.configured) {
+    return {
+      verified: false,
+      status: 'UNAVAILABLE',
+      message:
+        'VERIFY_ET_API_KEY is missing on the backend. Add it on game-rho-eight-15.vercel.app → Settings → Environment Variables, then Redeploy.',
+    };
+  }
+  try {
+    const res = await fetch(`${cfg.baseUrl}/api/verify?waitMs=8000`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cfg.apiKey,
+        'Idempotency-Key': `api-${txn}-${Math.round(input.expectedAmount * 100)}`,
+      },
+      body: JSON.stringify({
+        bank: 'telebirr',
+        transactionNumber: txn,
+        settlementAccount: cfg.settlementAccount,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    const item = Array.isArray(json?.data)
+      ? json.data[0]
+      : json?.data || json?.verification || json;
+    const requestId = json?.requestId || item?.requestId;
+
+    if (
+      res.status === 202 ||
+      item?.processingStatus === 'queued' ||
+      item?.status === 'pending'
+    ) {
+      return {
+        verified: false,
+        status: 'PROCESSING',
+        message: 'Verification is in progress. Wait a few seconds and try again.',
+        requestId,
+      };
+    }
+    if (!res.ok) {
+      const msg =
+        json?.message ||
+        json?.error?.message ||
+        (res.status === 401 || res.status === 403
+          ? 'Verify.ET rejected the API key.'
+          : `Verify.ET error (${res.status})`);
+      return { verified: false, status: 'FAILED', message: String(msg), requestId };
+    }
+
+    const verified = Boolean(
+      item?.verified === true ||
+        item?.status === 'success' ||
+        (json?.success === true && item?.verified !== false && item?.status !== 'failed'),
+    );
+    const amount = Number(item?.amount ?? item?.settledAmount ?? item?.paidAmount);
+    const currency = String(item?.currency || 'ETB').toUpperCase();
+
+    if (!verified) {
+      return {
+        verified: false,
+        status: 'FAILED',
+        message: json?.message || item?.reason || 'Transaction could not be verified.',
+        amount: Number.isFinite(amount) ? amount : undefined,
+        requestId,
+      };
+    }
+    if (currency !== 'ETB') {
+      return {
+        verified: false,
+        status: 'REVIEW_REQUIRED',
+        message: 'Currency is not ETB.',
+        requestId,
+      };
+    }
+    if (
+      Number.isFinite(amount) &&
+      Math.round(amount * 100) !== Math.round(input.expectedAmount * 100)
+    ) {
+      return {
+        verified: false,
+        status: 'REVIEW_REQUIRED',
+        message: `Amount mismatch: paid ${amount} ETB, expected ${input.expectedAmount} ETB.`,
+        amount,
+        requestId,
+      };
+    }
+    return {
+      verified: true,
+      status: 'CONFIRMED',
+      message: 'Transaction verified with Verify.ET.',
+      amount: Number.isFinite(amount) ? amount : input.expectedAmount,
+      currency: 'ETB',
+      providerTransactionId: String(
+        item?.referenceNumber || item?.transactionNumber || txn,
+      ),
+      requestId,
+    };
+  } catch (e: any) {
+    return {
+      verified: false,
+      status: 'UNAVAILABLE',
+      message: e?.message || 'Could not reach Verify.ET.',
+    };
+  }
+}
 
 function contrib(p: number, s: number) { return Math.round((p / s) * 100) / 100; }
 function rnd(n: number) {
@@ -120,7 +272,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (path === '/' || path === '/api' || path === '/health' || path === '/api/health') {
-      res.status(200).json({ status: 'ok', service: 'fast-equb-api', wallet: true, adminAudit: true });
+      const ve = verifyEtConfig();
+      res.status(200).json({
+        status: 'ok',
+        service: 'fast-equb-api',
+        wallet: true,
+        adminAudit: true,
+        verifyEt: ve.configured,
+      });
+      return;
+    }
+
+    // ── Verify.ET status (safe — no full key) ──
+    if (
+      (path === '/api/verify-et/status' || path === '/verify-et/status') &&
+      req.method === 'GET'
+    ) {
+      const c = verifyEtConfig();
+      res.status(200).json({
+        success: true,
+        configured: c.configured,
+        baseUrl: c.baseUrl,
+        merchantPhone: c.settlementAccount,
+        merchantName: c.merchantName,
+        keyPresent: Boolean(c.apiKey),
+        keyHint: c.keyHint,
+        message: c.configured
+          ? 'VERIFY_ET_API_KEY is loaded on backend. Telebirr verify is ready.'
+          : 'VERIFY_ET_API_KEY is missing on this backend deployment.',
+      });
+      return;
+    }
+
+    // ── Verify.ET Telebirr check ──
+    if (
+      (path === '/api/verify-et/telebirr' || path === '/verify-et/telebirr') &&
+      req.method === 'POST'
+    ) {
+      const txn = String(body.transactionNumber || body.reference || '').trim();
+      const expectedAmount = Number(body.expectedAmount || body.amount || 0);
+      if (!txn) {
+        res.status(400).json({ success: false, message: 'transactionNumber required' });
+        return;
+      }
+      const result = await verifyTelebirr({
+        transactionNumber: txn,
+        expectedAmount: Number.isFinite(expectedAmount) ? expectedAmount : 0,
+      });
+      audit('verify.et.telebirr', String(body.userId || ''), {
+        txn: txn.slice(0, 12),
+        status: result.status,
+        verified: result.verified,
+      });
+      res.status(result.verified ? 200 : result.status === 'UNAVAILABLE' ? 503 : 400).json({
+        success: result.verified,
+        ...result,
+      });
       return;
     }
 
@@ -132,6 +339,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if ((path === '/api/admin/dashboard' || path === '/admin/dashboard') && req.method === 'GET') {
       res.status(200).json(ok({
         wallets: wallets.size, rooms: rooms.size, auditEvents: audits.length, demoMode: true,
+        verifyEt: verifyEtConfig().configured,
       }));
       return;
     }
@@ -196,7 +404,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    res.status(404).json({ success: false, message: `Not found: ${path}`, hint: 'GET /api/admin/audit' });
+    res.status(404).json({ success: false, message: `Not found: ${path}`, hint: 'GET /api/verify-et/status' });
   } catch (e: any) {
     res.status(500).json({ success: false, message: e?.message || 'error' });
   }
