@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   XCircle,
   TrendingUp,
+  KeyRound,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -74,10 +75,12 @@ export default function AdminPage() {
     fullName: '',
     phone: '',
     password: '123456',
-    balance: '100',
+    balance: '0',
     role: 'player',
   });
   const [balanceDraft, setBalanceDraft] = useState<Record<string, string>>({});
+  const [pwDraft, setPwDraft] = useState<Record<string, string>>({});
+  const [phoneDraft, setPhoneDraft] = useState<Record<string, string>>({});
 
   const flash = (type: 'ok' | 'err', text: string) => {
     setMsg({ type, text });
@@ -119,7 +122,6 @@ export default function AdminPage() {
     return () => window.clearInterval(iv);
   }, [refreshAll]);
 
-  // Auth UI is handled by AdminGuard in layout — do not router.replace
   if (!me || !isAdmin(me)) return null;
 
   const filtered = useMemo(() => {
@@ -141,7 +143,7 @@ export default function AdminPage() {
       const json = await res.json();
       if (json.success) {
         flash('ok', `Created ${form.fullName}`);
-        setForm({ fullName: '', phone: '', password: '123456', balance: '100', role: 'player' });
+        setForm({ fullName: '', phone: '', password: '123456', balance: '0', role: 'player' });
         await loadUsers();
         setTab('users');
       } else flash('err', json.message || 'Create failed');
@@ -208,15 +210,24 @@ export default function AdminPage() {
             {me.name || me.phone} · auto-refresh 15s
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refreshAll()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white/70"
-        >
-          <RefreshCw className={clsx('h-3.5 w-3.5', loading && 'animate-spin')} />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <Link
+            href="/admin/system"
+            className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs font-semibold text-amber-100"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            My login
+          </Link>
+          <button
+            type="button"
+            onClick={() => void refreshAll()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white/70"
+          >
+            <RefreshCw className={clsx('h-3.5 w-3.5', loading && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-1 rounded-2xl bg-white/[0.04] p-1 text-sm sm:grid-cols-4">
@@ -266,6 +277,9 @@ export default function AdminPage() {
             <button type="button" onClick={() => setTab('create')} className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-sm font-semibold text-amber-100">
               <UserPlus className="h-4 w-4" /> New account
             </button>
+            <Link href="/admin/system" className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold text-white/80">
+              <KeyRound className="h-4 w-4" /> Change my login
+            </Link>
             <Link href="/admin/telebirr" className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold text-white/80">
               <Landmark className="h-4 w-4" /> Telebirr wallet
             </Link>
@@ -372,6 +386,49 @@ export default function AdminPage() {
                     }
                   >
                     Set
+                  </button>
+                  <input
+                    placeholder="New phone"
+                    value={phoneDraft[u.id] ?? ''}
+                    onChange={(e) =>
+                      setPhoneDraft((d) => ({ ...d, [u.id]: e.target.value }))
+                    }
+                    className="w-32 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs"
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg bg-sky-500/20 px-2 py-1.5 text-xs text-sky-200"
+                    onClick={() =>
+                      void patch(
+                        u.id,
+                        { phone: phoneDraft[u.id] },
+                        'Phone updated in DB',
+                      )
+                    }
+                  >
+                    Phone
+                  </button>
+                  <input
+                    type="password"
+                    placeholder="New password"
+                    value={pwDraft[u.id] ?? ''}
+                    onChange={(e) =>
+                      setPwDraft((d) => ({ ...d, [u.id]: e.target.value }))
+                    }
+                    className="w-28 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs"
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg bg-violet-500/20 px-2 py-1.5 text-xs text-violet-200"
+                    onClick={() =>
+                      void patch(
+                        u.id,
+                        { password: pwDraft[u.id] },
+                        'Password updated in DB',
+                      )
+                    }
+                  >
+                    Password
                   </button>
                   <button
                     type="button"
