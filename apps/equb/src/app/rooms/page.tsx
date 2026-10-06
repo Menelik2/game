@@ -28,6 +28,7 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
+import { PickRuleCard, PickRuleHint } from '@/components/PickRule';
 import clsx from 'clsx';
 import { ChevronRight, Users, Radio } from 'lucide-react';
 
@@ -265,7 +266,9 @@ export default function RoomsPage() {
                       </span>
                     </p>
                     <p className="text-[11px] text-white/45">
-                      max {maxPicksForGroup(r.groupSize)} picks/player
+                      {locale === 'am'
+                        ? `ከፍተኛ ${maxPicksForGroup(r.groupSize)} ቁጥር / ተጫዋች`
+                        : `max ${maxPicksForGroup(r.groupSize)} picks / player`}
                     </p>
                     <SeatNodes
                       total={r.groupSize}
@@ -300,30 +303,34 @@ export default function RoomsPage() {
       )}
 
       <div className="space-y-4">
+        <PickRuleCard groupSize={groupSize} locale={locale} />
+
         <section className="glass rounded-2xl p-4 sm:p-5">
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
             1 · {locale === 'am' ? 'የቡድን መጠን' : 'Group size'}
           </p>
           <div className="flex flex-wrap gap-2">
-            {GROUP_SIZES.filter((g) => g <= 50).map((g) => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => setGroupSize(g)}
-                className={clsx(
-                  'min-w-[2.75rem] rounded-xl px-3 py-2 text-sm font-bold transition active:scale-95',
-                  groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
-                )}
-              >
-                {g}
-              </button>
-            ))}
+            {GROUP_SIZES.filter((g) => g <= 50).map((g) => {
+              const gMax = maxPicksForGroup(g);
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGroupSize(g)}
+                  className={clsx(
+                    'flex min-w-[2.75rem] flex-col items-center rounded-xl px-3 py-2 transition active:scale-95',
+                    groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
+                  )}
+                >
+                  <span className="text-sm font-bold">{g}</span>
+                  <span className="text-[9px] font-semibold opacity-70">
+                    {locale === 'am' ? `ከፍ. ${gMax}` : `max ${gMax}`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          <p className="mt-2 text-[11px] text-equb-300">
-            {locale === 'am'
-              ? `ከፍተኛ ቁጥር ምርጫ = ${maxPicks} (5=1፣ 10+=2)`
-              : `Max numbers you can pick = ${maxPicks} (5 players = 1, 10+ = 2)`}
-          </p>
+          <PickRuleHint groupSize={groupSize} locale={locale} />
         </section>
 
         <section className="glass rounded-2xl p-4 sm:p-5">
@@ -332,7 +339,8 @@ export default function RoomsPage() {
               2 · {locale === 'am' ? 'ቁጥሮችዎ' : 'Your numbers'}
             </p>
             <span className="rounded-full bg-equb-500/20 px-2.5 py-1 text-[11px] font-bold text-equb-300">
-              {picks.length}/{maxPicks}
+              {picks.length}/{maxPicks}{' '}
+              {locale === 'am' ? 'ቁጥር' : 'picks'}
             </span>
           </div>
 
