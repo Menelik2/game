@@ -2,26 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEqubStore } from '@/lib/store';
-import {
-  apiLogin,
-  apiRegister,
-  apiWalletBalance,
-  isApiConfigured,
-} from '@/lib/api';
+import { useEqubStore, type User } from '@/lib/store';
+import { apiLogin, apiRegister } from '@/lib/auth-api';
 import { registerLocal, loginLocal } from '@/lib/auth-local';
 
 type Mode = 'login' | 'register';
-
-function mapErr(msg: string): string {
-  if (msg === 'API_NOT_CONFIGURED') {
-    return 'ሰርቨር አልተገናኘም — በአካባቢ መለያ እንሞክራለን';
-  }
-  if (msg === 'NETWORK_ERROR') {
-    return 'ከሰርቨር ጋር መገናኘት አልተቻለም — በአካባቢ መለያ እንሞክራለን';
-  }
-  return msg;
-}
 
 export function AuthForm({
   initialMode = 'login',
@@ -41,15 +26,13 @@ export function AuthForm({
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
 
-  const applySession = (opts: {
-    id: string;
-    name: string;
-    phone?: string;
-    email: string;
-    balance: number;
-    referralCode: string;
-  }) => {
-    setSessionUser(opts);
+  const applySession = (user: User) => {
+    setSessionUser(user);
+    // Admins go straight to dashboard
+    if (user.role === 'admin') {
+      router.push('/admin');
+      return;
+    }
     router.push(redirectTo);
   };
 
@@ -60,52 +43,50 @@ export function AuthForm({
     setBusy(true);
 
     try {
-      // —— 1) Try real API (Postgres) when configured ——
-      if (isApiConfigured()) {
-        try {
-          const result =
-            mode === 'register'
-              ? await apiRegister({ fullName, phone, password })
-              : await apiLogin({ phone, password });
-
-          const u = result.user;
-          const token = result.accessToken;
-          if (token) localStorage.setItem('equb_access_token', token);
-
-          let balance = 5000;
-          const remoteBal = token ? await apiWalletBalance(token) : null;
-          if (remoteBal != null) balance = remoteBal;
-
-          applySession({
-            id: u.id,
-            name: u.fullName || fullName.trim() || u.phone || phone || 'ተጠቃሚ',
-            phone: u.phone || phone,
-            email: u.email,
-            balance,
-            referralCode:
-              (u.phone || phone || 'EQ').replace(/\D/g, '').slice(-6).toUpperCase() ||
-              'EQUB01',
-          });
-          return;
-        } catch (apiErr) {
-          const raw = apiErr instanceof Error ? apiErr.message : 'API error';
-          // Hard validation errors from server — show, do not silently local-fallback
-          if (
-            /already exists|PHONE_EXISTS|EMAIL_EXISTS|Invalid phone|password|Validation|required|locked/i.test(
-              raw,
-            ) &&
-            raw !== 'API_NOT_CONFIGURED' &&
-            raw !== 'NETWORK_ERROR'
-          ) {
-            setError(raw);
+      // 1) Real API (Next /api/auth — database)
+      try {
+        if (mode === 'register') {
+          const result = await apiRegister({ fullName, phone, password });
+          if (!result.ok) {
+            setError(result.error);
             return;
           }
-          setHint(mapErr(raw));
-          // fall through to local
+          const u = result.user;
+          applySession({
+            id: u.id,
+            name: u.fullName || fullName.trim() || 'ተጠቃሚ',
+            phone: u.phone || phone,
+            email: `${(u.phone || phone).replace('+', '')}@phone.equb`,
+            balance: Number(u.balance) || 100,
+            referralCode: u.referralCode || 'EQUB01',
+            role: (u.role as 'player' | 'admin') || 'player',
+            banned: u.banned,
+          });
+          return;
         }
+
+        const result = await apiLogin({ phone, password });
+        if (result.ok) {
+          const u = result.user;
+          applySession({
+            id: u.id,
+            name: u.fullName || 'ተጠቃሚ',
+            phone: u.phone || phone,
+            email: `${(u.phone || phone).replace('+', '')}@phone.equb`,
+            balance: Number(u.balance) || 0,
+            referralCode: u.referralCode || 'EQUB01',
+            role: (u.role as 'player' | 'admin') || 'player',
+            banned: u.banned,
+          });
+          return;
+        }
+        // Soft fail → try local (e.g. offline admin seed)
+        setHint(result.error);
+      } catch {
+        setHint('Server unreachable — trying local account');
       }
 
-      // —— 2) Local device account (always works offline) ——
+      // 2) Local fallback (admin seed lives here too)
       if (mode === 'register') {
         const res = await registerLocal({ fullName, phone, password });
         if (!res.ok) {
@@ -119,11 +100,13 @@ export function AuthForm({
           email: `${res.account.phone.replace('+', '')}@phone.equb`,
           balance: res.account.balance,
           referralCode: res.account.referralCode,
+          role: res.account.role || 'player',
+          banned: res.account.banned,
         });
       } else {
         const res = await loginLocal({ phone, password });
         if (!res.ok) {
-          setError(res.error);
+          setError(res.error || hint || 'Login failed');
           return;
         }
         applySession({
@@ -133,6 +116,8 @@ export function AuthForm({
           email: `${res.account.phone.replace('+', '')}@phone.equb`,
           balance: res.account.balance,
           referralCode: res.account.referralCode,
+          role: res.account.role || 'player',
+          banned: res.account.banned,
         });
       }
     } catch (err) {
@@ -153,7 +138,9 @@ export function AuthForm({
             setHint('');
           }}
           className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
-            mode === 'login' ? 'bg-equb-600 text-white shadow' : 'text-white/45 hover:text-white/70'
+            mode === 'login'
+              ? 'bg-equb-600 text-white shadow'
+              : 'text-white/45 hover:text-white/70'
           }`}
         >
           ግባ
@@ -166,7 +153,9 @@ export function AuthForm({
             setHint('');
           }}
           className={`flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
-            mode === 'register' ? 'bg-equb-600 text-white shadow' : 'text-white/45 hover:text-white/70'
+            mode === 'register'
+              ? 'bg-equb-600 text-white shadow'
+              : 'text-white/45 hover:text-white/70'
           }`}
         >
           መመዝገብ
@@ -178,6 +167,11 @@ export function AuthForm({
           {mode === 'register'
             ? 'ሙሉ ስም · ስልክ (ተጠቃሚ) · የይለፍ ቃል'
             : 'ስልክ ቁጥርዎን እና የይለፍ ቃል ያስገቡ'}
+        </p>
+
+        <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-white/40">
+          Admin: phone <span className="font-mono text-amber-300">0900000000</span>{' '}
+          · password <span className="font-mono text-amber-300">Admin123!</span>
         </p>
 
         {hint && !error && (
@@ -194,7 +188,9 @@ export function AuthForm({
 
         {mode === 'register' && (
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-white/50">ሙሉ ስም</label>
+            <label className="mb-1 block text-[11px] font-medium text-white/50">
+              ሙሉ ስም
+            </label>
             <input
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
@@ -223,14 +219,18 @@ export function AuthForm({
         </div>
 
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-white/50">የይለፍ ቃል</label>
+          <label className="mb-1 block text-[11px] font-medium text-white/50">
+            የይለፍ ቃል
+          </label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
-            autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+            autoComplete={
+              mode === 'register' ? 'new-password' : 'current-password'
+            }
             placeholder="ቢያንስ 6 ቁምፊ"
             className="w-full rounded-xl border border-white/10 bg-surface-800/80 px-3.5 py-3 text-sm outline-none ring-equb-500/40 placeholder:text-white/25 focus:ring-2"
           />
