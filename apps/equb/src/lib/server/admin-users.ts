@@ -26,7 +26,8 @@ export async function adminCreate(input: {
 }) {
   const phone = normalizePhone(String(input.phone || ''));
   if (!phone) throw new Error('Valid phone required (09xxxxxxxx)');
-  if (!input.password || input.password.length < 6) throw new Error('Password must be at least 6 characters');\n  const row = {
+  if (!input.password || input.password.length < 6) throw new Error('Password must be at least 6 characters'); // min
+  const row = {
     id: randomUUID(),
     full_name: input.fullName || 'Player',
     phone,
@@ -75,7 +76,8 @@ export async function adminUpdate(
   if (patch.role) update.role = patch.role === 'admin' ? 'admin' : 'player';
   if (typeof patch.banned === 'boolean') update.banned = patch.banned;
   if (patch.password != null && String(patch.password).length > 0) {
-    if (String(patch.password).length < 6) throw new Error('Password must be at least 6 characters');\n    update.password_hash = hashPassword(String(patch.password));
+    if (String(patch.password).length < 6) throw new Error('Password must be at least 6 characters'); // min
+    update.password_hash = hashPassword(String(patch.password));
   }
   if (Object.keys(update).length > 0) {
     const { error } = await sb().from('app_users').update(update).eq('id', id);
