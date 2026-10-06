@@ -9,8 +9,7 @@ export type GroupSize = (typeof GROUP_SIZES)[number];
 /**
  * Number Selection Rule:
  * 5-player room  → max 1 number
- * 10+ players    → max 2 numbers
- * (15, 20, 25, 30, 35, 40, 45, 50, … all capped at 2)
+ * 10+ players    → max 2 numbers (15, 20, 25, … 50 all max 2)
  */
 export function maxPicksForGroup(groupSize: number): number {
   const size = Math.floor(Number(groupSize) || 0);
@@ -46,31 +45,108 @@ export function buildPrizePools(): number[] {
   return pools;
 }
 
-export function contributionPerSeat(prizePool: number, groupSize: number): number {
+export const PRIZE_POOLS = buildPrizePools();
+
+export function contributionPerMember(prizePool: number, groupSize: number): number {
   return Math.round((Number(prizePool) / Number(groupSize)) * 100) / 100;
 }
 
-export function seatsTaken(
-  members: Array<{ picks?: number[]; pick?: number }>,
-): number {
-  return members.reduce((n, m) => {
-    if (m.picks && m.picks.length) return n + m.picks.length;
-    if (m.pick != null) return n + 1;
-    return n;
-  }, 0);
+export function roomId(groupSize: number, prizePool: number): string {
+  return `equb-${groupSize}-${prizePool}`;
 }
 
-export function isFull(room: {
+export type RoomTemplate = {
+  id: string;
   groupSize: number;
-  members: Array<{ picks?: number[]; pick?: number }>;
-}): boolean {
-  return seatsTaken(room.members) >= room.groupSize;
+  prizePool: number;
+  contribution: number;
+  tier: 'entry' | 'low' | 'mid' | 'high' | 'vip';
+};
+
+export function tierFor(prize: number): RoomTemplate['tier'] {
+  if (prize <= 500) return 'entry';
+  if (prize < 5000) return 'low';
+  if (prize < 20000) return 'mid';
+  if (prize < 50000) return 'high';
+  return 'vip';
+}
+
+export function buildRoomCatalog(opts?: { maxPrize?: number }): RoomTemplate[] {
+  const maxPrize = opts?.maxPrize ?? 90000;
+  const out: RoomTemplate[] = [];
+  for (const size of GROUP_SIZES) {
+    for (const prize of PRIZE_POOLS) {
+      if (prize > maxPrize) continue;
+      out.push({
+        id: roomId(size, prize),
+        groupSize: size,
+        prizePool: prize,
+        contribution: contributionPerMember(prize, size),
+        tier: tierFor(prize),
+      });
+    }
+  }
+  return out;
+}
+
+export type EqubMember = {
+  id: string;
+  name: string;
+  pick: number;
+  picks?: number[];
+  isBot?: boolean;
+  joinedAt: number;
+};
+
+export type LiveRoom = {
+  id: string;
+  templateId?: string;
+  groupSize: number;
+  prizePool: number;
+  contribution: number;
+  tier?: string;
+  status: 'open' | 'drawing' | 'completed';
+  members: EqubMember[];
+  winningNumber?: number | null;
+  winnerId?: string | null;
+  winnerName?: string | null;
+  adminFee?: number | null;
+  winnerPayout?: number | null;
+  drawAt?: number;
+  secondsLeft?: number;
+};
+
+export function memberPicks(m: EqubMember): number[] {
+  if (m.picks && m.picks.length) return m.picks;
+  return [m.pick];
+}
+
+export function seatsTaken(r: LiveRoom): number {
+  return r.members.reduce((n, m) => n + memberPicks(m).length, 0);
+}
+
+export function seatsLeft(r: LiveRoom) {
+  return Math.max(0, r.groupSize - seatsTaken(r));
+}
+
+export function isFull(r: LiveRoom) {
+  return seatsTaken(r) >= r.groupSize;
+}
+
+export function takenPicks(r: LiveRoom) {
+  const s = new Set<number>();
+  for (const m of r.members) for (const p of memberPicks(m)) s.add(p);
+  return s;
+}
+
+export function numberPool(groupSize: number) {
+  return Array.from({ length: groupSize }, (_, i) => i + 1);
 }
 
 export function validatePicks(
   groupSize: number,
   picks: number[],
-): { ok: true } | { ok: false; message: string } {
+): { ok: true; picks: number[] } | { ok: false; message: string } {
   const max = maxPicksForGroup(groupSize);
   const clean = [...new Set(picks.map((n) => Math.floor(Number(n))))].filter(
     (n) => n >= 1 && n <= groupSize,
@@ -87,5 +163,5 @@ export function validatePicks(
           : `Max 2 numbers for ${groupSize}-player room`,
     };
   }
-  return { ok: true };
+  return { ok: true, picks: clean };
 }
