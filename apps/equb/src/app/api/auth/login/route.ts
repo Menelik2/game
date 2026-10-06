@@ -35,8 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Valid phone required (09xxxxxxxx). Admin: 0900000000 / Admin123!',
+          message: 'Valid phone required (09xxxxxxxx)',
         },
         { status: 400 },
       );
