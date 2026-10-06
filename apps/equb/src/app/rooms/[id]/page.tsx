@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -77,12 +77,12 @@ export default function RoomDetailPage() {
   const [conn, setConn] = useState<Conn>(wantMp ? 'checking' : 'offline');
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
   const multiplayer = wantMp && conn === 'online';
+  const claimedRef = useRef<string | null>(null);
 
   const applyServerBalance = useCallback(
     (balance: number) => {
       const u = useEqubStore.getState().user;
       if (!u) return;
-      if (Math.abs(u.balance - balance) < 0.001) return;
       setSessionUser({ ...u, balance });
     },
     [setSessionUser],
@@ -167,31 +167,48 @@ export default function RoomDetailPage() {
     }
   }, [multiplayer, serverRoom?.secondsLeft]);
 
-  // Winner: server already credited — only refresh UI + message (no second credit)
   useEffect(() => {
     if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
     const identity = getPlayerIdentity();
     if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
-    const key = `win-ui-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
-    try {
-      if (sessionStorage.getItem(key)) return;
-      sessionStorage.setItem(key, '1');
-    } catch {
-      /* ignore */
-    }
+    if (serverRoom.winningNumber == null) return;
+
+    const key = `${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
+    if (claimedRef.current === key) return;
+    claimedRef.current = key;
+
     const split = splitPot(Number(serverRoom.prizePool || 0));
     const payout =
       typeof serverRoom.winnerPayout === 'number' && serverRoom.winnerPayout > 0
         ? serverRoom.winnerPayout
         : split.winnerPayout;
-    setMsg(
-      locale === 'am'
-        ? `አሸንፈዋል! +${payout} ብር (በኪስ ተጨምሯል)`
-        : `You won! +${payout} Birr credited to wallet`,
-    );
-    // Pull latest balance from DB after server payout
-    const t = setTimeout(() => refreshBalance(), 800);
-    return () => clearTimeout(t);
+
+    (async () => {
+      try {
+        const res = await fetch('/api/equb/claim-win', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: identity.playerId,
+            templateId,
+            roomId: serverRoom.id,
+            winningNumber: serverRoom.winningNumber,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (typeof json.balance === 'number') applyServerBalance(json.balance);
+        else refreshBalance();
+        const amt = typeof json.amount === 'number' ? json.amount : payout;
+        setMsg(
+          locale === 'am'
+            ? `አሸንፈዋል! +${amt} ብር ወደ ኪስ ተጨምሯል`
+            : `You won! +${amt} Birr added to wallet`,
+        );
+      } catch {
+        refreshBalance();
+        setMsg(locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`);
+      }
+    })();
   }, [
     multiplayer,
     serverRoom?.status,
@@ -201,6 +218,8 @@ export default function RoomDetailPage() {
     serverRoom?.prizePool,
     serverRoom?.winnerPayout,
     user,
+    templateId,
+    applyServerBalance,
     refreshBalance,
     locale,
   ]);
@@ -335,8 +354,8 @@ export default function RoomDetailPage() {
             }
             setJoining(true);
             setServerRoom(optimisticJoin(room, check.picks));
+            if (fee > 0) applyServerBalance(Math.round((user.balance - fee) * 100) / 100);
             try {
-              // Server debits fee then joins — do NOT debit on client again
               const { room: joined, balance, fee: charged } =
                 await joinRoomWithBalance(templateId!, check.picks);
               setServerRoom(joined);
