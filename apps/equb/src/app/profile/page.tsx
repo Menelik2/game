@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { apiLogin, apiRegister } from '@/lib/auth-api';
+import { AuthForm } from '@/components/AuthForm';
 import { formatBirrCompact } from '@/lib/money';
 
 function sessionIsAdmin(user: unknown): boolean {
@@ -15,72 +15,11 @@ function sessionIsAdmin(user: unknown): boolean {
 
 export default function ProfilePage() {
   const user = useEqubStore((s) => s.user);
-  const setSessionUser = useEqubStore((s) => s.setSessionUser);
   const logout = useEqubStore((s) => s.logout);
   const claimReferral = useEqubStore((s) => s.claimReferral);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
   const { t, locale } = useI18n();
-
-  async function handleAuth() {
-    setBusy(true);
-    setMsg('');
-    try {
-      if (mode === 'register') {
-        const r = await apiRegister({ fullName, phone, password });
-        if (!r.ok) {
-          setMsg(r.error);
-          return;
-        }
-        setSessionUser({
-          id: r.user.id,
-          name: r.user.fullName,
-          email: `${r.user.phone}@phone.equb`,
-          phone: r.user.phone,
-          balance: r.user.balance,
-          referralCode: r.user.referralCode,
-          role: (r.user.role as 'player' | 'admin') || 'player',
-        });
-        setMsg(
-          locale === 'am'
-            ? 'ተመዝግበዋል · መረጃ በዳታቤዝ ተቀምጧል · 100 ብር'
-            : 'Registered · saved in database · 100 Birr',
-        );
-      } else {
-        const r = await apiLogin({ phone, password });
-        if (!r.ok) {
-          setMsg(r.error);
-          return;
-        }
-        setSessionUser({
-          id: r.user.id,
-          name: r.user.fullName,
-          email: `${r.user.phone}@phone.equb`,
-          phone: r.user.phone,
-          balance: r.user.balance,
-          referralCode: r.user.referralCode,
-          role: (r.user.role as 'player' | 'admin') || 'player',
-          banned: r.user.banned,
-        });
-        setMsg(
-          r.user.role === 'admin'
-            ? locale === 'am'
-              ? 'አስተዳዳሪ ገብተዋል (ዳታቤዝ)'
-              : 'Admin signed in (database)'
-            : locale === 'am'
-              ? 'እንኳን ደህና መጡ'
-              : 'Welcome',
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
 
   if (!user) {
     return (
@@ -92,87 +31,10 @@ export default function ProfilePage() {
         <div className="glass space-y-4 rounded-3xl p-6">
           <p className="text-[11px] text-white/40">
             {locale === 'am'
-              ? 'መለያ በዳታቤዝ ብቻ · መጀመሪያ 100 ብር'
-              : 'Database accounts only · starting balance 100 Birr'}
+              ? 'ከመነሻ ገጽ ጋር ተመሳሳይ መግቢያ · ስልክ + የይለፍ ቃል'
+              : 'Same login as home · phone + password'}
           </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={
-                mode === 'login'
-                  ? 'rounded-full bg-equb-500/25 px-4 py-1.5 text-xs font-bold text-equb-300'
-                  : 'rounded-full px-4 py-1.5 text-xs text-white/50'
-              }
-            >
-              {locale === 'am' ? 'ግባ' : t.common.signIn}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className={
-                mode === 'register'
-                  ? 'rounded-full bg-equb-500/25 px-4 py-1.5 text-xs font-bold text-equb-300'
-                  : 'rounded-full px-4 py-1.5 text-xs text-white/50'
-              }
-            >
-              {locale === 'am' ? 'ተመዝገብ' : 'Register'}
-            </button>
-          </div>
-          {mode === 'register' && (
-            <div>
-              <label className="mb-1 block text-[10px] uppercase text-white/40">
-                {locale === 'am' ? 'ሙሉ ስም' : 'Full name'}
-              </label>
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder={locale === 'am' ? 'አበበ ከበደ' : 'Full name'}
-                className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-              />
-            </div>
-          )}
-          <div>
-            <label className="mb-1 block text-[10px] uppercase text-white/40">
-              {locale === 'am' ? 'ስልክ' : 'Phone'}
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="09xxxxxxxx"
-              className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] uppercase text-white/40">
-              {locale === 'am' ? 'የይለፍ ቃል' : 'Password'}
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Min 6"
-              className="w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm"
-            />
-          </div>
-          {msg && <p className="text-xs text-amber-300">{msg}</p>}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void handleAuth()}
-            className="btn-gold w-full disabled:opacity-50"
-          >
-            {busy
-              ? '…'
-              : mode === 'login'
-                ? locale === 'am'
-                  ? 'ግባ'
-                  : 'Sign in'
-                : locale === 'am'
-                  ? 'መለያ ፍጠር'
-                  : 'Create account'}
-          </button>
+          <AuthForm initialMode="login" redirectTo="/profile" />
         </div>
       </div>
     );
