@@ -11,12 +11,14 @@ import {
   Shield,
   Landmark,
   Radio,
+  Smartphone,
 } from 'lucide-react';
 import clsx from 'clsx';
 
 const links = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/telebirr', label: 'Telebirr', icon: Smartphone },
   { href: '/admin/deposits', label: 'Deposits', icon: Landmark },
   { href: '/admin/audit', label: 'Audit', icon: ScrollText },
   { href: '/admin/system', label: 'System', icon: Server },
@@ -42,7 +44,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </h1>
               <p className="flex items-center gap-1.5 text-xs text-amber-200/55">
                 <Radio className="h-3 w-3 animate-pulse text-equb-400" />
-                ፈጣን እቁብ · operations & security
+                ፈጣን እቁብ · wallets · Telebirr
               </p>
             </div>
           </div>
