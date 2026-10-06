@@ -5,8 +5,31 @@ import { dbEnsureAdmin, dbLogin } from '@/lib/server/db-users';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const ADMIN_PHONE = '+251900000000';
-const ADMIN_PASSWORD = 'Admin123!';
+// Seed admin (legacy demo) + production admin phone from owner
+const ADMIN_ACCOUNTS: { phone: string; password: string }[] = [
+  { phone: '+251900000000', password: 'Admin123!' },
+  { phone: '+251918006053', password: 'Admin123!' },
+];
+
+function resolveAdminPhone(phoneRaw: string): string | null {
+  const digits = phoneRaw.replace(/\D/g, '');
+  if (
+    digits === '0900000000' ||
+    digits === '900000000' ||
+    digits === '251900000000' ||
+    phoneRaw.trim().toLowerCase() === 'admin'
+  ) {
+    return '+251900000000';
+  }
+  if (
+    digits === '0918006053' ||
+    digits === '918006053' ||
+    digits === '251918006053'
+  ) {
+    return '+251918006053';
+  }
+  return normalizePhone(phoneRaw);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,16 +43,7 @@ export async function POST(req: NextRequest) {
     const phoneRaw = String(body.phone ?? body.username ?? '');
     const password = String(body.password ?? '');
 
-    let phone = normalizePhone(phoneRaw);
-    const digits = phoneRaw.replace(/\D/g, '');
-    if (
-      !phone &&
-      (digits === '0900000000' ||
-        digits === '900000000' ||
-        phoneRaw.trim() === 'admin')
-    ) {
-      phone = ADMIN_PHONE;
-    }
+    const phone = resolveAdminPhone(phoneRaw);
 
     if (!phone) {
       return NextResponse.json(
@@ -48,10 +62,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    try {
-      await dbEnsureAdmin(ADMIN_PHONE, hashPassword(ADMIN_PASSWORD));
-    } catch {
-      /* ignore */
+    // Ensure seed admins exist (both phones)
+    for (const a of ADMIN_ACCOUNTS) {
+      try {
+        await dbEnsureAdmin(a.phone, hashPassword(a.password));
+      } catch {
+        /* ignore */
+      }
     }
 
     const passwordHash = hashPassword(password);
@@ -64,6 +81,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Promote known admin phones
+    let role = r.user.role;
+    if (
+      r.user.phone === '+251900000000' ||
+      r.user.phone === '+251918006053' ||
+      role === 'admin'
+    ) {
+      role = 'admin';
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -72,7 +99,7 @@ export async function POST(req: NextRequest) {
         phone: r.user.phone,
         balance: r.user.balance,
         referralCode: r.user.referralCode,
-        role: r.user.role,
+        role,
         banned: r.user.banned ?? false,
       },
     });
