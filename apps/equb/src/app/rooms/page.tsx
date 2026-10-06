@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEqubStore } from '@/lib/store';
@@ -17,6 +17,11 @@ import {
   openRoom,
   joinRoom as mpJoin,
   setPlayerName,
+  listLiveRooms,
+  listTemplates,
+  probeApi,
+  type ServerRoom,
+  type LiveTemplate,
 } from '@/lib/multiplayer';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { interpolate } from '@/lib/i18n/dictionaries';
@@ -24,7 +29,7 @@ import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
 import clsx from 'clsx';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Users, Radio } from 'lucide-react';
 
 const PRIZES = [500, 1000, 2000, 5000, 9000];
 
@@ -37,11 +42,14 @@ export default function RoomsPage() {
   const loginDemo = useEqubStore((s) => s.loginDemo);
   const joinLocal = useEqubStore((s) => s.joinRoom);
 
-  const [groupSize, setGroupSize] = useState(10);
+  const [groupSize, setGroupSize] = useState(5);
   const [pick, setPick] = useState<number | null>(null);
   const [prize, setPrize] = useState(500);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [liveOpen, setLiveOpen] = useState<ServerRoom[]>([]);
+  const [templates, setTemplates] = useState<LiveTemplate[]>([]);
+  const [liveOk, setLiveOk] = useState(false);
   const multiplayer = isMultiplayerEnabled();
 
   const contribution = useMemo(
@@ -50,17 +58,46 @@ export default function RoomsPage() {
   );
   const templateId = roomId(groupSize, prize);
 
+  const refreshLive = useCallback(async () => {
+    if (!multiplayer) return;
+    try {
+      const ok = await probeApi();
+      if (!ok) {
+        setLiveOk(false);
+        return;
+      }
+      setLiveOk(true);
+      const [roomsList, tpl] = await Promise.all([
+        listLiveRooms().catch(() => [] as ServerRoom[]),
+        listTemplates().catch(() => [] as LiveTemplate[]),
+      ]);
+      // Only open rooms with at least 1 player — others can join
+      const open = (roomsList || [])
+        .filter((r) => r.status === 'open' && (r.members?.length || 0) > 0)
+        .sort((a, b) => (b.members?.length || 0) - (a.members?.length || 0));
+      setLiveOpen(open);
+      setTemplates(tpl || []);
+    } catch {
+      setLiveOk(false);
+    }
+  }, [multiplayer]);
+
   useEffect(() => {
     if (!user) loginDemo();
     ensureRooms();
   }, [ensureRooms, user, loginDemo]);
 
   useEffect(() => {
+    void refreshLive();
+    const iv = setInterval(() => void refreshLive(), 3000);
+    return () => clearInterval(iv);
+  }, [refreshLive]);
+
+  useEffect(() => {
     setPick(null);
   }, [groupSize]);
 
   function openLocalRoom(chosenPick: number): boolean {
-    // Ensure demo user exists (loginDemo is sync set in zustand)
     let u = useEqubStore.getState().user;
     if (!u) {
       loginDemo();
@@ -71,7 +108,6 @@ export default function RoomsPage() {
       return false;
     }
     ensureRooms();
-    // Make sure catalog room exists for this template
     const list = useEqubStore.getState().rooms;
     if (!list.some((r) => r.id === templateId)) {
       useEqubStore.setState({
@@ -87,6 +123,7 @@ export default function RoomsPage() {
             members: [],
             winningNumber: null,
             winnerId: null,
+            winnerName: null,
           },
         ],
       });
@@ -107,12 +144,9 @@ export default function RoomsPage() {
 
     setBusy(true);
     setErr('');
-
-    // Hard safety: never stay on OPENING longer than 8s
     const safety = setTimeout(() => setBusy(false), 8000);
 
     try {
-      // Try live API briefly; on any failure use local game
       if (multiplayer) {
         const name =
           useEqubStore.getState().user?.name || user?.name || 'Player';
@@ -132,13 +166,10 @@ export default function RoomsPage() {
       const ok = openLocalRoom(pick);
       clearTimeout(safety);
       setBusy(false);
-      if (ok) {
-        router.push(`/rooms/${templateId}`);
-      }
+      if (ok) router.push(`/rooms/${templateId}`);
     } catch (e: unknown) {
       clearTimeout(safety);
       setBusy(false);
-      // Last resort: still try local
       if (openLocalRoom(pick)) {
         router.push(`/rooms/${templateId}`);
       } else {
@@ -147,8 +178,14 @@ export default function RoomsPage() {
     }
   }
 
-  const openRooms = rooms.filter((r) => r.status === 'open').slice(0, 12);
+  /** Prefer live shared rooms; fall back to local open rooms */
+  const localOpen = rooms.filter((r) => r.status === 'open' && r.members.length > 0).slice(0, 12);
   const previewTaken = pick != null ? new Set([pick]) : new Set<number>();
+
+  // Templates with someone already seated (from API)
+  const activeTemplates = templates.filter(
+    (t) => t.status === 'open' && t.seatsTaken > 0,
+  );
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -158,12 +195,93 @@ export default function RoomsPage() {
             {t.rooms.title}
           </h1>
           <p className="mt-1 text-xs text-white/45 sm:text-sm">{t.rooms.subtitle}</p>
+          {liveOk && (
+            <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-equb-400">
+              <Radio className="h-3 w-3 animate-pulse" />
+              {locale === 'am' ? 'ቀጥታ ክፍሎች · አብረው ይጫወቱ' : 'Live rooms · play together'}
+            </p>
+          )}
         </div>
         <div className="shrink-0 text-right">
           <p className="mb-1 text-[10px] text-white/40">{t.common.language}</p>
           <LanguageSwitcher />
         </div>
       </div>
+
+      {/* Shared open rooms — other players see these and join */}
+      {(liveOpen.length > 0 || activeTemplates.length > 0) && (
+        <section className="rounded-2xl border border-equb-500/30 bg-equb-500/10 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Users className="h-4 w-4 text-equb-300" />
+            <h2 className="text-sm font-bold text-equb-100">
+              {locale === 'am' ? 'ክፍት ክፍሎች · አሁን ይቀላቀሉ' : 'Open rooms · join now'}
+            </h2>
+          </div>
+          <div className="space-y-2">
+            {liveOpen.map((r) => {
+              const taken = new Set(r.members.map((m) => m.pick));
+              const left = Math.max(0, r.groupSize - r.members.length);
+              const href = r.templateId
+                ? `/rooms/${r.templateId}`
+                : `/rooms/${r.id}`;
+              return (
+                <Link
+                  key={r.id}
+                  href={href}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3 transition hover:border-equb-400/40"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">
+                      {r.groupSize} {t.rooms.players} ·{' '}
+                      <span className="text-gold-400">
+                        {formatBirrCompact(r.prizePool, locale)}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-white/45">
+                      {r.members.length}/{r.groupSize} · {left}{' '}
+                      {locale === 'am' ? 'መቀመጫ ቀርቷል' : 'seats left'}
+                      {r.secondsLeft != null ? ` · ${r.secondsLeft}s` : ''}
+                    </p>
+                    <div className="mt-2">
+                      <SeatNodes
+                        total={r.groupSize}
+                        taken={taken}
+                        yourPick={null}
+                        size="sm"
+                        maxVisible={Math.min(r.groupSize, 20)}
+                      />
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-equb-500 px-3 py-1.5 text-[11px] font-bold text-white">
+                    {locale === 'am' ? 'ቀላቀል' : 'Join'}
+                  </span>
+                </Link>
+              );
+            })}
+            {liveOpen.length === 0 &&
+              activeTemplates.map((tpl) => (
+                <Link
+                  key={tpl.id}
+                  href={`/rooms/${tpl.id}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {tpl.groupSize} {t.rooms.players} ·{' '}
+                      <span className="text-gold-400">
+                        {formatBirrCompact(tpl.prizePool, locale)}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-white/45">
+                      {tpl.seatsTaken}/{tpl.groupSize} seated
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-white/30" />
+                </Link>
+              ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-5 lg:gap-8">
         <div className="space-y-5 lg:col-span-3">
@@ -211,9 +329,10 @@ export default function RoomsPage() {
               )}
             </div>
             <p className="mb-3 text-[11px] text-white/40">
-              {interpolate(t.rooms.step2Hint, { size: String(groupSize).padStart(2, '0') })}
+              {interpolate(t.rooms.step2Hint, {
+                size: String(groupSize).padStart(2, '0'),
+              })}
             </p>
-
             <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
               <SeatRing
                 total={groupSize}
@@ -229,13 +348,7 @@ export default function RoomsPage() {
                 maxVisible={groupSize}
                 className="justify-center"
               />
-              <p className="text-[10px] text-white/35">
-                {pick != null
-                  ? `Seat #${String(pick).padStart(2, '0')} · ${groupSize - 1} open`
-                  : `${groupSize} empty seats — pick a number`}
-              </p>
             </div>
-
             <div
               className="grid gap-1.5"
               style={{
@@ -269,7 +382,6 @@ export default function RoomsPage() {
                 {t.rooms.step3}
               </p>
             </div>
-            <p className="mb-3 text-[11px] text-white/40">{t.rooms.choosePot}</p>
             <div className="flex flex-wrap gap-2">
               {PRIZES.map((p) => (
                 <button
@@ -321,9 +433,6 @@ export default function RoomsPage() {
           >
             {busy ? t.common.opening : t.common.openRoom}
           </button>
-          {pick == null && (
-            <p className="text-center text-[11px] text-amber-400/90">{t.rooms.needPick}</p>
-          )}
         </div>
 
         <div className="lg:col-span-2">
@@ -331,9 +440,9 @@ export default function RoomsPage() {
             <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">
               {t.rooms.openRooms}
             </p>
-            {openRooms.length > 0 ? (
+            {localOpen.length > 0 ? (
               <div className="space-y-2">
-                {openRooms.map((r: LiveRoom) => {
+                {localOpen.map((r: LiveRoom) => {
                   const taken = takenPicks(r);
                   const yours = user
                     ? r.members.find((m) => m.id === user.id)?.pick ?? null
@@ -342,7 +451,7 @@ export default function RoomsPage() {
                     <Link
                       key={r.id}
                       href={`/rooms/${r.id}`}
-                      className="glass block rounded-2xl px-3.5 py-3.5 transition hover:border-equb-500/30 hover:bg-equb-500/5"
+                      className="glass block rounded-2xl px-3.5 py-3.5 transition hover:border-equb-500/30"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div>
@@ -353,12 +462,10 @@ export default function RoomsPage() {
                             {formatBirrCompact(r.prizePool, locale)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-white/45">
-                            {r.members.length}/{r.groupSize} · {seatsLeft(r)} {t.rooms.left}
-                          </span>
-                          <ChevronRight className="h-4 w-4 text-white/25" />
-                        </div>
+                        <span className="rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-white/45">
+                          {r.members.length}/{r.groupSize} · {seatsLeft(r)}{' '}
+                          {t.rooms.left}
+                        </span>
                       </div>
                       <div className="mt-2.5 border-t border-white/5 pt-2.5">
                         <SeatNodes
@@ -375,7 +482,11 @@ export default function RoomsPage() {
               </div>
             ) : (
               <div className="glass rounded-2xl p-6 text-center text-sm text-white/35">
-                {t.rooms.emptyOpen}
+                {liveOk
+                  ? locale === 'am'
+                    ? 'ምንም የተያዙ ክፍሎች የሉም — አዲስ ክፈቱ'
+                    : 'No occupied rooms yet — open one above'
+                  : t.rooms.emptyOpen}
               </div>
             )}
           </div>

@@ -1,6 +1,5 @@
 /**
- * Multiplayer client — distinct logged-in accounts join the same server room.
- * playerId = real user id (session) so different accounts are different players.
+ * Multiplayer client — distinct accounts share the same server rooms.
  */
 
 function resolveApiBase(): string {
@@ -51,6 +50,18 @@ export type ServerRoom = {
   updatedAt?: number;
 };
 
+export type LiveTemplate = {
+  id: string;
+  groupSize: number;
+  prizePool: number;
+  contribution: number;
+  tier?: string;
+  liveRoomId: string | null;
+  seatsTaken: number;
+  status: string;
+  secondsLeft?: number;
+};
+
 function anonymousPid() {
   if (typeof window === 'undefined') return 'ssr';
   let id = localStorage.getItem('equb_player_id');
@@ -61,18 +72,15 @@ function anonymousPid() {
   return id;
 }
 
-/** Prefer authenticated account id so different users are distinct seats */
 export function getPlayerIdentity(): { playerId: string; name: string } {
   if (typeof window === 'undefined') {
     return { playerId: 'ssr', name: 'Player' };
   }
 
-  // Session id (auth)
   try {
     const sid = sessionStorage.getItem('equb_session_user_id');
     if (sid && sid.length >= 4) {
       let name = localStorage.getItem('equb_player_name') || 'Player';
-      // Try zustand persist keys for display name
       for (const key of ['fast-equb-v7', 'fast-equb-v6', 'fast-equb-v5']) {
         try {
           const raw = localStorage.getItem(key);
@@ -92,7 +100,6 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
     /* ignore */
   }
 
-  // Zustand user on any version key
   for (const key of ['fast-equb-v7', 'fast-equb-v6', 'fast-equb-v5']) {
     try {
       const raw = localStorage.getItem(key);
@@ -177,7 +184,32 @@ export async function probeApi(): Promise<boolean> {
       /* next */
     }
   }
+  // Also try equb ping
+  for (const base of bases) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3_000);
+      const res = await fetch(`${base}/api/equb/ping`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        if (typeof window !== 'undefined') (window as any).__equbApiBase = base;
+        return true;
+      }
+    } catch {
+      /* next */
+    }
+  }
   return false;
+}
+
+/** Shared open templates with live seat counts */
+export function listTemplates() {
+  return req<LiveTemplate[]>('/equb/templates');
+}
+
+/** All live room instances (open + recent) */
+export function listLiveRooms() {
+  return req<ServerRoom[]>('/equb/rooms');
 }
 
 export function openRoom(templateId: string) {
