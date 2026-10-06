@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import clsx from 'clsx';
 import { formatBirrCompact } from '@/lib/format';
-import { useLocale, useI18n } from '@/lib/i18n/LanguageContext';
+import { useLocale, useI18n } from '@/lib/i18n';
 import { maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
@@ -78,8 +78,7 @@ export function EqubTable({
   onDraw,
 }: Props) {
   const locale = useLocale();
-  const { t: _t } = useI18n();
-  void _t;
+  useI18n();
   const maxSelect = maxSelectProp ?? maxPicksForGroup(groupSize);
   const pot = Number(prizePool) || 0;
   const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
@@ -137,9 +136,13 @@ export function EqubTable({
                 className={clsx(
                   'relative flex aspect-square items-center justify-center rounded-xl text-[11px] font-black transition-all duration-200 sm:text-sm',
                   isWin && 'bg-gold-400 text-black ring-2 ring-gold-200',
-                  isYours && !isWin && 'bg-equb-500 text-white ring-2 ring-equb-200',
+                  isYours &&
+                    !isWin &&
+                    'bg-equb-500 text-white ring-2 ring-equb-200',
                   isTaken && !isYours && 'bg-white/5 text-white/25',
-                  locked && !isTaken && 'cursor-not-allowed bg-[#151c1a] text-white/25',
+                  locked &&
+                    !isTaken &&
+                    'cursor-not-allowed bg-[#151c1a] text-white/25',
                   canClick &&
                     'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
                   !canClick &&

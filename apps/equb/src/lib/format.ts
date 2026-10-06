@@ -1,5 +1,5 @@
 /**
- * Re-export money formatters — some components import @/lib/format
+ * Barrel for `@/lib/format` — money formatters used by game UI.
  */
 export {
   formatBirr,
