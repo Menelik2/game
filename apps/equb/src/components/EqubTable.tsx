@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { formatBirrCompact } from '@/lib/money';
 import { useLocale } from '@/lib/i18n/LanguageContext';
 import { useI18n } from '@/lib/i18n/LanguageContext';
-import { splitPot } from '@/lib/equb-math';
+import { maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
   id: string;
@@ -46,11 +46,13 @@ type Props = {
   canFillBots?: boolean;
   canDraw?: boolean;
   locale?: string;
-  maxSelect: number;
+  /** Max picks for this group (defaults from pick rule: 5→1, 10+→2) */
+  maxSelect?: number;
   onToggleSelect: (n: number) => void;
   onBet: () => void;
   onFillBots?: () => void;
   onDraw?: () => void;
+  onPlayAgain?: () => void;
 };
 
 export function EqubTable({
@@ -72,13 +74,14 @@ export function EqubTable({
   drawing,
   canBet,
   canDraw,
-  maxSelect,
+  maxSelect: maxSelectProp,
   onToggleSelect,
   onBet,
   onDraw,
 }: Props) {
   const locale = useLocale();
   const { t } = useI18n();
+  const maxSelect = maxSelectProp ?? maxPicksForGroup(groupSize);
   const pot = Number(prizePool) || 0;
   const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
 
@@ -96,7 +99,7 @@ export function EqubTable({
   return (
     <div className="grid gap-3 lg:grid-cols-[1fr_9rem_9rem]">
       <div className="order-1">
-        <div className="mb-2 flex items-center justify-between text-[11px] text-white/40">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40">
           <span className="font-semibold text-white/55">
             {locale === 'am'
               ? `ቁጥር ይምረጡ · ከፍተኛ ${maxSelect} (5=1 · 10+=2)`
@@ -117,11 +120,14 @@ export function EqubTable({
           )}
         >
           {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
-            const isTaken = takenSet.has(n) && !selectedSet.has(n) && !yourPicks.includes(n);
+            const isTaken =
+              takenSet.has(n) && !selectedSet.has(n) && !yourPicks.includes(n);
             const isYours = yourPicks.includes(n) || selectedSet.has(n);
             const isWin = status === 'completed' && winningNumber === n;
-            const locked = !isYours && (isTaken || (atMax && !selectedSet.has(n)));
-            const canClick = !disabled && status === 'open' && !locked && !isTaken;
+            const locked =
+              !isYours && (isTaken || (atMax && !selectedSet.has(n)));
+            const canClick =
+              !disabled && status === 'open' && !locked && !isTaken;
 
             return (
               <button
@@ -135,8 +141,13 @@ export function EqubTable({
                   isYours && !isWin && 'bg-equb-500 text-white ring-2 ring-equb-200',
                   isTaken && !isYours && 'bg-white/5 text-white/25',
                   locked && !isTaken && 'cursor-not-allowed bg-[#151c1a] text-white/25',
-                  canClick && 'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
-                  !canClick && !isYours && !isTaken && !isWin && 'bg-[#151c1a] text-white/40',
+                  canClick &&
+                    'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
+                  !canClick &&
+                    !isYours &&
+                    !isTaken &&
+                    !isWin &&
+                    'bg-[#151c1a] text-white/40',
                 )}
               >
                 {String(n).padStart(2, '0')}
@@ -180,14 +191,19 @@ export function EqubTable({
           )}
         </div>
 
-        {status === 'completed' && (lastAdminFee != null || lastWinnerPayout != null) && (
-          <p className="mt-2 text-center text-[11px] text-white/40">
-            {locale === 'am' ? 'አስተዳዳሪ 15%' : 'Admin 15%'}{' '}
-            {lastAdminFee != null ? formatBirrCompact(lastAdminFee, locale) : ''}{' · '}
-            {locale === 'am' ? 'አሸናፊ' : 'Winner'}{' '}
-            {lastWinnerPayout != null ? formatBirrCompact(lastWinnerPayout, locale) : ''}
-          </p>
-        )}
+        {status === 'completed' &&
+          (lastAdminFee != null || lastWinnerPayout != null) && (
+            <p className="mt-2 text-center text-[11px] text-white/40">
+              {locale === 'am' ? 'አስተዳዳሪ 15%' : 'Admin 15%'}{' '}
+              {lastAdminFee != null
+                ? formatBirrCompact(lastAdminFee, locale)
+                : ''}{' · '}
+              {locale === 'am' ? 'አሸናፊ' : 'Winner'}{' '}
+              {lastWinnerPayout != null
+                ? formatBirrCompact(lastWinnerPayout, locale)
+                : ''}
+            </p>
+          )}
       </div>
 
       <div className="order-2 rounded-2xl border border-white/10 bg-black/30 p-3">
@@ -211,7 +227,10 @@ export function EqubTable({
             >
               <span className="truncate">{pl.name}</span>
               <span className="font-mono text-white/50">
-                #{(pl.picks || [pl.pick]).map((x) => String(x).padStart(2, '0')).join(',')}
+                #
+                {(pl.picks || [pl.pick])
+                  .map((x) => String(x).padStart(2, '0'))
+                  .join(',')}
               </span>
             </li>
           ))}
