@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  createDeposit,
-  listDeposits,
-  publicWalletConfig,
-  walletOfAsync,
-} from '@/lib/wallet/deposits';
+import { createDeposit, listDeposits } from '@/lib/wallet/deposits';
+import { publicWalletConfig, walletOfAsync } from '@/lib/wallet/wallet-view';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -38,34 +34,30 @@ export async function POST(req: NextRequest) {
       );
     }
     const origin = req.nextUrl.origin;
-    const result = await createDeposit({
+    const created = await createDeposit({
       userId,
       amount: body.amount,
       origin,
     });
-    if (!result.ok) {
+    if (!created.ok) {
       return NextResponse.json(
-        { success: false, message: result.message },
+        { success: false, message: created.message },
         { status: 400 },
       );
     }
     const wallet = await walletOfAsync(userId);
     return NextResponse.json({
       success: true,
-      deposit: result.deposit,
+      deposit: created.deposit,
+      checkoutUrl: created.checkoutUrl,
       wallet,
-      payment: {
-        checkoutUrl: null,
-        method: 'telebirr-manual',
-        verifier: 'verify.et',
-      },
       config: publicWalletConfig(),
     });
   } catch (e: unknown) {
     return NextResponse.json(
       {
         success: false,
-        message: e instanceof Error ? e.message : 'Create failed',
+        message: e instanceof Error ? e.message : 'Deposit failed',
       },
       { status: 500 },
     );
