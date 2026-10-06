@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { joinRoom, ensureOpen, getRoom } from '@/lib/server/equb-rooms';
+import { joinRoom, ensureOpen } from '@/lib/server/equb-rooms';
 import { joinShared, sharedEnabled, getShared } from '@/lib/server/shared-rooms';
-import { settleJoinFee, readBalance } from '@/lib/server/wallet-settle';
+import {
+  settleJoinFee,
+  readBalance,
+  refundJoinFee,
+} from '@/lib/server/wallet-settle';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,7 +34,6 @@ export async function POST(
 
     const id = decodeURIComponent(roomId);
 
-    // Resolve contribution from room template
     let contribution = 0;
     let groupSize = 5;
     try {
@@ -54,7 +57,6 @@ export async function POST(
 
     const fee = Math.round(contribution * picks.length * 100) / 100;
 
-    // Debit wallet FIRST — no join without payment
     let balanceAfter: number | null = null;
     try {
       const settled = await settleJoinFee({
@@ -81,17 +83,8 @@ export async function POST(
         ? await joinShared(id, playerId, name, picks)
         : joinRoom(id, playerId, name, picks);
     } catch (e: unknown) {
-      // Refund on failed join
       try {
-        if (fee > 0) {
-          const { settleWinPayout } = await import('@/lib/server/wallet-settle');
-          await settleWinPayout({
-            userId: playerId,
-            amount: fee,
-            roomId: id,
-            winningNumber: 0,
-          });
-        }
+        await refundJoinFee({ userId: playerId, amount: fee, roomId: id, picks });
       } catch {
         /* */
       }
@@ -99,6 +92,7 @@ export async function POST(
         {
           success: false,
           message: e instanceof Error ? e.message : 'Join failed',
+          balance: await readBalance(playerId),
         },
         { status: 400 },
       );

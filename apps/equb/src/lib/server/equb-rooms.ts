@@ -160,8 +160,10 @@ export function findOpen(templateId: string): Room | undefined {
 export function ensureOpen(templateId: string): Room {
   const existing = findOpen(templateId);
   if (existing) {
-    const drawn = maybeDraw(existing);
-    if (drawn.status === 'open') return withTimer(drawn);
+    // Kick off async draw if needed (sync path for timer check)
+    void maybeDrawAsync(existing);
+    const r = rooms.get(existing.id) || existing;
+    if (r.status === 'open') return withTimer(r);
   }
   return withTimer(createRoom(templateId));
 }
@@ -169,10 +171,12 @@ export function ensureOpen(templateId: string): Room {
 export function getRoom(id: string): Room | undefined {
   const r = rooms.get(id);
   if (!r) return undefined;
-  return maybeDraw(r);
+  void maybeDrawAsync(r);
+  return withTimer(rooms.get(id) || r);
 }
 
-export function maybeDraw(room: Room): Room {
+/** Complete draw and credit winner (awaited). */
+export async function maybeDrawAsync(room: Room): Promise<Room> {
   if (room.status === 'completed' || room.status === 'drawing') {
     return withTimer(room);
   }
@@ -210,7 +214,6 @@ export function maybeDraw(room: Room): Room {
   );
   const { adminFee, winnerPayout } = computePayout(room.prizePool);
 
-  room.status = 'completed';
   room.winningNumber = proof.winningNumber;
   room.winnerId = winner?.playerId ?? null;
   room.winnerName = winner?.name ?? null;
@@ -220,21 +223,37 @@ export function maybeDraw(room: Room): Room {
   room.commitmentHash = proof.commitmentHash;
   room.updatedAt = Date.now();
 
-  // Credit winner wallet (async fire-and-track via paidOut)
-  if (winner?.playerId && !room.paidOut) {
-    room.paidOut = true;
-    void settleWinPayout({
-      userId: winner.playerId,
-      amount: winnerPayout,
-      roomId: room.id,
-      winningNumber: proof.winningNumber,
-    }).catch(() => {
+  if (winner?.playerId && winnerPayout > 0 && !room.paidOut) {
+    try {
+      await settleWinPayout({
+        userId: winner.playerId,
+        amount: winnerPayout,
+        roomId: room.id,
+        winningNumber: proof.winningNumber,
+      });
+      room.paidOut = true;
+    } catch {
       room.paidOut = false;
-    });
+    }
   }
 
+  room.status = 'completed';
   rooms.set(room.id, room);
   return withTimer(room);
+}
+
+/** Sync wrapper used by older callers */
+export function maybeDraw(room: Room): Room {
+  if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
+  if (seatsTaken(room) < 1) {
+    room.drawAt = Date.now() + ROUND_MS;
+    room.updatedAt = Date.now();
+    rooms.set(room.id, room);
+    return withTimer(room);
+  }
+  // Start async settlement; mark drawing so we don't double-start
+  void maybeDrawAsync(room);
+  return withTimer(rooms.get(room.id) || room);
 }
 
 export function joinRoom(
@@ -244,8 +263,6 @@ export function joinRoom(
   pickOrPicks: number | number[],
 ): Room {
   let room = ensureOpen(templateId);
-  room = maybeDraw(room);
-
   if (room.status !== 'open') {
     room = withTimer(createRoom(templateId));
   }
@@ -285,5 +302,8 @@ export function joinRoom(
 }
 
 export function listRooms(): Room[] {
-  return [...rooms.values()].map((r) => withTimer(maybeDraw({ ...r })));
+  return [...rooms.values()].map((r) => {
+    void maybeDrawAsync(r);
+    return withTimer(rooms.get(r.id) || r);
+  });
 }

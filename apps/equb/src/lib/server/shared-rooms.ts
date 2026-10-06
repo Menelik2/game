@@ -17,7 +17,7 @@ export type SharedRoom = {
   groupSize: number;
   prizePool: number;
   contribution: number;
-  status: 'open' | 'completed';
+  status: 'open' | 'drawing' | 'completed';
   members: Member[];
   winningNumber: number | null;
   winnerId: string | null;
@@ -30,7 +30,13 @@ export type SharedRoom = {
   drawAt: number;
   secondsLeft: number;
   updatedAt: number;
-  recent?: Array<{ id: string; winningNumber: number; winnerName: string; pot: number; at: number }>;
+  recent?: Array<{
+    id: string;
+    winningNumber: number;
+    winnerName: string;
+    pot: number;
+    at: number;
+  }>;
 };
 
 function maxPicks(groupSize: number) {
@@ -116,12 +122,19 @@ async function write(room: SharedRoom) {
   if (error) throw new Error(error.message);
 }
 
-function draw(room: SharedRoom): SharedRoom {
+/** Awaited draw + wallet credit for the single winner */
+async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
+  if (room.status === 'completed' || room.status === 'drawing') {
+    return withTimer(room);
+  }
   if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
   if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     return withTimer(room);
   }
+
+  room.status = 'drawing';
+
   const entropy = randomBytes(32);
   const entropyHex = entropy.toString('hex');
   const allPicks = room.members.flatMap((m) => memberPicks(m));
@@ -132,7 +145,6 @@ function draw(room: SharedRoom): SharedRoom {
   const winner = room.members.find((m) => memberPicks(m).includes(winningNumber));
   const { adminFee, winnerPayout } = computePayout(room.prizePool);
 
-  room.status = 'completed';
   room.winningNumber = winningNumber;
   room.winnerId = winner?.playerId ?? null;
   room.winnerName = winner?.name ?? null;
@@ -144,18 +156,21 @@ function draw(room: SharedRoom): SharedRoom {
     .digest('hex');
   room.updatedAt = Date.now();
 
-  if (winner?.playerId && !room.paidOut) {
-    room.paidOut = true;
-    void settleWinPayout({
-      userId: winner.playerId,
-      amount: winnerPayout,
-      roomId: room.id,
-      winningNumber,
-    }).catch(() => {
+  if (winner?.playerId && winnerPayout > 0 && !room.paidOut) {
+    try {
+      await settleWinPayout({
+        userId: winner.playerId,
+        amount: winnerPayout,
+        roomId: room.id,
+        winningNumber,
+      });
+      room.paidOut = true;
+    } catch {
       room.paidOut = false;
-    });
+    }
   }
 
+  room.status = 'completed';
   const row = {
     id: room.id,
     winningNumber,
@@ -174,9 +189,11 @@ export async function openShared(templateId: string): Promise<SharedRoom> {
     room = fresh(templateId);
     room.recent = recent;
   } else {
-    room = draw(room);
+    room = await drawAsync(room);
   }
-  if (room.status === 'completed') {
+  // Keep completed room visible briefly so clients see winner + paidOut
+  // New round starts only after clients have had a chance to poll, or if already paid
+  if (room.status === 'completed' && room.paidOut && Date.now() - room.updatedAt > 15_000) {
     const kept = room.recent || recent;
     room = fresh(templateId);
     room.recent = kept;
@@ -188,7 +205,7 @@ export async function openShared(templateId: string): Promise<SharedRoom> {
 export async function getShared(templateId: string): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
-  room = draw(room);
+  room = await drawAsync(room);
   await write(room);
   return withTimer(room);
 }
@@ -201,7 +218,7 @@ export async function joinShared(
 ): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
-  room = draw(room);
+  room = await drawAsync(room);
   if (room.status !== 'open') {
     const kept = room.recent || [];
     room = fresh(templateId);
@@ -252,7 +269,7 @@ export async function listSharedOpen(): Promise<SharedRoom[]> {
   for (const row of data) {
     let room = row.payload as SharedRoom;
     if (!room?.templateId) continue;
-    room = draw({ ...room });
+    room = await drawAsync({ ...room });
     if (room.status === 'open' && seatsTaken(room) > 0) {
       out.push(withTimer(room));
       await write(room).catch(() => {});
