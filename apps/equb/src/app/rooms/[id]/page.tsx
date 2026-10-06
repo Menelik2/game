@@ -15,7 +15,7 @@ import {
 } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
-  joinRoom as mpJoin,
+  joinRoomWithBalance,
   openRoom,
   fetchRoom,
   getPlayerIdentity,
@@ -66,7 +66,7 @@ export default function RoomDetailPage() {
   const fillSeats = useEqubStore((s) => s.fillSeats);
   const runDraw = useEqubStore((s) => s.runDraw);
   const reopenRoom = useEqubStore((s) => s.reopenRoom);
-  const adjustBalance = useEqubStore((s) => s.adjustBalance);
+  const setSessionUser = useEqubStore((s) => s.setSessionUser);
   const refreshBalance = useEqubStore((s) => s.refreshBalance);
   const [msg, setMsg] = useState('');
   const [picks, setPicks] = useState<number[]>([]);
@@ -77,6 +77,16 @@ export default function RoomDetailPage() {
   const [conn, setConn] = useState<Conn>(wantMp ? 'checking' : 'offline');
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
   const multiplayer = wantMp && conn === 'online';
+
+  const applyServerBalance = useCallback(
+    (balance: number) => {
+      const u = useEqubStore.getState().user;
+      if (!u) return;
+      if (Math.abs(u.balance - balance) < 0.001) return;
+      setSessionUser({ ...u, balance });
+    },
+    [setSessionUser],
+  );
 
   const refreshServer = useCallback(async () => {
     if (!wantMp || !templateId || conn === 'offline') return;
@@ -157,13 +167,15 @@ export default function RoomDetailPage() {
     }
   }, [multiplayer, serverRoom?.secondsLeft]);
 
+  // Winner: server already credited — only refresh UI + message (no second credit)
   useEffect(() => {
     if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
     const identity = getPlayerIdentity();
     if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
-    const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
+    const key = `win-ui-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
     try {
       if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
     } catch {
       /* ignore */
     }
@@ -172,16 +184,14 @@ export default function RoomDetailPage() {
       typeof serverRoom.winnerPayout === 'number' && serverRoom.winnerPayout > 0
         ? serverRoom.winnerPayout
         : split.winnerPayout;
-    if (payout <= 0) return;
-    const res = adjustBalance(payout);
-    if (res.ok) {
-      setMsg(locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`);
-      try {
-        sessionStorage.setItem(key, '1');
-      } catch {
-        /* ignore */
-      }
-    }
+    setMsg(
+      locale === 'am'
+        ? `አሸንፈዋል! +${payout} ብር (በኪስ ተጨምሯል)`
+        : `You won! +${payout} Birr credited to wallet`,
+    );
+    // Pull latest balance from DB after server payout
+    const t = setTimeout(() => refreshBalance(), 800);
+    return () => clearTimeout(t);
   }, [
     multiplayer,
     serverRoom?.status,
@@ -191,7 +201,7 @@ export default function RoomDetailPage() {
     serverRoom?.prizePool,
     serverRoom?.winnerPayout,
     user,
-    adjustBalance,
+    refreshBalance,
     locale,
   ]);
 
@@ -210,7 +220,6 @@ export default function RoomDetailPage() {
     [history, serverRoom],
   );
 
-  /** Multi-select: tap to add/remove; max = groupSize ÷ 5 */
   function togglePick(n: number, groupSize: number, taken: Set<number>) {
     if (taken.has(n)) {
       setMsg(locale === 'am' ? `ቁጥር ${n} ተይዟል` : `Number ${n} is taken`);
@@ -218,15 +227,8 @@ export default function RoomDetailPage() {
     }
     const max = maxPicksForGroup(groupSize);
     setPicks((prev) => {
-      if (prev.includes(n)) {
-        const next = prev.filter((x) => x !== n);
-        return next;
-      }
-      if (prev.length >= max) {
-        // Replace oldest pick so user can keep choosing (better UX than blocking)
-        const next = [...prev.slice(1), n].sort((a, b) => a - b);
-        return next;
-      }
+      if (prev.includes(n)) return prev.filter((x) => x !== n);
+      if (prev.length >= max) return [...prev.slice(1), n].sort((a, b) => a - b);
       return [...prev, n].sort((a, b) => a - b);
     });
     setMsg('');
@@ -281,6 +283,7 @@ export default function RoomDetailPage() {
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
             Winner: {room.winnerName || room.winnerId} · #
             {String(room.winningNumber).padStart(2, '0')}
+            {room.winnerPayout != null ? ` · +${room.winnerPayout} Birr` : ''}
           </p>
         )}
         <EqubTable
@@ -331,26 +334,24 @@ export default function RoomDetailPage() {
               return;
             }
             setJoining(true);
-            if (fee > 0) {
-              const deb = adjustBalance(-fee);
-              if (!deb.ok) {
-                setMsg(deb.message);
-                setJoining(false);
-                return;
-              }
-            }
             setServerRoom(optimisticJoin(room, check.picks));
             try {
-              const joined = await mpJoin(templateId!, check.picks);
+              // Server debits fee then joins — do NOT debit on client again
+              const { room: joined, balance, fee: charged } =
+                await joinRoomWithBalance(templateId!, check.picks);
               setServerRoom(joined);
+              if (typeof balance === 'number') applyServerBalance(balance);
+              else refreshBalance();
               setMsg(
-                `Joined · #${check.picks.map((p) => String(p).padStart(2, '0')).join(' · #')}`,
+                locale === 'am'
+                  ? `ተቀላቅለዋል · #${check.picks.map((p) => String(p).padStart(2, '0')).join(' · #')} · -${charged ?? fee} ብር`
+                  : `Joined · #${check.picks.map((p) => String(p).padStart(2, '0')).join(' · #')} · -${charged ?? fee} Birr`,
               );
               setPicks([]);
             } catch (e: unknown) {
-              if (fee > 0) adjustBalance(fee);
               setMsg(e instanceof Error ? e.message : t.common.error);
               void refreshServer();
+              refreshBalance();
             } finally {
               setJoining(false);
             }
