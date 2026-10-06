@@ -6,6 +6,7 @@ import { useEqubStore } from '@/lib/store';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LiveBalance } from '@/components/LiveBalance';
 import { EthDateBadge } from '@/components/EthDateBadge';
+import { TelebirrClaimForm } from '@/components/TelebirrClaim';
 import {
   Copy,
   ExternalLink,
@@ -226,7 +227,6 @@ export default function WalletPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-4 pb-12">
-      {/* Profile header */}
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#121a16] via-[#0c1210] to-[#0a1210] p-5">
         <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-amber-500/15 blur-3xl" />
         <div className="relative flex items-start justify-between gap-3">
@@ -259,7 +259,6 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="grid grid-cols-3 gap-1 rounded-2xl bg-white/[0.05] p-1">
         {(
           [
@@ -298,10 +297,8 @@ export default function WalletPage() {
         </p>
       )}
 
-      {/* ── DEPOSIT ── */}
       {tab === 'deposit' && (
         <div className="space-y-4">
-          {/* Method */}
           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/20 text-sky-300">
@@ -324,7 +321,6 @@ export default function WalletPage() {
             </a>
           </div>
 
-          {/* Merchant receive box */}
           <div className="rounded-2xl border border-amber-400/35 bg-gradient-to-b from-amber-500/10 to-transparent p-4">
             <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300/80">
               {am ? 'ክፍያ ይላኩ ወደ' : 'Send payment to'}
@@ -370,136 +366,85 @@ export default function WalletPage() {
             </div>
 
             <p className="mt-3 text-xs leading-relaxed text-white/50">
-              {cfg?.instruction ||
-                (am
-                  ? 'ቴሌብር ይላኩ፣ የግብይት ቁጥር ያስገቡ፣ ከዚያ ያረጋግጡ።'
-                  : 'Complete your Telebirr payment and verify the transaction.')}
+              {am
+                ? 'ቴሌብር ወደ ቁጥሩ ይላኩ፣ ከዚያ የግብይት ቁጥር ብቻ ያስገቡ።'
+                : 'Send Telebirr to this number, then paste only the transaction number below.'}
             </p>
           </div>
 
-          {/* Steps indicator */}
-          <div className="flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wide">
-            {[1, 2, 3].map((s) => (
-              <span
-                key={s}
-                className={clsx(
-                  'flex h-7 w-7 items-center justify-center rounded-full',
-                  step >= s
-                    ? 'bg-amber-400 text-black'
-                    : 'bg-white/10 text-white/30',
-                )}
+          {/* Primary: transaction number only */}
+          <TelebirrClaimForm />
+
+          <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-white/50">
+              {am ? 'አማራጭ · ትዕዛዝ + መጠን' : 'Optional · order + amount first'}
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setAmount(String(p))}
+                    className={clsx(
+                      'rounded-xl py-2 text-sm font-bold',
+                      Number(amount) === p
+                        ? 'bg-amber-400 text-black'
+                        : 'border border-white/10 bg-white/5 text-white/70',
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 font-mono text-sm"
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startDeposit()}
+                className="w-full rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-bold text-white/80"
               >
-                {s}
-              </span>
-            ))}
-            <span className="ml-1 text-white/35 normal-case tracking-normal">
-              {step === 1 && (am ? 'መጠን' : 'Amount')}
-              {step === 2 && (am ? 'ክፍያ + ቁጥር' : 'Pay + txn')}
-              {step === 3 && (am ? 'በእይታ' : 'Review')}
-            </span>
-          </div>
-
-          {/* Amount presets */}
-          <div>
-            <p className="mb-2 text-xs font-semibold text-white/50">
-              {am ? 'መጠን (ብር)' : 'Amount (ETB)'}
-            </p>
-            <div className="mb-2 grid grid-cols-3 gap-2">
-              {PRESETS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setAmount(String(p))}
-                  className={clsx(
-                    'rounded-xl py-2.5 text-sm font-bold transition active:scale-95',
-                    Number(amount) === p
-                      ? 'bg-amber-400 text-black shadow-md shadow-amber-500/20'
-                      : 'border border-white/10 bg-white/5 text-white/70 hover:bg-white/10',
-                  )}
-                >
-                  {p}
-                </button>
-              ))}
+                {am ? 'ትዕዛዝ ፍጠር' : 'Create order'}
+              </button>
+              {deposit && (
+                <p className="text-xs text-equb-200">
+                  Order {deposit.merchantOrderId} · {deposit.amount} ETB
+                </p>
+              )}
+              <input
+                value={txn}
+                onChange={(e) => setTxn(e.target.value)}
+                placeholder="txn for order verify"
+                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 font-mono text-sm"
+              />
+              <button
+                type="button"
+                disabled={busy || !deposit}
+                onClick={() => void verifyTxn()}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-sm font-bold"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {am ? 'በትዕዛዝ አረጋግጥ' : 'Verify against order'}
+              </button>
             </div>
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="100.00"
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3.5 text-sm font-mono outline-none focus:border-amber-500/40"
-            />
-          </div>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void startDeposit()}
-            className="w-full rounded-2xl border border-white/15 bg-white/5 py-3.5 text-sm font-bold text-white transition hover:bg-white/10 disabled:opacity-50"
-          >
-            {busy
-              ? '…'
-              : am
-                ? '1 · ትዕዛዝ ፍጠር'
-                : '1 · Create deposit order'}
-          </button>
-
-          {deposit && (
-            <div className="rounded-xl border border-equb-500/25 bg-equb-500/10 px-3 py-2 text-xs text-equb-200">
-              Order <span className="font-mono font-bold">{deposit.merchantOrderId}</span>{' '}
-              · {Number(deposit.amount).toFixed(2)} ETB · {deposit.status}
-            </div>
-          )}
-
-          <label className="block text-xs font-semibold text-white/50">
-            {am ? '2 · የቴሌብር ግብይት ቁጥር' : '2 · Telebirr transaction number'}
-            <input
-              value={txn}
-              onChange={(e) => setTxn(e.target.value)}
-              placeholder="e.g. DET8FJGUJ4"
-              className="mt-1.5 w-full rounded-2xl border border-amber-400/35 bg-black/40 px-4 py-3.5 text-sm font-mono outline-none focus:border-amber-400"
-            />
-          </label>
-
-          <button
-            type="button"
-            disabled={busy || !deposit}
-            onClick={() => void verifyTxn()}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 py-4 text-sm font-black text-black shadow-lg shadow-amber-500/30 disabled:opacity-40"
-          >
-            <ShieldCheck className="h-4 w-4" />
-            {busy
-              ? am
-                ? 'እየተረጋገጠ…'
-                : 'Verifying…'
-              : am
-                ? '3 · በ Verify.ET አረጋግጥ'
-                : '3 · Verify with Verify.ET'}
-          </button>
-
-          <p className="text-center text-[11px] leading-relaxed text-white/35">
-            {am
-              ? 'ሂሳብ የሚታከል ከVerify.ET ወይም አስተዳዳሪ ከማረጋገጥ በኋላ ብቻ ነው።'
-              : 'Balance is credited only after Verify.ET confirms the receipt and amount — or after admin approval.'}
-          </p>
+          </details>
         </div>
       )}
 
-      {/* ── WITHDRAW ── */}
       {tab === 'withdraw' && (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-5 text-center">
           <ArrowUpFromLine className="mx-auto h-8 w-8 text-white/25" />
           <p className="mt-3 text-sm text-white/55">
-            {am
-              ? 'ማውጣት የአስተዳዳሪ ፈቃድ ይፈልጋል።'
-              : 'Withdrawals require admin approval.'}
-          </p>
-          <p className="mt-1 text-xs text-white/35">
-            {am ? 'በቅርቡ ይገኛል' : 'Coming soon'}
+            {am ? 'ማውጣት የአስተዳዳሪ ፈቃድ ይፈልጋል።' : 'Withdrawals require admin approval.'}
           </p>
         </div>
       )}
 
-      {/* ── HISTORY ── */}
       {tab === 'history' && (
         <ul className="space-y-2">
           {items.length === 0 && (
@@ -510,37 +455,18 @@ export default function WalletPage() {
           {items.map((d) => (
             <li
               key={d.id}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+              className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-4 py-3"
             >
-              <div className="min-w-0">
-                <p className="font-mono text-sm font-bold text-gold-400">
-                  +{Number(d.amount).toFixed(2)} ETB
+              <div>
+                <p className="font-mono font-bold text-gold-400">
+                  {Number(d.amount).toFixed(2)} ETB
                 </p>
-                <p className="truncate font-mono text-[10px] text-white/35">
-                  {d.merchantOrderId}
-                </p>
-                <p className="text-[10px] text-white/25">
-                  {d.createdAt
-                    ? new Date(d.createdAt).toLocaleString()
-                    : ''}
-                </p>
+                <p className="text-[10px] text-white/40">{d.merchantOrderId}</p>
               </div>
-              <span
-                className={clsx(
-                  'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase',
-                  d.status === 'CONFIRMED' && 'bg-equb-500/20 text-equb-300',
-                  (d.status === 'PENDING' ||
-                    d.status === 'PROCESSING' ||
-                    d.status === 'REVIEW_REQUIRED') &&
-                    'bg-orange-500/20 text-orange-300',
-                  d.status === 'FAILED' && 'bg-red-500/20 text-red-300',
-                )}
-              >
-                {d.status === 'CONFIRMED' && <CheckCircle2 className="h-3 w-3" />}
-                {(d.status === 'PENDING' || d.status === 'PROCESSING') && (
-                  <Clock className="h-3 w-3" />
-                )}
-                {d.status === 'FAILED' && <XCircle className="h-3 w-3" />}
+              <span className="flex items-center gap-1 text-xs uppercase text-white/50">
+                {d.status === 'CONFIRMED' && <CheckCircle2 className="h-3.5 w-3.5 text-equb-400" />}
+                {d.status === 'PENDING' && <Clock className="h-3.5 w-3.5 text-amber-400" />}
+                {d.status === 'FAILED' && <XCircle className="h-3.5 w-3.5 text-red-400" />}
                 {d.status}
               </span>
             </li>
