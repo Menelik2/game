@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 
 type Seat = {
@@ -12,9 +13,7 @@ type Seat = {
 type Props = {
   total: number;
   taken: Iterable<number>;
-  /** @deprecated use yourPicks */
   yourPick?: number | null;
-  /** All numbers belonging to the current player */
   yourPicks?: number[];
   size?: 'sm' | 'md';
   className?: string;
@@ -55,25 +54,24 @@ export function SeatNodes({
   const node =
     size === 'sm'
       ? 'h-2.5 w-2.5 sm:h-3 sm:w-3'
-      : 'h-7 w-7 sm:h-8 sm:w-8 text-[9px] sm:text-[10px]';
+      : 'h-8 w-8 sm:h-9 sm:w-9 text-[10px] sm:text-[11px]';
 
   return (
-    <div className={clsx('flex flex-wrap items-center gap-1', className)}>
-      {seats.map((s) => (
+    <div className={clsx('flex flex-wrap items-center justify-center gap-1.5', className)}>
+      {seats.map((s, i) => (
         <span
           key={s.index}
           title={s.label}
+          style={{ animationDelay: `${i * 40}ms` }}
           className={clsx(
-            'inline-flex shrink-0 items-center justify-center rounded-full border transition',
+            'inline-flex shrink-0 items-center justify-center rounded-full border font-mono font-bold transition-all duration-300',
             node,
             s.isYou &&
-              'border-equb-300 bg-equb-500 text-white shadow-sm shadow-equb-500/40',
+              'scale-110 border-equb-200 bg-equb-500 text-white shadow-lg shadow-equb-500/50',
             !s.isYou &&
               s.filled &&
-              'border-amber-500/40 bg-amber-500/80 text-black',
-            !s.isYou &&
-              !s.filled &&
-              'border-white/15 bg-white/5 text-white/25',
+              'scale-105 border-amber-400/60 bg-amber-500 text-black shadow-md shadow-amber-500/30',
+            !s.isYou && !s.filled && 'border-white/20 bg-white/[0.06] text-white/30',
           )}
         >
           {size === 'md' ? (s.filled ? s.label : '·') : null}
@@ -86,12 +84,14 @@ export function SeatNodes({
   );
 }
 
+/** Animated radial seat ring — casino-style hub */
 export function SeatRing({
   total,
   filledCount,
   yourPick,
   yourPicks,
   taken,
+  drawing = false,
   className,
 }: {
   total: number;
@@ -99,9 +99,10 @@ export function SeatRing({
   yourPick?: number | null;
   yourPicks?: number[];
   taken?: Iterable<number>;
+  drawing?: boolean;
   className?: string;
 }) {
-  const n = Math.min(total, 24);
+  const n = Math.min(Math.max(total, 1), 40);
   const takenSet = taken ? new Set(taken) : null;
   const yours = new Set(
     yourPicks && yourPicks.length
@@ -110,36 +111,144 @@ export function SeatRing({
         ? [yourPick]
         : [],
   );
+  const pct = Math.min(1, filledCount / Math.max(total, 1));
+  const size = 120;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 46;
+  const stroke = 4;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * pct;
+
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(
+      () => setTick((t) => t + 1),
+      drawing ? 90 : 1000,
+    );
+    return () => window.clearInterval(id);
+  }, [drawing]);
 
   return (
     <div
-      className={clsx('relative mx-auto', className)}
-      style={{ width: 88, height: 88 }}
+      className={clsx('relative mx-auto select-none', className)}
+      style={{ width: size, height: size }}
     >
-      <div className="absolute inset-[22%] rounded-full border border-white/10 bg-black/40" />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-[11px] font-bold tabular-nums text-white/70">
-          {filledCount}/{total}
+      {/* Ambient glow */}
+      <div
+        className={clsx(
+          'pointer-events-none absolute -inset-2 rounded-full opacity-60 blur-xl transition-all duration-700',
+          drawing && 'bg-gold-500/30',
+          !drawing && pct >= 1 && 'bg-gold-500/25',
+          !drawing && pct > 0 && pct < 1 && 'bg-equb-500/20',
+        )}
+      />
+
+      {/* Spinning outer ring while drawing */}
+      {drawing && (
+        <div
+          className="pointer-events-none absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-gold-400 border-r-gold-400/40"
+          style={{ animationDuration: '1.2s' }}
+        />
+      )}
+
+      {/* Progress ring SVG */}
+      <svg
+        width={size}
+        height={size}
+        className="absolute inset-0 -rotate-90"
+        aria-hidden
+      >
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke="rgba(255,255,255,0.07)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={pct >= 1 ? '#fbbf24' : '#34d399'}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circ}`}
+          className="transition-[stroke-dasharray] duration-700 ease-out"
+          style={{
+            filter:
+              pct > 0
+                ? `drop-shadow(0 0 8px ${pct >= 1 ? 'rgba(251,191,36,0.75)' : 'rgba(52,211,153,0.65)'})`
+                : undefined,
+          }}
+        />
+      </svg>
+
+      {/* Center hub */}
+      <div
+        className={clsx(
+          'absolute inset-[26%] flex flex-col items-center justify-center rounded-full border bg-gradient-to-b shadow-inner transition-all duration-500',
+          drawing
+            ? 'animate-pulse border-gold-400/50 from-gold-500/25 to-[#0a1210]'
+            : pct >= 1
+              ? 'border-gold-400/40 from-gold-500/20 to-[#0a1210]'
+              : 'border-white/15 from-[#15201c] to-[#0a1210]',
+        )}
+      >
+        <span
+          key={drawing ? 'd' : `${filledCount}-${total}`}
+          className={clsx(
+            'font-mono text-[15px] font-black tabular-nums transition-all',
+            drawing ? 'text-gold-300' : pct >= 1 ? 'text-gold-400' : 'text-white/90',
+          )}
+        >
+          {drawing ? '···' : `${filledCount}/${total}`}
         </span>
+        {!drawing && (
+          <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-wider text-white/35">
+            {pct >= 1 ? 'Full' : 'Seats'}
+          </span>
+        )}
+        {drawing && (
+          <span className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-gold-400/80">
+            Draw
+          </span>
+        )}
       </div>
+
+      {/* Orbiting seat dots */}
       {Array.from({ length: n }, (_, i) => {
         const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-        const r = 36;
-        const x = 44 + r * Math.cos(angle);
-        const y = 44 + r * Math.sin(angle);
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
         const seatNum = i + 1;
         const filled = takenSet ? takenSet.has(seatNum) : i < filledCount;
         const isYou = yours.has(seatNum);
+        const idlePulse = !filled && !drawing && tick % 2 === i % 2;
+
         return (
           <span
             key={i}
+            title={String(seatNum).padStart(2, '0')}
             className={clsx(
-              'absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border',
-              isYou && 'border-equb-200 bg-equb-400',
-              !isYou && filled && 'border-amber-400/50 bg-amber-500',
-              !isYou && !filled && 'border-white/20 bg-white/10',
+              'absolute -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all duration-300',
+              isYou &&
+                'z-10 h-3.5 w-3.5 scale-125 border-equb-100 bg-equb-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]',
+              !isYou &&
+                filled &&
+                'h-3 w-3 scale-110 border-amber-300/80 bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.75)]',
+              !isYou && !filled && 'h-2.5 w-2.5 border-white/25 bg-white/10',
+              idlePulse && 'scale-90 opacity-50',
+              drawing && !filled && 'animate-ping',
             )}
-            style={{ left: x, top: y }}
+            style={{
+              left: x,
+              top: y,
+              animationDelay: drawing ? `${(i * 40) % 400}ms` : undefined,
+              animationDuration: drawing ? '1.1s' : undefined,
+            }}
           />
         );
       })}

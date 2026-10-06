@@ -112,6 +112,7 @@ export function EqubTable({
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-2 sm:space-y-3">
+      {/* Timer bar */}
       <div className="rounded-2xl border border-white/10 bg-gradient-to-r from-[#0a1210] via-[#0c1613] to-[#0a1210] px-2.5 py-2.5 sm:px-3">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -126,15 +127,20 @@ export function EqubTable({
           </div>
           <div
             className={clsx(
-              'shrink-0 font-mono text-xl font-black tracking-widest sm:text-2xl',
-              urgent ? 'animate-pulse text-gold-400' : 'text-white',
+              'relative shrink-0 font-mono text-xl font-black tracking-widest sm:text-2xl',
+              urgent && 'animate-pulse text-gold-400',
+              status === 'drawing' && 'text-gold-400',
+              !urgent && status !== 'drawing' && 'text-white',
             )}
           >
             {status === 'drawing'
-              ? '…'
+              ? '···'
               : status === 'completed'
                 ? '00:00'
                 : `${mm}:${ss}`}
+            {urgent && (
+              <span className="absolute -inset-2 animate-ping rounded-full bg-gold-500/20" />
+            )}
           </div>
           <div className="min-w-0 flex-1 text-right text-[9px] text-white/40">
             <p>
@@ -148,6 +154,18 @@ export function EqubTable({
             </p>
           </div>
         </div>
+        {/* Timer progress bar */}
+        {status === 'open' && (
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={clsx(
+                'h-full rounded-full transition-all duration-1000 ease-linear',
+                urgent ? 'bg-gold-400' : 'bg-equb-400',
+              )}
+              style={{ width: `${Math.min(100, (safe / 60) * 100)}%` }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 sm:gap-3 lg:grid lg:grid-cols-[minmax(180px,1fr)_minmax(0,2.4fr)_minmax(180px,1fr)] lg:gap-4">
@@ -170,12 +188,13 @@ export function EqubTable({
             </div>
 
             {status === 'completed' && winningNumber != null && (
-              <div className="mb-3 space-y-2">
-                <div className="rounded-xl border border-gold-500/30 bg-gold-500/10 py-3 text-center">
+              <div className="mb-3 space-y-2 animate-[fadeIn_0.5s_ease-out]">
+                <div className="relative overflow-hidden rounded-xl border border-gold-500/40 bg-gold-500/10 py-4 text-center">
+                  <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-gold-400/10 to-transparent" />
                   <p className="text-[10px] uppercase tracking-widest text-white/40">
                     {t.board.winningNumber}
                   </p>
-                  <p className="font-mono text-4xl font-black text-gold-400">
+                  <p className="mt-1 font-mono text-5xl font-black text-gold-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.5)]">
                     {String(winningNumber).padStart(2, '0')}
                   </p>
                 </div>
@@ -202,8 +221,9 @@ export function EqubTable({
               </div>
             )}
 
+            {/* Number grid — tactile game tiles */}
             <div
-              className="mx-auto grid w-full gap-1 sm:gap-1.5"
+              className="mx-auto grid w-full gap-1.5 sm:gap-2"
               style={{
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
                 maxWidth: groupSize <= 20 ? '26rem' : '100%',
@@ -214,7 +234,6 @@ export function EqubTable({
                 const isSelected = selectedSet.has(n);
                 const isTaken = taken.has(n) && !isYours;
                 const isWinner = winningNumber === n;
-                // Always allow toggling already-selected numbers; only block adding when at max
                 const canClick =
                   !disabled &&
                   !isTaken &&
@@ -227,20 +246,21 @@ export function EqubTable({
                     disabled={!canClick && !isSelected}
                     onClick={() => onToggleSelect(n)}
                     className={clsx(
-                      'flex aspect-square min-h-[2rem] items-center justify-center rounded-md text-[10px] font-bold transition active:scale-95 sm:text-xs',
-                      isWinner && 'bg-gold-500 text-black ring-2 ring-gold-300',
+                      'relative flex aspect-square min-h-[2.25rem] items-center justify-center rounded-xl text-[11px] font-black transition-all duration-200 active:scale-90 sm:text-sm',
+                      isWinner &&
+                        'z-10 scale-110 bg-gold-500 text-black ring-2 ring-gold-200 shadow-[0_0_24px_rgba(251,191,36,0.65)] animate-[winnerPop_0.6s_ease-out]',
                       !isWinner &&
                         isYours &&
-                        'bg-equb-500 text-white ring-2 ring-equb-300',
+                        'bg-equb-500 text-white ring-2 ring-equb-200 shadow-lg shadow-equb-500/40',
                       !isWinner &&
                         !isYours &&
                         isSelected &&
-                        'bg-equb-500/90 text-white ring-2 ring-white/40',
+                        'scale-105 bg-equb-500/95 text-white ring-2 ring-white/50 shadow-md shadow-equb-500/30',
                       !isWinner &&
                         !isYours &&
                         !isSelected &&
                         isTaken &&
-                        'cursor-not-allowed bg-[#1a2220] text-white/25 line-through',
+                        'cursor-not-allowed bg-[#1a2220] text-white/25 line-through opacity-60',
                       !isWinner &&
                         !isYours &&
                         !isSelected &&
@@ -252,10 +272,13 @@ export function EqubTable({
                         !isSelected &&
                         !isTaken &&
                         canClick &&
-                        'bg-[#151c1a] text-white/80 hover:bg-white/15',
+                        'bg-[#151c1a] text-white/85 shadow-sm hover:scale-105 hover:bg-white/15 hover:shadow-md hover:shadow-equb-500/10',
                     )}
                   >
-                    {n}
+                    <span className="relative z-10">{String(n).padStart(2, '0')}</span>
+                    {isSelected && !isWinner && (
+                      <span className="pointer-events-none absolute inset-0 animate-pulse rounded-xl bg-equb-400/20" />
+                    )}
                   </button>
                 );
               })}
@@ -280,12 +303,15 @@ export function EqubTable({
                   disabled={joining || !canBet}
                   onClick={onBet}
                   className={clsx(
-                    'w-full rounded-xl py-3.5 text-sm font-black uppercase tracking-wide shadow-lg',
+                    'relative w-full overflow-hidden rounded-xl py-3.5 text-sm font-black uppercase tracking-wide shadow-lg transition active:scale-[0.98]',
                     canBet
-                      ? 'bg-equb-500 text-white shadow-equb-500/40'
+                      ? 'bg-equb-500 text-white shadow-equb-500/40 hover:bg-equb-400'
                       : 'bg-equb-600/50 text-white/50',
                   )}
                 >
+                  {canBet && (
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+                  )}
                   {joining ? t.common.joining : t.board.bet}
                 </button>
               )}
@@ -334,12 +360,13 @@ export function EqubTable({
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
               {t.common.seats}
             </p>
-            <div className="mb-2 flex flex-col items-center gap-2 rounded-lg bg-black/30 p-2">
+            <div className="mb-2 flex flex-col items-center gap-3 rounded-lg bg-black/30 p-3">
               <SeatRing
                 total={groupSize}
                 filledCount={taken.size}
                 yourPicks={yourPicks.length ? yourPicks : selected}
                 taken={taken}
+                drawing={status === 'drawing' || Boolean(drawing)}
               />
               <SeatNodes
                 total={groupSize}
@@ -364,10 +391,11 @@ export function EqubTable({
                   <li
                     key={p.id}
                     className={clsx(
-                      'flex items-center justify-between rounded-lg px-2 py-1.5 text-xs',
+                      'flex items-center justify-between rounded-lg px-2 py-1.5 text-xs transition',
                       p.isYou
                         ? 'bg-equb-500/20 ring-1 ring-equb-500/40'
                         : 'bg-white/5',
+                      p.status === 'won' && 'bg-gold-500/15 ring-1 ring-gold-400/30',
                     )}
                   >
                     <div className="min-w-0">
@@ -422,6 +450,37 @@ export function EqubTable({
           </div>
         </aside>
       </div>
+
+      <style jsx global>{`
+        @keyframes winnerPop {
+          0% {
+            transform: scale(0.6);
+            opacity: 0.5;
+          }
+          50% {
+            transform: scale(1.25);
+          }
+          100% {
+            transform: scale(1.1);
+            opacity: 1;
+          }
+        }
+        @keyframes shimmer {
+          100% {
+            transform: translateX(200%);
+          }
+        }
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
