@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
-import { interpolate, type Locale } from '@/lib/i18n/dictionaries';
+import { type Locale } from '@/lib/i18n/dictionaries';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
 import { ADMIN_FEE_RATE, maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
@@ -30,9 +30,7 @@ type Props = {
   prizePool: number;
   contribution: number;
   taken: Set<number>;
-  /** Multi-select: numbers currently chosen by this player */
   selected: number[];
-  /** Numbers already locked for this player after join */
   yourPicks: number[];
   winningNumber: number | null;
   status: 'open' | 'drawing' | 'completed';
@@ -215,33 +213,29 @@ export function EqubTable({
                 const isYours = yourSet.has(n);
                 const isSelected = selectedSet.has(n);
                 const isTaken = taken.has(n) && !isYours;
-                const atMax =
-                  !isSelected &&
-                  selected.length >= maxPicks &&
-                  yourPicks.length === 0;
                 const isWinner = winningNumber === n;
+                // Always allow toggling already-selected numbers; only block adding when at max
+                const canClick =
+                  !disabled &&
+                  !isTaken &&
+                  status === 'open' &&
+                  (isSelected || selected.length < maxPicks || yourPicks.length > 0);
                 return (
                   <button
                     key={n}
                     type="button"
-                    disabled={
-                      disabled ||
-                      isTaken ||
-                      status !== 'open' ||
-                      (atMax && !isSelected)
-                    }
+                    disabled={!canClick && !isSelected}
                     onClick={() => onToggleSelect(n)}
                     className={clsx(
                       'flex aspect-square min-h-[2rem] items-center justify-center rounded-md text-[10px] font-bold transition active:scale-95 sm:text-xs',
-                      isWinner &&
-                        'bg-gold-500 text-black ring-2 ring-gold-300',
+                      isWinner && 'bg-gold-500 text-black ring-2 ring-gold-300',
                       !isWinner &&
                         isYours &&
                         'bg-equb-500 text-white ring-2 ring-equb-300',
                       !isWinner &&
                         !isYours &&
                         isSelected &&
-                        'bg-equb-500/90 text-white ring-2 ring-white/30',
+                        'bg-equb-500/90 text-white ring-2 ring-white/40',
                       !isWinner &&
                         !isYours &&
                         !isSelected &&
@@ -251,13 +245,13 @@ export function EqubTable({
                         !isYours &&
                         !isSelected &&
                         !isTaken &&
-                        atMax &&
+                        !canClick &&
                         'cursor-not-allowed bg-[#151c1a] text-white/25',
                       !isWinner &&
                         !isYours &&
                         !isSelected &&
                         !isTaken &&
-                        !atMax &&
+                        canClick &&
                         'bg-[#151c1a] text-white/80 hover:bg-white/15',
                     )}
                   >
@@ -299,7 +293,7 @@ export function EqubTable({
                 <p className="text-center text-[11px] text-amber-400/90">
                   {locale === 'am'
                     ? `ቢያንስ 1 ቁጥር ይምረጡ (ከፍተኛ ${maxPicks})`
-                    : `Select 1–${maxPicks} number(s), then join`}
+                    : `Select 1–${maxPicks} number(s), then BET`}
                 </p>
               )}
             </div>
@@ -344,13 +338,13 @@ export function EqubTable({
               <SeatRing
                 total={groupSize}
                 filledCount={taken.size}
-                yourPick={yourPicks[0] ?? selected[0] ?? null}
+                yourPicks={yourPicks.length ? yourPicks : selected}
                 taken={taken}
               />
               <SeatNodes
                 total={groupSize}
                 taken={taken}
-                yourPick={yourPicks[0] ?? null}
+                yourPicks={yourPicks.length ? yourPicks : selected}
                 size="md"
                 className="justify-center"
               />

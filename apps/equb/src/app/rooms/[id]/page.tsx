@@ -11,6 +11,7 @@ import {
   splitPot,
   maxPicksForGroup,
   memberPicks,
+  validatePicks,
 } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
@@ -80,7 +81,6 @@ export default function RoomDetailPage() {
   const refreshServer = useCallback(async () => {
     if (!wantMp || !templateId || conn === 'offline') return;
     try {
-      // Prefer GET so we do not reset an open shared room
       const room = await fetchRoom(templateId);
       setServerRoom(room);
       setConn('online');
@@ -118,7 +118,6 @@ export default function RoomDetailPage() {
           return;
         }
         try {
-          // Load existing open room first (keeps other players' seats)
           let room: ServerRoom;
           try {
             room = await fetchRoom(templateId!);
@@ -146,9 +145,7 @@ export default function RoomDetailPage() {
     const iv = setInterval(() => {
       void fetchRoom(templateId)
         .then(setServerRoom)
-        .catch(() => {
-          /* keep last state */
-        });
+        .catch(() => {});
     }, 2500);
     return () => clearInterval(iv);
   }, [multiplayer, templateId]);
@@ -161,8 +158,7 @@ export default function RoomDetailPage() {
   }, [multiplayer, serverRoom?.secondsLeft]);
 
   useEffect(() => {
-    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user)
-      return;
+    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
     const identity = getPlayerIdentity();
     if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
     const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
@@ -179,9 +175,7 @@ export default function RoomDetailPage() {
     if (payout <= 0) return;
     const res = adjustBalance(payout);
     if (res.ok) {
-      setMsg(
-        locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`,
-      );
+      setMsg(locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`);
       try {
         sessionStorage.setItem(key, '1');
       } catch {
@@ -216,22 +210,26 @@ export default function RoomDetailPage() {
     [history, serverRoom],
   );
 
+  /** Multi-select: tap to add/remove; max = groupSize ÷ 5 */
   function togglePick(n: number, groupSize: number, taken: Set<number>) {
-    if (taken.has(n)) return;
+    if (taken.has(n)) {
+      setMsg(locale === 'am' ? `ቁጥር ${n} ተይዟል` : `Number ${n} is taken`);
+      return;
+    }
     const max = maxPicksForGroup(groupSize);
     setPicks((prev) => {
-      if (prev.includes(n)) return prev.filter((x) => x !== n);
-      if (prev.length >= max) {
-        setMsg(
-          locale === 'am'
-            ? `ከፍተኛ ${max} ቁጥር (${groupSize}÷5)`
-            : `Max ${max} numbers for this room (${groupSize}÷5)`,
-        );
-        return prev;
+      if (prev.includes(n)) {
+        const next = prev.filter((x) => x !== n);
+        return next;
       }
-      setMsg('');
+      if (prev.length >= max) {
+        // Replace oldest pick so user can keep choosing (better UX than blocking)
+        const next = [...prev.slice(1), n].sort((a, b) => a - b);
+        return next;
+      }
       return [...prev, n].sort((a, b) => a - b);
     });
+    setMsg('');
   }
 
   if (conn === 'checking') {
@@ -276,8 +274,8 @@ export default function RoomDetailPage() {
         <PlayBackBar />
         <p className="text-center text-[11px] text-equb-300">
           {locale === 'am'
-            ? `ከፍተኛ ${maxP} ቁጥር ይምረጡ · ነፃ መቀመጫዎችን ይንኩ`
-            : `Tap free seats · up to ${maxP} numbers (${room.groupSize}÷5)`}
+            ? `እስከ ${maxP} ቁጥር ይምረጡ · ነፃ መቀመጫዎችን ይንኩ`
+            : `Tap free seats · select up to ${maxP} number(s) (${room.groupSize}÷5)`}
         </p>
         {room.status === 'completed' && (room.winnerName || room.winnerId) && (
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
@@ -310,15 +308,12 @@ export default function RoomDetailPage() {
           }}
           onBet={async () => {
             if (picks.length === 0) {
-              setMsg(
-                locale === 'am'
-                  ? 'ቢያንስ 1 ቁጥር ይምረጡ'
-                  : 'Select at least one number',
-              );
+              setMsg(locale === 'am' ? 'ቢያንስ 1 ቁጥር ይምረጡ' : 'Select at least one number');
               return;
             }
-            if (picks.length > maxP) {
-              setMsg(`Max ${maxP} numbers`);
+            const check = validatePicks(room.groupSize, picks, taken);
+            if (!check.ok) {
+              setMsg(check.message);
               return;
             }
             if (!user) {
@@ -326,13 +321,12 @@ export default function RoomDetailPage() {
               return;
             }
             const fee =
-              Math.round(Number(room.contribution || 0) * picks.length * 100) /
-              100;
+              Math.round(Number(room.contribution || 0) * check.picks.length * 100) / 100;
             if (fee > 0 && user.balance < fee) {
               setMsg(
                 locale === 'am'
                   ? `በቂ ብር የለም (ያስፈልጋል ${fee})`
-                  : `Need ${fee} Birr`,
+                  : `Need ${fee} Birr for ${check.picks.length} number(s)`,
               );
               return;
             }
@@ -345,12 +339,12 @@ export default function RoomDetailPage() {
                 return;
               }
             }
-            setServerRoom(optimisticJoin(room, picks));
+            setServerRoom(optimisticJoin(room, check.picks));
             try {
-              const joined = await mpJoin(templateId!, picks);
+              const joined = await mpJoin(templateId!, check.picks);
               setServerRoom(joined);
               setMsg(
-                `Joined · #${picks.map((p) => String(p).padStart(2, '0')).join(' · #')}`,
+                `Joined · #${check.picks.map((p) => String(p).padStart(2, '0')).join(' · #')}`,
               );
               setPicks([]);
             } catch (e: unknown) {
@@ -408,8 +402,8 @@ export default function RoomDetailPage() {
       <PlayBackBar />
       <p className="text-center text-[11px] text-equb-300">
         {locale === 'am'
-          ? `ከፍተኛ ${maxP} ቁጥር (${room.groupSize}÷5)`
-          : `Up to ${maxP} numbers (${room.groupSize}÷5)`}
+          ? `እስከ ${maxP} ቁጥር (${room.groupSize}÷5)`
+          : `Select up to ${maxP} number(s) (${room.groupSize}÷5)`}
       </p>
       {room.status === 'completed' && room.winnerName && (
         <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
@@ -445,9 +439,7 @@ export default function RoomDetailPage() {
         }}
         onBet={() => {
           if (picks.length === 0) {
-            setMsg(
-              locale === 'am' ? 'ቁጥር ይምረጡ' : 'Select at least one number',
-            );
+            setMsg(locale === 'am' ? 'ቁጥር ይምረጡ' : 'Select at least one number');
             return;
           }
           const res = joinLocal(room.id, picks);

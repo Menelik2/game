@@ -3,39 +3,41 @@
 import clsx from 'clsx';
 
 type Seat = {
-  index: number; // 1-based seat / number
+  index: number;
   filled: boolean;
   isYou?: boolean;
   label?: string;
 };
 
 type Props = {
-  /** Total seats in the circle */
   total: number;
-  /** Occupied picks (numbers) */
   taken: Iterable<number>;
-  /** Current user's pick */
+  /** @deprecated use yourPicks */
   yourPick?: number | null;
-  /** Compact strip (open-rooms list) vs larger table */
+  /** All numbers belonging to the current player */
+  yourPicks?: number[];
   size?: 'sm' | 'md';
   className?: string;
-  /** Max nodes to render before summarizing (list view) */
   maxVisible?: number;
 };
 
-/**
- * Visual seat nodes — filled / empty / yours.
- * Used on OPEN ROOM list and in-room seat panel.
- */
 export function SeatNodes({
   total,
   taken,
   yourPick = null,
+  yourPicks,
   size = 'sm',
   className,
   maxVisible,
 }: Props) {
   const takenSet = taken instanceof Set ? taken : new Set(taken);
+  const yours = new Set(
+    yourPicks && yourPicks.length
+      ? yourPicks
+      : yourPick != null
+        ? [yourPick]
+        : [],
+  );
   const limit = maxVisible ?? total;
   const show = Math.min(total, limit);
   const overflow = total - show;
@@ -45,7 +47,7 @@ export function SeatNodes({
     return {
       index,
       filled: takenSet.has(index),
-      isYou: yourPick === index,
+      isYou: yours.has(index),
       label: String(index).padStart(2, '0'),
     };
   });
@@ -84,22 +86,30 @@ export function SeatNodes({
   );
 }
 
-/** Circular seat ring for room header / open-room card */
 export function SeatRing({
   total,
   filledCount,
   yourPick,
+  yourPicks,
   taken,
   className,
 }: {
   total: number;
   filledCount: number;
   yourPick?: number | null;
+  yourPicks?: number[];
   taken?: Iterable<number>;
   className?: string;
 }) {
   const n = Math.min(total, 24);
   const takenSet = taken ? new Set(taken) : null;
+  const yours = new Set(
+    yourPicks && yourPicks.length
+      ? yourPicks
+      : yourPick != null
+        ? [yourPick]
+        : [],
+  );
 
   return (
     <div
@@ -119,7 +129,7 @@ export function SeatRing({
         const y = 44 + r * Math.sin(angle);
         const seatNum = i + 1;
         const filled = takenSet ? takenSet.has(seatNum) : i < filledCount;
-        const isYou = yourPick === seatNum;
+        const isYou = yours.has(seatNum);
         return (
           <span
             key={i}
