@@ -46,10 +46,23 @@ function PlayBackBar() {
 function allTaken(room: ServerRoom): Set<number> {
   const s = new Set<number>();
   for (const m of room.members || []) {
-    const list = m.picks && m.picks.length ? m.picks : m.pick != null ? [m.pick] : [];
-    for (const p of list) if (Number.isFinite(p)) s.add(Number(p));
+    const list =
+      m.picks && m.picks.length
+        ? m.picks
+        : m.pick != null
+          ? [m.pick]
+          : [];
+    for (const p of list) {
+      const n = Number(p);
+      if (Number.isFinite(n) && n > 0) s.add(n);
+    }
   }
   return s;
+}
+
+function resolvePlayerId(storeUserId?: string | null): string {
+  if (storeUserId) return String(storeUserId);
+  return getPlayerIdentity().playerId;
 }
 
 type Conn = 'checking' | 'online' | 'offline';
@@ -78,6 +91,8 @@ export default function RoomDetailPage() {
   const templateId = id?.match(/^equb-\d+-\d+/)?.[0] || id;
   const multiplayer = wantMp && conn === 'online';
   const claimedRef = useRef<string | null>(null);
+  const picksRef = useRef<number[]>([]);
+  picksRef.current = picks;
 
   const applyServerBalance = useCallback(
     (balance: number) => {
@@ -154,9 +169,12 @@ export default function RoomDetailPage() {
     if (!multiplayer || !templateId) return;
     const iv = setInterval(() => {
       void fetchRoom(templateId)
-        .then(setServerRoom)
+        .then((room) => {
+          // Do not wipe local selection state — only update room
+          setServerRoom(room);
+        })
         .catch(() => {});
-    }, 2500);
+    }, 3000);
     return () => clearInterval(iv);
   }, [multiplayer, templateId]);
 
@@ -168,9 +186,10 @@ export default function RoomDetailPage() {
   }, [multiplayer, serverRoom?.secondsLeft]);
 
   useEffect(() => {
-    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
-    const identity = getPlayerIdentity();
-    if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
+    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user)
+      return;
+    const playerId = resolvePlayerId(user.id);
+    if (!serverRoom.winnerId || serverRoom.winnerId !== playerId) return;
     if (serverRoom.winningNumber == null) return;
 
     const key = `${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
@@ -189,7 +208,7 @@ export default function RoomDetailPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId: identity.playerId,
+            userId: playerId,
             templateId,
             roomId: serverRoom.id,
             winningNumber: serverRoom.winningNumber,
@@ -206,7 +225,9 @@ export default function RoomDetailPage() {
         );
       } catch {
         refreshBalance();
-        setMsg(locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`);
+        setMsg(
+          locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`,
+        );
       }
     })();
   }, [
@@ -239,18 +260,31 @@ export default function RoomDetailPage() {
     [history, serverRoom],
   );
 
+  /** Toggle a seat number (up to max = groupSize/5) */
   function togglePick(n: number, groupSize: number, taken: Set<number>) {
+    if (!Number.isFinite(n) || n < 1 || n > groupSize) return;
     if (taken.has(n)) {
       setMsg(locale === 'am' ? `ቁጥር ${n} ተይዟል` : `Number ${n} is taken`);
       return;
     }
     const max = maxPicksForGroup(groupSize);
     setPicks((prev) => {
-      if (prev.includes(n)) return prev.filter((x) => x !== n);
-      if (prev.length >= max) return [...prev.slice(1), n].sort((a, b) => a - b);
+      if (prev.includes(n)) {
+        return prev.filter((x) => x !== n);
+      }
+      if (prev.length >= max) {
+        // Replace oldest selection so user can keep choosing
+        const next = [...prev.slice(1), n].sort((a, b) => a - b);
+        setMsg(
+          locale === 'am'
+            ? `ከፍተኛ ${max} — የመጨረሻው ተመርጧል`
+            : `Max ${max} — replaced oldest pick`,
+        );
+        return next;
+      }
+      setMsg('');
       return [...prev, n].sort((a, b) => a - b);
     });
-    setMsg('');
   }
 
   if (conn === 'checking') {
@@ -264,9 +298,9 @@ export default function RoomDetailPage() {
 
   if (multiplayer && serverRoom) {
     const room = serverRoom;
-    const identity = getPlayerIdentity();
+    const playerId = resolvePlayerId(user?.id);
     const taken = allTaken(room);
-    const me = room.members.find((m) => m.playerId === identity.playerId);
+    const me = room.members.find((m) => m.playerId === playerId);
     const yourPicks = me
       ? me.picks && me.picks.length
         ? me.picks
@@ -276,12 +310,19 @@ export default function RoomDetailPage() {
       : [];
     const inRoom = yourPicks.length > 0;
     const maxP = maxPicksForGroup(room.groupSize);
+    // Selection UI uses local picks until successfully joined
+    const displaySelected = inRoom ? yourPicks : picks;
     const players: TablePlayer[] = room.members.map((m) => ({
       id: m.playerId,
       name: m.name,
       pick: m.pick,
-      picks: m.picks && m.picks.length ? m.picks : m.pick != null ? [m.pick] : [],
-      isYou: m.playerId === identity.playerId,
+      picks:
+        m.picks && m.picks.length
+          ? m.picks
+          : m.pick != null
+            ? [m.pick]
+            : [],
+      isYou: m.playerId === playerId,
       status:
         room.status === 'completed'
           ? m.playerId === room.winnerId
@@ -294,9 +335,13 @@ export default function RoomDetailPage() {
       <div className="space-y-2 pb-4">
         <PlayBackBar />
         <p className="text-center text-[11px] text-equb-300">
-          {locale === 'am'
-            ? `እስከ ${maxP} ቁጥር ይምረጡ · ነፃ መቀመጫዎችን ይንኩ`
-            : `Tap free seats · select up to ${maxP} number(s) (${room.groupSize}÷5)`}
+          {inRoom
+            ? locale === 'am'
+              ? `ተቀላቅለዋል · ቁጥሮችዎ: #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+              : `Joined · your numbers: #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+            : locale === 'am'
+              ? `1) ቁጥር ይምረጡ (እስከ ${maxP})  2) BET ይጫኑ`
+              : `1) Select numbers (up to ${maxP})  2) Press BET`}
         </p>
         {room.status === 'completed' && (room.winnerName || room.winnerId) && (
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
@@ -310,7 +355,7 @@ export default function RoomDetailPage() {
           prizePool={room.prizePool}
           contribution={room.contribution}
           taken={taken}
-          selected={inRoom ? yourPicks : picks}
+          selected={displaySelected}
           yourPicks={yourPicks}
           winningNumber={room.winningNumber}
           status={room.status}
@@ -320,20 +365,27 @@ export default function RoomDetailPage() {
           roomId={room.id}
           lastAdminFee={room.adminFee}
           lastWinnerPayout={room.winnerPayout}
-          disabled={inRoom || room.status !== 'open'}
+          disabled={inRoom || room.status !== 'open' || joining}
           joining={joining}
-          canBet={room.status === 'open' && !inRoom && picks.length > 0}
+          canBet={
+            room.status === 'open' && !inRoom && !joining && picks.length > 0
+          }
           locale={locale}
           onToggleSelect={(n) => {
             if (inRoom || room.status !== 'open' || joining) return;
             togglePick(n, room.groupSize, taken);
           }}
           onBet={async () => {
-            if (picks.length === 0) {
-              setMsg(locale === 'am' ? 'ቢያንስ 1 ቁጥር ይምረጡ' : 'Select at least one number');
+            const current = picksRef.current;
+            if (current.length === 0) {
+              setMsg(
+                locale === 'am'
+                  ? 'ቢያንስ 1 ቁጥር ይምረጡ'
+                  : 'Select at least one number',
+              );
               return;
             }
-            const check = validatePicks(room.groupSize, picks, taken);
+            const check = validatePicks(room.groupSize, current, taken);
             if (!check.ok) {
               setMsg(check.message);
               return;
@@ -343,7 +395,9 @@ export default function RoomDetailPage() {
               return;
             }
             const fee =
-              Math.round(Number(room.contribution || 0) * check.picks.length * 100) / 100;
+              Math.round(
+                Number(room.contribution || 0) * check.picks.length * 100,
+              ) / 100;
             if (fee > 0 && user.balance < fee) {
               setMsg(
                 locale === 'am'
@@ -354,7 +408,9 @@ export default function RoomDetailPage() {
             }
             setJoining(true);
             setServerRoom(optimisticJoin(room, check.picks));
-            if (fee > 0) applyServerBalance(Math.round((user.balance - fee) * 100) / 100);
+            if (fee > 0) {
+              applyServerBalance(Math.round((user.balance - fee) * 100) / 100);
+            }
             try {
               const { room: joined, balance, fee: charged } =
                 await joinRoomWithBalance(templateId!, check.picks);
@@ -385,7 +441,8 @@ export default function RoomDetailPage() {
     );
   }
 
-  const room = rooms.find((r) => r.id === id);
+  // —— Local / offline path ——
+  const room = rooms.find((r) => r.id === id || r.id === templateId);
   if (!room) {
     return (
       <div className="space-y-4 py-8 text-center">
@@ -421,9 +478,13 @@ export default function RoomDetailPage() {
     <div className="space-y-2 pb-4">
       <PlayBackBar />
       <p className="text-center text-[11px] text-equb-300">
-        {locale === 'am'
-          ? `እስከ ${maxP} ቁጥር (${room.groupSize}÷5)`
-          : `Select up to ${maxP} number(s) (${room.groupSize}÷5)`}
+        {inRoom
+          ? locale === 'am'
+            ? `ተቀላቅለዋል · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+            : `Joined · #${yourPicks.map((p) => String(p).padStart(2, '0')).join(' · #')}`
+          : locale === 'am'
+            ? `1) ቁጥር ይምረጡ (እስከ ${maxP})  2) BET`
+            : `1) Select numbers (up to ${maxP})  2) BET`}
       </p>
       {room.status === 'completed' && room.winnerName && (
         <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
@@ -459,7 +520,13 @@ export default function RoomDetailPage() {
         }}
         onBet={() => {
           if (picks.length === 0) {
-            setMsg(locale === 'am' ? 'ቁጥር ይምረጡ' : 'Select at least one number');
+            setMsg(
+              locale === 'am' ? 'ቁጥር ይምረጡ' : 'Select at least one number',
+            );
+            return;
+          }
+          if (!user) {
+            setMsg(t.common.signIn || 'Sign in first');
             return;
           }
           const res = joinLocal(room.id, picks);

@@ -79,10 +79,12 @@ function anonymousPid() {
   return id;
 }
 
+/** Prefer logged-in session user so join + wallet use the same id */
 export function getPlayerIdentity(): { playerId: string; name: string } {
   if (typeof window === 'undefined') {
     return { playerId: 'ssr', name: 'Player' };
   }
+  // 1) Dedicated session snapshot
   try {
     const snap = localStorage.getItem('equb_session_user_v1');
     if (snap) {
@@ -97,6 +99,7 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   } catch {
     /* ignore */
   }
+  // 2) Zustand persist
   for (const key of ['fast-equb-v8', 'fast-equb-v7']) {
     try {
       const raw = localStorage.getItem(key);
@@ -166,7 +169,16 @@ export async function joinRoomWithBalance(
   pickOrPicks: number | number[],
 ): Promise<{ room: ServerRoom; balance?: number; fee?: number }> {
   const { playerId, name } = getPlayerIdentity();
-  const picks = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const picks = (
+    Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks]
+  )
+    .map((n) => Math.floor(Number(n)))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  if (picks.length === 0) {
+    throw new Error('Select at least one number');
+  }
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12_000);
   try {
@@ -245,7 +257,6 @@ export function fetchRoom(id: string) {
   return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(id)}`);
 }
 
-/** Join with one or more picks (max = groupSize/5 on server) */
 export function joinRoom(templateId: string, pickOrPicks: number | number[]) {
   return joinRoomWithBalance(templateId, pickOrPicks).then((r) => r.room);
 }
