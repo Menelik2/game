@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
 import { publicWalletConfig, verifyEtConfig } from '@/lib/verify-et/config';
 import { verifyTelebirrWithVerifyEt } from '@/lib/verify-et/service';
+import { dbAdjustBalance, dbGetUser, isDbConfigured } from '@/lib/server/db-users';
+import { applyDelta, ensureWallet, setBalance } from '@/lib/server/wallets';
 
 export type DepositStatus =
   | 'PENDING'
@@ -38,13 +40,48 @@ if (!g.__dep) g.__dep = new Map();
 if (!g.__usedTxn) g.__usedTxn = new Set();
 if (!g.__wallets) g.__wallets = new Map();
 
+/** Resolve balance from DB user → shared wallets → deposit map */
+export async function resolveBalance(userId: string): Promise<number> {
+  try {
+    if (isDbConfigured()) {
+      const u = await dbGetUser(userId);
+      if (u) return Math.max(0, Number(u.balance) || 0);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const w = ensureWallet(userId);
+    if (w && Number.isFinite(w.balance)) return Math.max(0, w.balance);
+  } catch {
+    /* ignore */
+  }
+  const local = g.__wallets!.get(userId);
+  return local ? Math.max(0, local.balance) : 0;
+}
+
 export function walletOf(userId: string): Wallet {
   let w = g.__wallets!.get(userId);
   if (!w) {
-    w = { userId, balance: 0, withdrawable: 0 };
+    // Seed from shared wallets map if present
+    let seed = 0;
+    try {
+      seed = ensureWallet(userId).balance;
+    } catch {
+      seed = 0;
+    }
+    w = { userId, balance: seed, withdrawable: seed };
     g.__wallets!.set(userId, w);
   }
   return w;
+}
+
+export async function walletOfAsync(userId: string): Promise<Wallet> {
+  const bal = await resolveBalance(userId);
+  const w = walletOf(userId);
+  w.balance = bal;
+  w.withdrawable = bal;
+  return { ...w };
 }
 
 export function listDeposits(userId?: string): Deposit[] {
@@ -62,7 +99,11 @@ function parseAmount(raw: unknown, min: number, max: number): number | null {
   return rounded;
 }
 
-export async function createDeposit(input: { userId: string; amount: unknown; origin: string }) {
+export async function createDeposit(input: {
+  userId: string;
+  amount: unknown;
+  origin: string;
+}) {
   const cfg = verifyEtConfig();
   const amount = parseAmount(input.amount, cfg.minDeposit, cfg.maxDeposit);
   if (amount == null) {
@@ -72,7 +113,8 @@ export async function createDeposit(input: { userId: string; amount: unknown; or
     };
   }
   const id = randomUUID();
-  const merchantOrderId = `EQ${Date.now().toString(36)}${id.slice(0, 6)}`.toUpperCase();
+  const merchantOrderId =
+    `EQ${Date.now().toString(36)}${id.slice(0, 6)}`.toUpperCase();
   const deposit: Deposit = {
     id,
     userId: input.userId,
@@ -92,30 +134,72 @@ export async function createDeposit(input: { userId: string; amount: unknown; or
   return { ok: true as const, deposit, checkoutUrl: null, config: publicWalletConfig() };
 }
 
-function creditConfirmed(d: Deposit, providerTxn: string, amount: number) {
+async function creditConfirmed(
+  d: Deposit,
+  providerTxn: string,
+  amount: number,
+) {
   if (g.__usedTxn!.has(providerTxn) || d.status === 'CONFIRMED') {
+    const bal = await resolveBalance(d.userId);
     return {
-      ok: false,
+      ok: false as const,
       status: 'CONFIRMED' as const,
       message: 'This transaction has already been used.',
       deposit: d,
+      balance: bal,
     };
   }
+
+  const before = await resolveBalance(d.userId);
+  const creditAmt = Math.round(Number(amount) * 100) / 100;
+  if (!Number.isFinite(creditAmt) || creditAmt <= 0) {
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      message: 'Invalid credit amount.',
+      deposit: d,
+    };
+  }
+
+  // 1) DB user balance (source of truth when Supabase configured)
+  let after = Math.round((before + creditAmt) * 100) / 100;
+  try {
+    if (isDbConfigured()) {
+      const r = await dbAdjustBalance(d.userId, creditAmt, 'deposit_telebirr');
+      after = Number(r.balance);
+    }
+  } catch {
+    // User may be local-only (non-UUID)
+    after = Math.round((before + creditAmt) * 100) / 100;
+  }
+
+  // 2) Shared in-memory wallet (game /api/wallet)
+  try {
+    setBalance(d.userId, after);
+  } catch {
+    try {
+      applyDelta(d.userId, creditAmt, 'deposit_telebirr');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3) Deposit module map (history UI)
   const w = walletOf(d.userId);
-  const before = w.balance;
-  const after = Math.round((before + amount) * 100) / 100;
   w.balance = after;
   w.withdrawable = after;
+
   d.status = 'CONFIRMED';
   d.providerTransactionId = providerTxn;
   d.confirmedAt = new Date().toISOString();
   d.failureReason = null;
   g.__usedTxn!.add(providerTxn);
   if (d.transactionNumber) g.__usedTxn!.add(d.transactionNumber);
+
   return {
-    ok: true,
+    ok: true as const,
     status: 'CONFIRMED' as const,
-    message: 'Deposit confirmed via Verify.ET',
+    message: 'Deposit confirmed — balance updated',
     deposit: d,
     balance: after,
     balanceBefore: before,
@@ -132,11 +216,13 @@ export async function verifyDeposit(input: {
     return { ok: false, status: 'FAILED' as const, message: 'Deposit not found.' };
   }
   if (d.status === 'CONFIRMED') {
+    const bal = await resolveBalance(d.userId);
     return {
       ok: false,
       status: 'CONFIRMED' as const,
-      message: 'This transaction has already been used.',
+      message: 'This deposit is already confirmed.',
       deposit: d,
+      balance: bal,
     };
   }
   d.verificationAttempts += 1;
@@ -186,10 +272,14 @@ export async function verifyDeposit(input: {
     return { ok: false, status: d.status, message: result.message, deposit: d };
   }
 
-  return creditConfirmed(d, result.providerTransactionId || txn, result.amount || d.amount);
+  return creditConfirmed(
+    d,
+    result.providerTransactionId || txn,
+    result.amount || d.amount,
+  );
 }
 
-export function creditFromWebhook(input: {
+export async function creditFromWebhook(input: {
   merchantOrderId?: string;
   transactionNumber?: string;
   providerTransactionId: string;
@@ -212,8 +302,8 @@ export function creditFromWebhook(input: {
   if (g.__usedTxn!.has(input.providerTransactionId)) {
     return { ok: true, message: 'Duplicate transaction ignored' };
   }
-  const credited = creditConfirmed(d, input.providerTransactionId, input.amount);
-  return { ok: credited.ok, message: credited.message };
+  const credited = await creditConfirmed(d, input.providerTransactionId, input.amount);
+  return { ok: credited.ok, message: credited.message, balance: credited.balance };
 }
 
 export { publicWalletConfig };

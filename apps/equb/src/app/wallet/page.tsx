@@ -25,7 +25,8 @@ type Deposit = {
 
 export default function WalletPage() {
   const user = useEqubStore((s) => s.user);
-  const adjustBalance = useEqubStore((s) => s.adjustBalance);
+  const setSessionUser = useEqubStore((s) => s.setSessionUser);
+  const refreshBalance = useEqubStore((s) => s.refreshBalance);
   const { locale } = useI18n();
   const [tab, setTab] = useState<'deposit' | 'withdraw' | 'history'>('deposit');
   const [cfg, setCfg] = useState<Cfg | null>(null);
@@ -36,18 +37,35 @@ export default function WalletPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [copied, setCopied] = useState(false);
-  const [balance, setBalance] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
-    const res = await fetch(`/api/wallet/deposits?userId=${encodeURIComponent(user.id)}`);
-    const json = await res.json();
-    if (json?.success) {
-      setCfg(json.config);
-      setItems(json.deposits || []);
-      if (json.wallet?.balance != null) setBalance(json.wallet.balance);
+    try {
+      const res = await fetch(
+        `/api/wallet/deposits?userId=${encodeURIComponent(user.id)}`,
+        { cache: 'no-store' },
+      );
+      const json = await res.json();
+      if (json?.success) {
+        setCfg(json.config);
+        setItems(json.deposits || []);
+        // Sync session balance from server (do not overwrite with 0)
+        if (
+          json.wallet?.balance != null &&
+          Number.isFinite(Number(json.wallet.balance))
+        ) {
+          const serverBal = Number(json.wallet.balance);
+          // Prefer higher of session vs server only when server is authoritative (DB)
+          if (serverBal > 0 || user.balance === 0) {
+            setSessionUser({ ...user, balance: serverBal });
+          }
+        }
+      }
+    } catch {
+      /* ignore */
     }
-  }, [user]);
+    refreshBalance();
+  }, [user, setSessionUser, refreshBalance]);
 
   useEffect(() => {
     void load();
@@ -61,7 +79,11 @@ export default function WalletPage() {
       const res = await fetch('/api/wallet/deposits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, amount: Number(amount), paymentMethod: 'telebirr' }),
+        body: JSON.stringify({
+          userId: user.id,
+          amount: Number(amount),
+          paymentMethod: 'telebirr',
+        }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
@@ -84,20 +106,37 @@ export default function WalletPage() {
       setMsg('Create the deposit first');
       return;
     }
+    if (!txn.trim() || txn.trim().length < 6) {
+      setMsg(
+        locale === 'am'
+          ? 'የቴሌብር ግብይት ቁጥር ያስገቡ'
+          : 'Enter Telebirr transaction number',
+      );
+      return;
+    }
     setBusy(true);
     setMsg(locale === 'am' ? 'በ Verify.ET እየተረጋገጠ ነው…' : 'Verifying with Verify.ET…');
     try {
       const res = await fetch(`/api/wallet/deposits/${deposit.id}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, transactionNumber: txn }),
+        body: JSON.stringify({
+          userId: user.id,
+          transactionNumber: txn.trim(),
+        }),
       });
       const json = await res.json();
       setMsg(json.message || 'Unable to verify the payment right now.');
+
+      // Server already credited — set absolute balance (no double +delta)
       if (json.success && json.status === 'CONFIRMED') {
-        if (json.balance != null) setBalance(json.balance);
-        const delta = Number(json.amount || 0);
-        if (delta > 0) adjustBalance(delta);
+        if (json.balance != null && Number.isFinite(Number(json.balance))) {
+          setSessionUser({ ...user, balance: Number(json.balance) });
+        } else {
+          refreshBalance();
+        }
+        setTxn('');
+        setDeposit(null);
       }
       await load();
     } catch {
@@ -107,8 +146,15 @@ export default function WalletPage() {
     }
   }
 
-  if (!user) return <p className="py-12 text-center text-white/50">Sign in first</p>;
-  const shown = balance ?? user.balance;
+  if (!user) {
+    return (
+      <p className="py-12 text-center text-white/50">
+        {locale === 'am' ? 'መጀመሪያ ይግቡ' : 'Sign in first'}
+      </p>
+    );
+  }
+
+  const shown = Number(user.balance) || 0;
   const phone = cfg?.merchantPhone || '0977832379';
   const name = cfg?.merchantName || 'Menelik';
 
@@ -122,7 +168,9 @@ export default function WalletPage() {
         <div className="text-right">
           <p className="text-[10px] font-bold text-amber-400">BALANCE</p>
           <p className="text-2xl font-black">{shown.toFixed(2)} ETB</p>
-          <p className="text-[11px] text-white/40">Withdrawable: {shown.toFixed(2)}</p>
+          <p className="text-[11px] text-white/40">
+            Withdrawable: {shown.toFixed(2)}
+          </p>
         </div>
       </div>
 
@@ -224,7 +272,7 @@ export default function WalletPage() {
 
           {msg && <p className="text-center text-sm text-amber-200">{msg}</p>}
           <p className="text-center text-[11px] text-white/35">
-            Wallet credit happens only after Verify.ET confirms the receipt and amount.
+            Wallet is credited only after Verify.ET confirms the receipt and amount.
           </p>
         </div>
       )}
@@ -237,11 +285,16 @@ export default function WalletPage() {
 
       {tab === 'history' && (
         <ul className="space-y-2">
-          {items.length === 0 && <p className="text-sm text-white/40">No deposits yet</p>}
+          {items.length === 0 && (
+            <p className="text-sm text-white/40">No deposits yet</p>
+          )}
           {items.map((d) => (
-            <li key={d.id} className="rounded-xl border border-white/10 px-3 py-2 text-sm">
+            <li
+              key={d.id}
+              className="rounded-xl border border-white/10 px-3 py-2 text-sm"
+            >
               <div className="flex justify-between">
-                <span>+{d.amount.toFixed(2)} ETB</span>
+                <span>+{Number(d.amount).toFixed(2)} ETB</span>
                 <span>{d.status}</span>
               </div>
               <p className="text-[11px] text-white/40">{d.merchantOrderId}</p>
