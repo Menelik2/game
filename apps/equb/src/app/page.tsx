@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { EthDateBadge } from '@/components/EthDateBadge';
 import { AuthForm } from '@/components/AuthForm';
+import { BrandMark } from '@/components/BrandLogo';
 import { formatBirrCompact } from '@/lib/money';
 import { Sparkles, Shield, Users, Trophy } from 'lucide-react';
 
@@ -22,11 +23,17 @@ export default function HomePage() {
 
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-equb-500/30 bg-equb-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-equb-300">
-                <Sparkles className="h-3 w-3" />
-                {t.brandSub}
+              <div className="mb-4 flex items-center gap-3">
+                <BrandMark size={72} className="hidden sm:block" />
+                <BrandMark size={56} className="sm:hidden" />
+                <div className="min-w-0">
+                  <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-equb-500/30 bg-equb-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-equb-300">
+                    <Sparkles className="h-3 w-3" />
+                    {t.brandSub}
+                  </div>
+                  <h1 className="keno-title leading-tight lg:text-4xl">{t.home.title}</h1>
+                </div>
               </div>
-              <h1 className="keno-title leading-tight lg:text-4xl">{t.home.title}</h1>
               <p className="mt-2 max-w-md text-sm leading-relaxed text-white/50 lg:text-base">
                 {t.home.subtitle}
               </p>
@@ -49,13 +56,9 @@ export default function HomePage() {
             {t.home.intro}
           </p>
 
-          {/* Login / Register on home when logged out */}
-          <div className="relative mt-6 max-w-md">
+          <div className="relative mt-6">
             {!user ? (
-              <div className="rounded-3xl border border-equb-800/50 bg-black/35 p-4 sm:p-5">
-                <h2 className="mb-3 text-sm font-bold text-equb-200">ግባ ወይም መለያ ፍጠር</h2>
-                <AuthForm initialMode="login" redirectTo="/rooms" />
-              </div>
+              <AuthForm />
             ) : (
               <div className="space-y-3">
                 <div className="rounded-2xl border border-equb-700/40 bg-equb-950/40 px-4 py-3 text-sm">
