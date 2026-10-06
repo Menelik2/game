@@ -92,7 +92,6 @@ export default function RoomsPage() {
     return () => clearInterval(iv);
   }, [refreshLive]);
 
-  // When group size changes → reset picks (rule max changes)
   useEffect(() => {
     setPicks([]);
   }, [groupSize]);
@@ -256,7 +255,7 @@ export default function RoomsPage() {
                 <Link
                   key={r.id}
                   href={href}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3 transition hover:border-equb-500/40"
                 >
                   <div>
                     <p className="text-sm font-semibold">
@@ -277,7 +276,7 @@ export default function RoomsPage() {
                       className="mt-2"
                     />
                   </div>
-                  <span className="rounded-full bg-equb-500 px-3 py-1.5 text-[11px] font-bold text-white">
+                  <span className="rounded-full bg-equb-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-md shadow-equb-500/30">
                     {locale === 'am' ? 'ቀላቀል' : 'Join'}
                   </span>
                 </Link>
@@ -300,7 +299,6 @@ export default function RoomsPage() {
         </section>
       )}
 
-      {/* Current room only */}
       <div className="space-y-4">
         <section className="glass rounded-2xl p-4 sm:p-5">
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
@@ -313,7 +311,7 @@ export default function RoomsPage() {
                 type="button"
                 onClick={() => setGroupSize(g)}
                 className={clsx(
-                  'min-w-[2.75rem] rounded-xl px-3 py-2 text-sm font-bold',
+                  'min-w-[2.75rem] rounded-xl px-3 py-2 text-sm font-bold transition active:scale-95',
                   groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
                 )}
               >
@@ -337,29 +335,33 @@ export default function RoomsPage() {
               {picks.length}/{maxPicks}
             </span>
           </div>
-          <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
+
+          {/* Animated seat hub */}
+          <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-b from-black/40 to-black/20 p-4">
             <SeatRing
               total={groupSize}
               filledCount={picks.length}
-              yourPick={picks[0] ?? null}
+              yourPicks={picks}
               taken={previewTaken}
             />
             <SeatNodes
               total={groupSize}
               taken={previewTaken}
-              yourPick={picks[0] ?? null}
+              yourPicks={picks}
               size="md"
               maxVisible={Math.min(groupSize, 20)}
               className="justify-center"
             />
             {picks.length > 0 && (
-              <p className="font-mono text-xs text-equb-300">
+              <p className="font-mono text-xs font-bold text-equb-300 animate-[fadeIn_0.3s_ease-out]">
                 #{picks.map((p) => String(p).padStart(2, '0')).join(' · #')}
               </p>
             )}
           </div>
+
+          {/* Tactile number grid */}
           <div
-            className="grid gap-1.5"
+            className="grid gap-1.5 sm:gap-2"
             style={{
               gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
             }}
@@ -374,15 +376,19 @@ export default function RoomsPage() {
                   disabled={locked}
                   onClick={() => togglePick(n)}
                   className={clsx(
-                    'aspect-square rounded-lg text-[11px] font-bold sm:text-xs',
-                    on
-                      ? 'bg-equb-500 text-white ring-2 ring-equb-300/50'
-                      : locked
-                        ? 'bg-[#151c1a] text-white/25'
-                        : 'bg-[#151c1a] text-white/75 hover:bg-white/10',
+                    'relative flex aspect-square items-center justify-center rounded-xl text-[11px] font-black transition-all duration-200 active:scale-90 sm:text-sm',
+                    on &&
+                      'scale-105 bg-equb-500 text-white ring-2 ring-equb-200 shadow-lg shadow-equb-500/40',
+                    locked && 'cursor-not-allowed bg-[#151c1a] text-white/25',
+                    !on &&
+                      !locked &&
+                      'bg-[#151c1a] text-white/80 shadow-sm hover:scale-105 hover:bg-white/12 hover:shadow-md',
                   )}
                 >
-                  {String(n).padStart(2, '0')}
+                  <span className="relative z-10">{String(n).padStart(2, '0')}</span>
+                  {on && (
+                    <span className="pointer-events-none absolute inset-0 animate-pulse rounded-xl bg-equb-400/25" />
+                  )}
                 </button>
               );
             })}
@@ -400,10 +406,10 @@ export default function RoomsPage() {
                 type="button"
                 onClick={() => setPrize(p)}
                 className={clsx(
-                  'rounded-xl px-3.5 py-2.5 text-xs font-bold',
+                  'rounded-xl px-3.5 py-2.5 text-xs font-bold transition active:scale-95',
                   prize === p
-                    ? 'bg-gradient-to-b from-gold-400 to-gold-500 text-black'
-                    : 'bg-white/10 text-white/70',
+                    ? 'bg-gradient-to-b from-gold-400 to-gold-500 text-black shadow-md shadow-gold-500/30'
+                    : 'bg-white/10 text-white/70 hover:bg-white/15',
                 )}
               >
                 {formatBirrCompact(p, locale)}
@@ -442,8 +448,11 @@ export default function RoomsPage() {
           type="button"
           disabled={picks.length === 0 || busy || !user}
           onClick={() => void handleOpenRoom()}
-          className="btn-gold w-full disabled:opacity-40"
+          className="btn-gold relative w-full overflow-hidden disabled:opacity-40"
         >
+          {picks.length > 0 && !busy && (
+            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+          )}
           {busy ? t.common.opening : t.common.openRoom}
         </button>
       </div>
@@ -481,6 +490,24 @@ export default function RoomsPage() {
           </div>
         </div>
       )}
+
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes shimmer {
+          100% {
+            transform: translateX(200%);
+          }
+        }
+      `}</style>
     </div>
   );
 }
