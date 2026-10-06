@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from 'crypto';
 import { computePayout, settleWinPayout } from './wallet-settle';
+import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
 const GROUP_SIZES = [
@@ -35,6 +36,14 @@ export type Room = {
   secondsLeft: number;
   createdAt: number;
   updatedAt: number;
+  recent?: Array<{
+    id: string;
+    winningNumber: number;
+    winnerName: string;
+    pot: number;
+    at: number;
+    winnerId?: string;
+  }>;
 };
 
 const g = globalThis as unknown as { __equbRooms?: Map<string, Room> };
@@ -50,18 +59,48 @@ function memberPicks(m: Member): number[] {
   return [m.pick];
 }
 
+function realMembers(room: Room): Member[] {
+  return room.members.filter((m) => isRealPlayer(m));
+}
+
 function seatsTaken(room: Room) {
-  return room.members.reduce((n, m) => n + memberPicks(m).length, 0);
+  return realMembers(room).reduce((n, m) => n + memberPicks(m).length, 0);
 }
 
 function takenSet(room: Room) {
   const s = new Set<number>();
-  for (const m of room.members) for (const p of memberPicks(m)) s.add(p);
+  for (const m of realMembers(room)) for (const p of memberPicks(m)) s.add(p);
   return s;
 }
 
 function contributionOf(prizePool: number, groupSize: number) {
   return Math.round((prizePool / groupSize) * 100) / 100;
+}
+
+function withTimer(room: Room): Room {
+  const secondsLeft = Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000));
+  // Never expose fake members to clients
+  return {
+    ...room,
+    members: realMembers(room),
+    secondsLeft,
+    recent: (room.recent || []).filter(
+      (r) => r.winnerName && !isFakePlayerName(r.winnerName),
+    ),
+  };
+}
+
+function parseTemplate(templateId: string) {
+  // template: size-prize e.g. 10-5000
+  const parts = String(templateId).split('-');
+  const groupSize = Number(parts[0]) || 10;
+  const prizePool = Number(parts[1]) || 1000;
+  const contribution = contributionOf(prizePool, groupSize);
+  let tier = 'bronze';
+  if (prizePool >= 50000) tier = 'diamond';
+  else if (prizePool >= 10000) tier = 'gold';
+  else if (prizePool >= 3000) tier = 'silver';
+  return { groupSize, prizePool, contribution, tier };
 }
 
 export function buildCatalog(maxPrize = 9000) {
@@ -78,59 +117,30 @@ export function buildCatalog(maxPrize = 9000) {
   for (const size of GROUP_SIZES) {
     for (const prize of pools) {
       if (prize > maxPrize) continue;
+      const contribution = contributionOf(prize, size);
+      let tier = 'bronze';
+      if (prize >= 50000) tier = 'diamond';
+      else if (prize >= 10000) tier = 'gold';
+      else if (prize >= 3000) tier = 'silver';
       out.push({
-        id: `equb-${size}-${prize}`,
+        id: `${size}-${prize}`,
         groupSize: size,
         prizePool: prize,
-        contribution: contributionOf(prize, size),
-        tier: prize <= 500 ? 'entry' : prize < 10000 ? 'low' : 'mid',
+        contribution,
+        tier,
       });
     }
   }
   return out;
 }
 
-function secureRandomInt(maxExclusive: number): number {
-  if (maxExclusive <= 0) return 0;
-  const limit = Math.floor(0x100000000 / maxExclusive) * maxExclusive;
-  for (;;) {
-    const x = randomBytes(4).readUInt32BE(0);
-    if (x < limit) return x % maxExclusive;
-  }
-}
-
-function cryptoDraw(groupSize: number) {
-  const entropy = randomBytes(32);
-  const entropyHex = entropy.toString('hex');
-  const winningNumber = secureRandomInt(groupSize) + 1;
-  const commitmentHash = createHash('sha256')
-    .update(`${entropyHex}:${groupSize}:${winningNumber}`)
-    .digest('hex');
-  return { winningNumber, entropyHex, commitmentHash };
-}
-
-export function withTimer(room: Room): Room {
-  const secondsLeft = Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000));
-  return { ...room, secondsLeft };
-}
-
-function createRoom(templateId: string): Room {
-  const match = /^equb-(\d+)-(\d+)$/.exec(templateId);
-  if (!match) throw new Error('Invalid room template');
-  const groupSize = parseInt(match[1], 10);
-  const prizePool = parseInt(match[2], 10);
-  if (!GROUP_SIZES.includes(groupSize) || prizePool <= 0) {
-    throw new Error('Invalid room size or prize');
-  }
-  const contribution = contributionOf(prizePool, groupSize);
-  const now = Date.now();
+export function createRoom(templateId: string): Room {
+  const meta = parseTemplate(templateId);
+  const id = `${templateId}-${Date.now().toString(36)}`;
   const room: Room = {
-    id: `${templateId}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    id,
     templateId,
-    groupSize,
-    prizePool,
-    contribution,
-    tier: prizePool <= 500 ? 'entry' : prizePool < 10000 ? 'low' : 'mid',
+    ...meta,
     status: 'open',
     members: [],
     winningNumber: null,
@@ -141,95 +151,94 @@ function createRoom(templateId: string): Room {
     paidOut: false,
     entropyHex: null,
     commitmentHash: null,
-    drawAt: now + ROUND_MS,
-    secondsLeft: Math.ceil(ROUND_MS / 1000),
-    createdAt: now,
-    updatedAt: now,
+    drawAt: Date.now() + ROUND_MS,
+    secondsLeft: ROUND_MS / 1000,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    recent: [],
   };
   rooms.set(room.id, room);
-  return room;
-}
-
-export function findOpen(templateId: string): Room | undefined {
-  for (const r of rooms.values()) {
-    if (r.templateId === templateId && r.status === 'open') return r;
-  }
-  return undefined;
+  rooms.set(templateId, room);
+  return withTimer(room);
 }
 
 export function ensureOpen(templateId: string): Room {
-  const existing = findOpen(templateId);
-  if (existing) {
-    // Kick off async draw if needed (sync path for timer check)
-    void maybeDrawAsync(existing);
-    const r = rooms.get(existing.id) || existing;
-    if (r.status === 'open') return withTimer(r);
+  let room = rooms.get(templateId);
+  if (!room || room.status === 'completed') {
+    const recent = room?.recent || [];
+    room = createRoom(templateId);
+    room.recent = recent;
+    rooms.set(templateId, room);
   }
-  return withTimer(createRoom(templateId));
+  void maybeDrawAsync(room);
+  return withTimer(rooms.get(templateId) || room);
 }
 
-export function getRoom(id: string): Room | undefined {
-  const r = rooms.get(id);
-  if (!r) return undefined;
-  void maybeDrawAsync(r);
-  return withTimer(rooms.get(id) || r);
+function secureRandomInt(max: number) {
+  if (max <= 0) return 0;
+  const buf = randomBytes(4);
+  return buf.readUInt32BE(0) % max;
 }
 
-/** Complete draw and credit winner (awaited). */
-export async function maybeDrawAsync(room: Room): Promise<Room> {
-  if (room.status === 'completed' || room.status === 'drawing') {
-    return withTimer(room);
-  }
-  if (room.status !== 'open') return withTimer(room);
-  if (Date.now() < room.drawAt) return withTimer(room);
+async function maybeDrawAsync(room: Room) {
+  if (room.status === 'completed' || room.status === 'drawing') return;
+  if (room.status !== 'open') return;
+  if (Date.now() < room.drawAt) return;
 
-  if (seatsTaken(room) < 1) {
+  const humans = realMembers(room);
+  if (humans.length < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
     rooms.set(room.id, room);
-    return withTimer(room);
+    rooms.set(room.templateId, room);
+    return;
   }
 
   room.status = 'drawing';
   rooms.set(room.id, room);
+  rooms.set(room.templateId, room);
 
-  const picks = room.members.flatMap((m) => memberPicks(m));
-  let proof = cryptoDraw(room.groupSize);
-
-  if (!picks.includes(proof.winningNumber)) {
-    for (let i = 0; i < 48; i++) {
-      proof = cryptoDraw(room.groupSize);
-      if (picks.includes(proof.winningNumber)) break;
-    }
-    if (!picks.includes(proof.winningNumber)) {
-      proof.winningNumber = picks[secureRandomInt(picks.length)]!;
-      proof.commitmentHash = createHash('sha256')
-        .update(`${proof.entropyHex}:${room.groupSize}:${proof.winningNumber}`)
-        .digest('hex');
-    }
+  // Only real players' numbers
+  const allPicks: { member: Member; n: number }[] = [];
+  for (const m of humans) {
+    for (const n of memberPicks(m)) allPicks.push({ member: m, n });
+  }
+  if (allPicks.length === 0) {
+    room.status = 'open';
+    room.drawAt = Date.now() + ROUND_MS;
+    rooms.set(room.id, room);
+    return;
   }
 
-  const winner = room.members.find((m) =>
-    memberPicks(m).includes(proof.winningNumber),
-  );
-  const { adminFee, winnerPayout } = computePayout(room.prizePool);
+  const entropyHex = randomBytes(16).toString('hex');
+  const idx = secureRandomInt(allPicks.length);
+  const chosen = allPicks[idx]!;
+  const winningNumber = chosen.n;
+  const winner = chosen.member;
 
-  room.winningNumber = proof.winningNumber;
-  room.winnerId = winner?.playerId ?? null;
-  room.winnerName = winner?.name ?? null;
+  const pot = room.prizePool;
+  const adminFee = Math.round(pot * 0.15 * 100) / 100;
+  const winnerPayout = Math.round((pot - adminFee) * 100) / 100;
+
+  room.winningNumber = winningNumber;
+  room.winnerId = winner.playerId;
+  room.winnerName = winner.name;
   room.adminFee = adminFee;
   room.winnerPayout = winnerPayout;
-  room.entropyHex = proof.entropyHex;
-  room.commitmentHash = proof.commitmentHash;
+  room.entropyHex = entropyHex;
+  room.commitmentHash = createHash('sha256')
+    .update(`${entropyHex}:${winningNumber}`)
+    .digest('hex');
   room.updatedAt = Date.now();
+  room.members = humans; // drop any leftover fakes
 
-  if (winner?.playerId && winnerPayout > 0 && !room.paidOut) {
+  if (winner.playerId && winnerPayout > 0 && !room.paidOut) {
     try {
       await settleWinPayout({
         userId: winner.playerId,
         amount: winnerPayout,
         roomId: room.id,
-        winningNumber: proof.winningNumber,
+        winningNumber,
       });
       room.paidOut = true;
     } catch {
@@ -238,22 +247,22 @@ export async function maybeDrawAsync(room: Room): Promise<Room> {
   }
 
   room.status = 'completed';
-  rooms.set(room.id, room);
-  return withTimer(room);
-}
+  room.recent = [
+    {
+      id: room.id,
+      winningNumber,
+      winnerName: winner.name,
+      winnerId: winner.playerId,
+      pot: room.prizePool,
+      at: Date.now(),
+    },
+    ...(room.recent || []).filter(
+      (r) => r.winnerName && !isFakePlayerName(r.winnerName),
+    ),
+  ].slice(0, 20);
 
-/** Sync wrapper used by older callers */
-export function maybeDraw(room: Room): Room {
-  if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
-  if (seatsTaken(room) < 1) {
-    room.drawAt = Date.now() + ROUND_MS;
-    room.updatedAt = Date.now();
-    rooms.set(room.id, room);
-    return withTimer(room);
-  }
-  // Start async settlement; mark drawing so we don't double-start
-  void maybeDrawAsync(room);
-  return withTimer(rooms.get(room.id) || room);
+  rooms.set(room.id, room);
+  rooms.set(room.templateId, room);
 }
 
 export function joinRoom(
@@ -262,48 +271,68 @@ export function joinRoom(
   name: string,
   pickOrPicks: number | number[],
 ): Room {
+  if (isFakePlayerId(playerId) || isFakePlayerName(name)) {
+    throw new Error('Real account required — demo/bot players not allowed');
+  }
+
   let room = ensureOpen(templateId);
   if (room.status !== 'open') {
     room = withTimer(createRoom(templateId));
   }
 
-  if (room.members.some((m) => m.playerId === playerId)) {
+  // Work on the raw room in the map
+  const raw = rooms.get(templateId) || rooms.get(room.id);
+  if (!raw) throw new Error('Room not found');
+
+  if (raw.members.some((m) => m.playerId === playerId)) {
     throw new Error('Already in this room');
   }
 
-  const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
-  const max = maxPicks(room.groupSize);
-  const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
-    (n) => n >= 1 && n <= room.groupSize,
+  const rawPicks = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const max = maxPicks(raw.groupSize);
+  const picks = [...new Set(rawPicks.map((n) => Math.floor(Number(n))))].filter(
+    (n) => n >= 1 && n <= raw.groupSize,
   );
   if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
   if (picks.length > max) {
-    throw new Error(`Max ${max} numbers for ${room.groupSize}-player room`);
+    throw new Error(`Max ${max} numbers for ${raw.groupSize}-player room`);
   }
 
-  const taken = takenSet(room);
+  const taken = takenSet(raw);
   for (const p of picks) {
     if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
-  if (seatsTaken(room) + picks.length > room.groupSize) {
+  if (seatsTaken(raw) + picks.length > raw.groupSize) {
     throw new Error('Not enough seats left');
   }
 
-  room.members.push({
+  raw.members.push({
     playerId,
     name: (name || 'Player').slice(0, 40),
     pick: picks[0]!,
     picks,
     joinedAt: Date.now(),
   });
-  room.updatedAt = Date.now();
-  rooms.set(room.id, room);
-  return withTimer(room);
+  // Strip any fakes that may have been stored earlier
+  raw.members = realMembers(raw);
+  raw.updatedAt = Date.now();
+  rooms.set(raw.id, raw);
+  rooms.set(templateId, raw);
+  return withTimer(raw);
 }
 
 export function listRooms(): Room[] {
-  return [...rooms.values()].map((r) => {
-    void maybeDrawAsync(r);
-    return withTimer(rooms.get(r.id) || r);
-  });
+  return [...rooms.values()]
+    .filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i)
+    .map((r) => {
+      void maybeDrawAsync(r);
+      return withTimer(rooms.get(r.id) || r);
+    });
+}
+
+export function getRoom(id: string): Room | null {
+  const room = rooms.get(id) || [...rooms.values()].find((r) => r.id === id);
+  if (!room) return null;
+  void maybeDrawAsync(room);
+  return withTimer(rooms.get(room.id) || room);
 }

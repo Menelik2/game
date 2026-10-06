@@ -1,14 +1,29 @@
 import type { TableResult } from '@/components/EqubTable';
+import { filterRealResults, isFakePlayerName } from '@/lib/real-players';
 
 export function mergeRoundResults(
-  history: Array<{ roomId: string; at: number; winningNumber: number; winnerName: string; amount: number }>,
+  history: Array<{
+    roomId: string;
+    at: number;
+    winningNumber: number;
+    winnerName: string;
+    amount: number;
+  }>,
   serverRoom: {
     id?: string;
     status?: string;
     winningNumber?: number | null;
     winnerName?: string | null;
+    winnerId?: string | null;
     prizePool?: number;
-    recent?: Array<{ id: string; winningNumber: number; winnerName: string; pot: number; at: number }>;
+    recent?: Array<{
+      id: string;
+      winningNumber: number;
+      winnerName: string;
+      pot: number;
+      at: number;
+      winnerId?: string;
+    }>;
   } | null,
 ): TableResult[] {
   const live: TableResult[] = (serverRoom?.recent || []).map((r) => ({
@@ -18,7 +33,13 @@ export function mergeRoundResults(
     pot: r.pot,
     at: r.at,
   }));
-  if (serverRoom?.status === 'completed' && serverRoom.winningNumber && serverRoom.winnerName) {
+
+  if (
+    serverRoom?.status === 'completed' &&
+    serverRoom.winningNumber &&
+    serverRoom.winnerName &&
+    !isFakePlayerName(serverRoom.winnerName)
+  ) {
     const current: TableResult = {
       id: `now-${serverRoom.id}`,
       winningNumber: serverRoom.winningNumber,
@@ -26,10 +47,17 @@ export function mergeRoundResults(
       pot: Number(serverRoom.prizePool || 0),
       at: Date.now(),
     };
-    if (!live.some((r) => r.winnerName === current.winnerName && r.winningNumber === current.winningNumber)) {
+    if (
+      !live.some(
+        (r) =>
+          r.winnerName === current.winnerName &&
+          r.winningNumber === current.winningNumber,
+      )
+    ) {
       live.unshift(current);
     }
   }
+
   const local = history.slice(0, 12).map((h, i) => ({
     id: `${h.roomId}-${h.at}-${i}`,
     winningNumber: h.winningNumber,
@@ -37,5 +65,7 @@ export function mergeRoundResults(
     pot: h.amount,
     at: h.at,
   }));
-  return [...live, ...local].slice(0, 12);
+
+  // Only real winners in ውጤቶች / Results
+  return filterRealResults([...live, ...local]).slice(0, 12);
 }
