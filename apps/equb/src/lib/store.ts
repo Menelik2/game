@@ -9,11 +9,9 @@ import {
   isFull,
   takenPicks,
   seatsTaken,
-  seatsLeft,
   memberPicks,
   maxPicksForGroup,
   validatePicks,
-  numberPool,
   splitPot,
   ADMIN_FEE_RATE,
 } from './equb-math';
@@ -74,14 +72,15 @@ type State = {
   adminFeeLog: AdminFeeEvent[];
   hydrated: boolean;
   setSessionUser: (user: User) => void;
+  /** @deprecated Demo login removed — real register/login only */
   loginDemo: (name?: string) => void;
   logout: () => void;
   ensureRooms: () => void;
-  /** pick: single number or array (max = groupSize/5) */
   joinRoom: (
     roomId: string,
     pick: number | number[],
   ) => { ok: boolean; message: string };
+  /** Bots disabled — real players only */
   fillSeats: (roomId: string) => { ok: boolean; message: string };
   runDraw: (roomId: string) => Promise<{ ok: boolean; message: string }>;
   reopenRoom: (roomId: string) => { ok: boolean; message: string };
@@ -89,8 +88,6 @@ type State = {
   adjustBalance: (delta: number) => { ok: boolean; message: string; balance?: number };
   refreshBalance: () => void;
 };
-
-const BOT_NAMES = ['አበበ', 'ትግስት', 'ከበደ', 'ሀና', 'ዮናስ', 'ማርታ', 'ዳዊት', 'ሳራ'];
 
 function catalogToRooms(): LiveRoom[] {
   return buildRoomCatalog({ maxPrize: 9000 }).map((t) => ({
@@ -122,6 +119,15 @@ function freshRound(room: LiveRoom): LiveRoom {
   };
 }
 
+function isFakeUserId(id: string): boolean {
+  return (
+    id.startsWith('demo_') ||
+    id.startsWith('bot_') ||
+    id.startsWith('guest_') ||
+    id === 'ssr'
+  );
+}
+
 function balanceFromLedger(userId: string, fallback: number): number {
   if (isDbUserId(userId)) return fallback;
   const a = getAccountById(userId);
@@ -144,6 +150,10 @@ function emitBalance(balance: number, userId: string) {
 function restoreUserFromStorage(): User | null {
   const snap = loadSessionUser();
   if (snap?.id) {
+    if (isFakeUserId(String(snap.id))) {
+      clearSession();
+      return null;
+    }
     if (!isDbUserId(snap.id)) {
       const a = getAccountById(snap.id);
       if (a) {
@@ -162,7 +172,7 @@ function restoreUserFromStorage(): User | null {
     return snap as User;
   }
   const id = loadSessionUserId();
-  if (!id) return null;
+  if (!id || isFakeUserId(id)) return null;
   if (!isDbUserId(id)) {
     const a = getAccountById(id);
     if (a) {
@@ -192,6 +202,11 @@ export const useEqubStore = create<State>()(
       hydrated: false,
 
       setSessionUser: (user) => {
+        if (isFakeUserId(String(user.id))) {
+          clearSession();
+          set({ user: null });
+          return;
+        }
         const bal = isDbUserId(user.id)
           ? user.balance
           : balanceFromLedger(user.id, user.balance);
@@ -220,22 +235,9 @@ export const useEqubStore = create<State>()(
         }
       },
 
-      loginDemo: (name) => {
-        if (get().user) return;
-        const n = (name || 'ተጫዋች').slice(0, 24);
-        const u: User = {
-          id: `demo_${Date.now().toString(36)}`,
-          name: n,
-          phone: undefined,
-          email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
-          balance: 100,
-          referralCode:
-            n.slice(0, 4).toUpperCase() +
-            Math.random().toString(36).slice(2, 6).toUpperCase(),
-          role: 'player',
-        };
-        set({ user: u });
-        emitBalance(u.balance, u.id);
+      loginDemo: () => {
+        // Disabled — real register / login only
+        return;
       },
 
       logout: () => {
@@ -249,18 +251,22 @@ export const useEqubStore = create<State>()(
           set({ rooms: catalogToRooms() });
           return;
         }
-        const fixed = current.map((r) =>
-          r.status === 'drawing' ? { ...r, status: 'open' as const } : r,
-        );
-        if (fixed.some((r, i) => r.status !== current[i]?.status)) {
-          set({ rooms: fixed });
-        }
+        // Strip any leftover bot members from local rooms
+        const cleaned = current.map((r) => ({
+          ...r,
+          members: r.members.filter((m) => !m.isBot && !String(m.id).startsWith('bot_')),
+          status: r.status === 'drawing' ? ('open' as const) : r.status,
+        }));
+        set({ rooms: cleaned });
       },
 
       joinRoom: (roomId, pickOrPicks) => {
         const { user, rooms } = get();
         if (!user) return { ok: false, message: msg('signInFirst') };
         if (user.banned) return { ok: false, message: 'Account banned' };
+        if (isFakeUserId(user.id)) {
+          return { ok: false, message: 'Demo accounts disabled — register a real account' };
+        }
 
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
@@ -324,38 +330,26 @@ export const useEqubStore = create<State>()(
         };
       },
 
-      fillSeats: (roomId) => {
-        const rooms = get().rooms;
-        const room = rooms.find((r) => r.id === roomId);
-        if (!room || room.status !== 'open')
-          return { ok: false, message: msg('cannotFill') };
-        const taken = takenPicks(room);
-        const need = seatsLeft(room);
-        if (need <= 0) return { ok: false, message: msg('alreadyFull') };
-        const free = numberPool(room.groupSize).filter((n) => !taken.has(n));
-        for (let i = free.length - 1; i > 0; i--) {
-          const j = secureRandomInt(i + 1);
-          [free[i], free[j]] = [free[j]!, free[i]!];
-        }
-        const bots: EqubMember[] = free.slice(0, need).map((pick, i) => ({
-          id: `bot_${roomId}_${i}_${Date.now()}`,
-          name: BOT_NAMES[i % BOT_NAMES.length]! + i,
-          pick,
-          picks: [pick],
-          isBot: true,
-        }));
-        set({
-          rooms: rooms.map((r) =>
-            r.id === roomId ? { ...r, members: [...r.members, ...bots] } : r,
-          ),
-        });
-        return { ok: true, message: msg('filledBots', { n: bots.length }) };
-      },
+      fillSeats: () => ({
+        ok: false,
+        message: 'Bots disabled — only real players can join',
+      }),
 
       runDraw: async (roomId) => {
         const { user, rooms, history, adminEarningsTotal, adminFeeLog } = get();
         const room = rooms.find((r) => r.id === roomId);
         if (!room) return { ok: false, message: msg('roomNotFound') };
+
+        // Real players only — no bots in the draw
+        const humans = room.members.filter(
+          (m) => !m.isBot && !String(m.id).startsWith('bot_'),
+        );
+        if (humans.length === 0) {
+          return { ok: false, message: 'Need at least one real player' };
+        }
+        if (!isFull({ ...room, members: humans }) && seatsTaken({ ...room, members: humans }) < room.groupSize) {
+          // Allow draw only when full of real seats, or when room is full
+        }
         if (!isFull(room)) return { ok: false, message: msg('roomNotFull') };
         if (room.status === 'completed')
           return { ok: false, message: msg('alreadyDrawn') };
@@ -368,25 +362,25 @@ export const useEqubStore = create<State>()(
 
         try {
           const proof = await cryptographicDraw(room.groupSize);
-          const allPicks = room.members.flatMap((m) => memberPicks(m));
-          let winningNumber = proof.winningNumber;
-          if (!allPicks.includes(winningNumber)) {
-            winningNumber = allPicks[secureRandomInt(allPicks.length)]!;
-          }
-          let winner = room.members.find((m) =>
-            memberPicks(m).includes(winningNumber),
-          );
-          if (!winner && room.members.length > 0) {
-            winner = room.members[secureRandomInt(room.members.length)];
-            winningNumber = winner!.pick;
-          }
-          if (!winner) {
+          const allPicks = humans.flatMap((m) => memberPicks(m));
+          if (allPicks.length === 0) {
             set({
               rooms: get().rooms.map((r) =>
                 r.id === roomId ? { ...r, status: 'open' as const } : r,
               ),
             });
-            return { ok: false, message: msg('drawError') };
+            return { ok: false, message: 'No real player picks' };
+          }
+          let winningNumber = proof.winningNumber;
+          if (!allPicks.includes(winningNumber)) {
+            winningNumber = allPicks[secureRandomInt(allPicks.length)]!;
+          }
+          let winner = humans.find((m) =>
+            memberPicks(m).includes(winningNumber),
+          );
+          if (!winner) {
+            winner = humans[secureRandomInt(humans.length)];
+            winningNumber = winner!.pick;
           }
 
           const { grossPot, adminFee, winnerPayout } = splitPot(room.prizePool);
@@ -422,6 +416,7 @@ export const useEqubStore = create<State>()(
                 ? {
                     ...r,
                     status: 'completed' as const,
+                    members: humans,
                     winningNumber,
                     winnerId: winner!.id,
                     winnerName: winner!.name,
@@ -600,9 +595,9 @@ export const useEqubStore = create<State>()(
         if (!user) return { ok: false, message: msg('signInFirst') };
         if (user.referredBy) return { ok: false, message: msg('alreadyClaimed') };
         if (!code.trim()) return { ok: false, message: msg('invalidCode') };
-        get().adjustBalance(100);
+        // No free bonus in real mode — mark code only
         const nextUser = {
-          ...get().user!,
+          ...user,
           referredBy: code.trim().toUpperCase(),
         };
         set({ user: nextUser });
@@ -612,10 +607,16 @@ export const useEqubStore = create<State>()(
     }),
     {
       name: 'fast-equb-v8',
-      version: 8,
+      version: 9,
       partialize: (s) => ({
-        user: s.user && !String(s.user.id).startsWith('demo_') ? s.user : null,
-        rooms: s.rooms,
+        user:
+          s.user && !isFakeUserId(String(s.user.id)) ? s.user : null,
+        rooms: s.rooms.map((r) => ({
+          ...r,
+          members: r.members.filter(
+            (m) => !m.isBot && !String(m.id).startsWith('bot_'),
+          ),
+        })),
         history: s.history,
         adminEarningsTotal: s.adminEarningsTotal,
         adminFeeLog: s.adminFeeLog,
