@@ -60,7 +60,7 @@ function memberPicks(m: Member): number[] {
 }
 
 function realMembers(room: Room): Member[] {
-  return room.members.filter((m) => isRealPlayer(m));
+  return (room.members || []).filter((m) => isRealPlayer(m));
 }
 
 function seatsTaken(room: Room) {
@@ -77,30 +77,85 @@ function contributionOf(prizePool: number, groupSize: number) {
   return Math.round((prizePool / groupSize) * 100) / 100;
 }
 
-function withTimer(room: Room): Room {
+export function withTimer(room: Room): Room {
   const secondsLeft = Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000));
-  // Never expose fake members to clients
   return {
     ...room,
     members: realMembers(room),
     secondsLeft,
     recent: (room.recent || []).filter(
-      (r) => r.winnerName && !isFakePlayerName(r.winnerName),
+      (r) =>
+        Boolean(r.winnerName) &&
+        !isFakePlayerName(r.winnerName) &&
+        !isFakePlayerId(r.winnerId),
     ),
   };
 }
 
-function parseTemplate(templateId: string) {
-  // template: size-prize e.g. 10-5000
-  const parts = String(templateId).split('-');
-  const groupSize = Number(parts[0]) || 10;
-  const prizePool = Number(parts[1]) || 1000;
+function createRoom(templateId: string): Room {
+  const match = /^equb-(\d+)-(\d+)$/.exec(templateId);
+  if (!match) {
+    // also accept size-prize
+    const parts = String(templateId).split('-');
+    const groupSize = Number(parts[parts[0] === 'equb' ? 1 : 0]) || 10;
+    const prizePool = Number(parts[parts[0] === 'equb' ? 2 : 1]) || 1000;
+    const contribution = contributionOf(prizePool, groupSize);
+    const now = Date.now();
+    const room: Room = {
+      id: `${templateId}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      templateId,
+      groupSize,
+      prizePool,
+      contribution,
+      tier: prizePool <= 500 ? 'entry' : prizePool < 10000 ? 'low' : 'mid',
+      status: 'open',
+      members: [],
+      winningNumber: null,
+      winnerId: null,
+      winnerName: null,
+      adminFee: null,
+      winnerPayout: null,
+      paidOut: false,
+      entropyHex: null,
+      commitmentHash: null,
+      drawAt: now + ROUND_MS,
+      secondsLeft: ROUND_MS / 1000,
+      createdAt: now,
+      updatedAt: now,
+      recent: [],
+    };
+    rooms.set(room.id, room);
+    return room;
+  }
+  const groupSize = parseInt(match[1], 10);
+  const prizePool = parseInt(match[2], 10);
   const contribution = contributionOf(prizePool, groupSize);
-  let tier = 'bronze';
-  if (prizePool >= 50000) tier = 'diamond';
-  else if (prizePool >= 10000) tier = 'gold';
-  else if (prizePool >= 3000) tier = 'silver';
-  return { groupSize, prizePool, contribution, tier };
+  const now = Date.now();
+  const room: Room = {
+    id: `${templateId}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    templateId,
+    groupSize,
+    prizePool,
+    contribution,
+    tier: prizePool <= 500 ? 'entry' : prizePool < 10000 ? 'low' : 'mid',
+    status: 'open',
+    members: [],
+    winningNumber: null,
+    winnerId: null,
+    winnerName: null,
+    adminFee: null,
+    winnerPayout: null,
+    paidOut: false,
+    entropyHex: null,
+    commitmentHash: null,
+    drawAt: now + ROUND_MS,
+    secondsLeft: ROUND_MS / 1000,
+    createdAt: now,
+    updatedAt: now,
+    recent: [],
+  };
+  rooms.set(room.id, room);
+  return room;
 }
 
 export function buildCatalog(maxPrize = 9000) {
@@ -117,88 +172,66 @@ export function buildCatalog(maxPrize = 9000) {
   for (const size of GROUP_SIZES) {
     for (const prize of pools) {
       if (prize > maxPrize) continue;
-      const contribution = contributionOf(prize, size);
-      let tier = 'bronze';
-      if (prize >= 50000) tier = 'diamond';
-      else if (prize >= 10000) tier = 'gold';
-      else if (prize >= 3000) tier = 'silver';
       out.push({
-        id: `${size}-${prize}`,
+        id: `equb-${size}-${prize}`,
         groupSize: size,
         prizePool: prize,
-        contribution,
-        tier,
+        contribution: contributionOf(prize, size),
+        tier: prize <= 500 ? 'entry' : prize < 10000 ? 'low' : 'mid',
       });
     }
   }
   return out;
 }
 
-export function createRoom(templateId: string): Room {
-  const meta = parseTemplate(templateId);
-  const id = `${templateId}-${Date.now().toString(36)}`;
-  const room: Room = {
-    id,
-    templateId,
-    ...meta,
-    status: 'open',
-    members: [],
-    winningNumber: null,
-    winnerId: null,
-    winnerName: null,
-    adminFee: null,
-    winnerPayout: null,
-    paidOut: false,
-    entropyHex: null,
-    commitmentHash: null,
-    drawAt: Date.now() + ROUND_MS,
-    secondsLeft: ROUND_MS / 1000,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    recent: [],
-  };
-  rooms.set(room.id, room);
-  rooms.set(templateId, room);
-  return withTimer(room);
+export function findOpen(templateId: string): Room | undefined {
+  for (const r of rooms.values()) {
+    if (r.templateId === templateId && r.status === 'open') return withTimer(r);
+  }
+  return undefined;
 }
 
 export function ensureOpen(templateId: string): Room {
-  let room = rooms.get(templateId);
-  if (!room || room.status === 'completed') {
-    const recent = room?.recent || [];
-    room = createRoom(templateId);
-    room.recent = recent;
-    rooms.set(templateId, room);
+  const existing = findOpen(templateId);
+  if (existing) {
+    const raw = rooms.get(existing.id);
+    if (raw) void maybeDrawAsync(raw);
+    return withTimer(rooms.get(existing.id) || existing);
   }
+  const room = createRoom(templateId);
+  rooms.set(room.id, room);
+  return withTimer(room);
+}
+
+export function getRoom(id: string): Room | null {
+  let room = rooms.get(id);
+  if (!room) {
+    room = [...rooms.values()].find((r) => r.id === id || r.templateId === id);
+  }
+  if (!room) return null;
   void maybeDrawAsync(room);
-  return withTimer(rooms.get(templateId) || room);
+  return withTimer(rooms.get(room.id) || room);
 }
 
-function secureRandomInt(max: number) {
-  if (max <= 0) return 0;
-  const buf = randomBytes(4);
-  return buf.readUInt32BE(0) % max;
-}
+export async function maybeDrawAsync(room: Room): Promise<Room> {
+  if (room.status === 'completed' || room.status === 'drawing') {
+    return withTimer(room);
+  }
+  if (room.status !== 'open') return withTimer(room);
+  if (Date.now() < room.drawAt) return withTimer(room);
 
-async function maybeDrawAsync(room: Room) {
-  if (room.status === 'completed' || room.status === 'drawing') return;
-  if (room.status !== 'open') return;
-  if (Date.now() < room.drawAt) return;
-
-  const humans = realMembers(room);
-  if (humans.length < 1) {
+  room.members = realMembers(room);
+  if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
     rooms.set(room.id, room);
-    rooms.set(room.templateId, room);
-    return;
+    return withTimer(room);
   }
 
   room.status = 'drawing';
   rooms.set(room.id, room);
-  rooms.set(room.templateId, room);
 
-  // Only real players' numbers
+  const humans = realMembers(room);
   const allPicks: { member: Member; n: number }[] = [];
   for (const m of humans) {
     for (const n of memberPicks(m)) allPicks.push({ member: m, n });
@@ -207,18 +240,17 @@ async function maybeDrawAsync(room: Room) {
     room.status = 'open';
     room.drawAt = Date.now() + ROUND_MS;
     rooms.set(room.id, room);
-    return;
+    return withTimer(room);
   }
 
   const entropyHex = randomBytes(16).toString('hex');
-  const idx = secureRandomInt(allPicks.length);
+  const buf = randomBytes(4);
+  const idx = buf.readUInt32BE(0) % allPicks.length;
   const chosen = allPicks[idx]!;
   const winningNumber = chosen.n;
   const winner = chosen.member;
 
-  const pot = room.prizePool;
-  const adminFee = Math.round(pot * 0.15 * 100) / 100;
-  const winnerPayout = Math.round((pot - adminFee) * 100) / 100;
+  const { adminFee, winnerPayout } = computePayout(room.prizePool);
 
   room.winningNumber = winningNumber;
   room.winnerId = winner.playerId;
@@ -230,7 +262,7 @@ async function maybeDrawAsync(room: Room) {
     .update(`${entropyHex}:${winningNumber}`)
     .digest('hex');
   room.updatedAt = Date.now();
-  room.members = humans; // drop any leftover fakes
+  room.members = humans;
 
   if (winner.playerId && winnerPayout > 0 && !room.paidOut) {
     try {
@@ -257,12 +289,27 @@ async function maybeDrawAsync(room: Room) {
       at: Date.now(),
     },
     ...(room.recent || []).filter(
-      (r) => r.winnerName && !isFakePlayerName(r.winnerName),
+      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
     ),
   ].slice(0, 20);
-
   rooms.set(room.id, room);
-  rooms.set(room.templateId, room);
+  return withTimer(room);
+}
+
+export function maybeDraw(room: Room): Room {
+  if (room.status === 'completed' || room.status === 'drawing') {
+    return withTimer(room);
+  }
+  if (room.status !== 'open') return withTimer(room);
+  if (Date.now() < room.drawAt) return withTimer(room);
+  if (seatsTaken(room) < 1) {
+    room.drawAt = Date.now() + ROUND_MS;
+    room.updatedAt = Date.now();
+    rooms.set(room.id, room);
+    return withTimer(room);
+  }
+  void maybeDrawAsync(room);
+  return withTimer(rooms.get(room.id) || room);
 }
 
 export function joinRoom(
@@ -277,11 +324,12 @@ export function joinRoom(
 
   let room = ensureOpen(templateId);
   if (room.status !== 'open') {
-    room = withTimer(createRoom(templateId));
+    const created = createRoom(templateId);
+    rooms.set(created.id, created);
+    room = withTimer(created);
   }
 
-  // Work on the raw room in the map
-  const raw = rooms.get(templateId) || rooms.get(room.id);
+  const raw = rooms.get(room.id);
   if (!raw) throw new Error('Room not found');
 
   if (raw.members.some((m) => m.playerId === playerId)) {
@@ -313,26 +361,15 @@ export function joinRoom(
     picks,
     joinedAt: Date.now(),
   });
-  // Strip any fakes that may have been stored earlier
   raw.members = realMembers(raw);
   raw.updatedAt = Date.now();
   rooms.set(raw.id, raw);
-  rooms.set(templateId, raw);
   return withTimer(raw);
 }
 
 export function listRooms(): Room[] {
-  return [...rooms.values()]
-    .filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i)
-    .map((r) => {
-      void maybeDrawAsync(r);
-      return withTimer(rooms.get(r.id) || r);
-    });
-}
-
-export function getRoom(id: string): Room | null {
-  const room = rooms.get(id) || [...rooms.values()].find((r) => r.id === id);
-  if (!room) return null;
-  void maybeDrawAsync(room);
-  return withTimer(rooms.get(room.id) || room);
+  return [...rooms.values()].map((r) => {
+    void maybeDrawAsync(r);
+    return withTimer(rooms.get(r.id) || r);
+  });
 }

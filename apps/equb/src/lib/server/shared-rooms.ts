@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { isDbConfigured } from './db-users';
 import { createClient } from '@supabase/supabase-js';
 import { computePayout, settleWinPayout } from './wallet-settle';
+import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
 export type Member = {
@@ -47,11 +48,15 @@ function memberPicks(m: Member): number[] {
   return [m.pick];
 }
 function seatsTaken(room: SharedRoom) {
-  return room.members.reduce((n, m) => n + memberPicks(m).length, 0);
+  return room.members
+    .filter((m) => isRealPlayer(m))
+    .reduce((n, m) => n + memberPicks(m).length, 0);
 }
 function takenSet(room: SharedRoom) {
   const s = new Set<number>();
-  for (const m of room.members) for (const p of memberPicks(m)) s.add(p);
+  for (const m of room.members.filter((m) => isRealPlayer(m))) {
+    for (const p of memberPicks(m)) s.add(p);
+  }
   return s;
 }
 
@@ -68,6 +73,10 @@ function sb() {
 function withTimer(room: SharedRoom): SharedRoom {
   return {
     ...room,
+    members: (room.members || []).filter((m) => isRealPlayer(m)),
+    recent: (room.recent || []).filter(
+      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+    ),
     secondsLeft: Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000)),
   };
 }
@@ -101,54 +110,69 @@ function fresh(templateId: string): SharedRoom {
   };
 }
 
+export function sharedEnabled() {
+  return isDbConfigured();
+}
+
 async function read(templateId: string): Promise<SharedRoom | null> {
   if (!isDbConfigured()) return null;
-  const { data, error } = await sb()
-    .from('equb_live_rooms')
-    .select('payload')
-    .eq('template_id', templateId)
-    .maybeSingle();
-  if (error || !data?.payload) return null;
-  return data.payload as SharedRoom;
+  try {
+    const { data } = await sb()
+      .from('equb_live_rooms')
+      .select('payload')
+      .eq('template_id', templateId)
+      .maybeSingle();
+    if (data?.payload) return data.payload as SharedRoom;
+  } catch {
+    /* */
+  }
+  return null;
 }
 
 async function write(room: SharedRoom) {
   if (!isDbConfigured()) return;
-  const { error } = await sb().from('equb_live_rooms').upsert({
-    template_id: room.templateId,
-    payload: room,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) throw new Error(error.message);
-}
-
-/** Read without drawing / rotating — for claim-win */
-export async function peekShared(templateId: string): Promise<SharedRoom | null> {
-  const room = await read(templateId);
-  return room ? withTimer(room) : null;
+  try {
+    await sb().from('equb_live_rooms').upsert({
+      template_id: room.templateId,
+      payload: room,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    /* */
+  }
 }
 
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
-  if (room.status === 'completed' || room.status === 'drawing') {
-    return withTimer(room);
-  }
-  if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
+  if (room.status === 'completed' || room.status === 'drawing') return withTimer(room);
+  if (room.status !== 'open') return withTimer(room);
+  if (Date.now() < room.drawAt) return withTimer(room);
+
+  room.members = (room.members || []).filter((m) => isRealPlayer(m));
   if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
+    await write(room);
     return withTimer(room);
   }
 
   room.status = 'drawing';
-
-  const entropy = randomBytes(32);
-  const entropyHex = entropy.toString('hex');
-  const allPicks = room.members.flatMap((m) => memberPicks(m));
-  let winningNumber = (entropy.readUInt32BE(0) % room.groupSize) + 1;
-  if (!allPicks.includes(winningNumber)) {
-    winningNumber = allPicks[entropy.readUInt8(4) % allPicks.length]!;
+  const humans = room.members.filter((m) => isRealPlayer(m));
+  const allPicks: { member: Member; n: number }[] = [];
+  for (const m of humans) {
+    for (const n of memberPicks(m)) allPicks.push({ member: m, n });
   }
-  const winner = room.members.find((m) => memberPicks(m).includes(winningNumber));
+  if (!allPicks.length) {
+    room.status = 'open';
+    room.drawAt = Date.now() + ROUND_MS;
+    await write(room);
+    return withTimer(room);
+  }
+
+  const entropyHex = randomBytes(16).toString('hex');
+  const idx = randomBytes(4).readUInt32BE(0) % allPicks.length;
+  const chosen = allPicks[idx]!;
+  const winningNumber = chosen.n;
+  const winner = chosen.member;
   const { adminFee, winnerPayout } = computePayout(room.prizePool);
 
   room.winningNumber = winningNumber;
@@ -185,9 +209,27 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
       pot: room.prizePool,
       at: Date.now(),
     },
-    ...(room.recent || []),
+    ...(room.recent || []).filter(
+      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+    ),
   ].slice(0, 20);
+  await write(room);
   return withTimer(room);
+}
+
+export async function getShared(templateId: string): Promise<SharedRoom> {
+  let room = await read(templateId);
+  if (!room) {
+    room = fresh(templateId);
+    await write(room);
+  }
+  room = await drawAsync(room);
+  return withTimer(room);
+}
+
+export async function peekShared(templateId: string): Promise<SharedRoom | null> {
+  const room = await read(templateId);
+  return room ? withTimer(room) : null;
 }
 
 export async function openShared(templateId: string): Promise<SharedRoom> {
@@ -197,27 +239,10 @@ export async function openShared(templateId: string): Promise<SharedRoom> {
     room = fresh(templateId);
     room.recent = recent;
   } else if (room.status === 'completed') {
-    // Keep completed result ~20s so clients can claim + show winner
-    if (Date.now() - (room.updatedAt || 0) > 20_000) {
-      room = fresh(templateId);
-      room.recent = recent;
-    }
-  } else {
-    room = await drawAsync(room);
-  }
-  await write(room);
-  return withTimer(room);
-}
-
-export async function getShared(templateId: string): Promise<SharedRoom> {
-  let room = await read(templateId);
-  if (!room) room = fresh(templateId);
-  else if (room.status === 'completed' && Date.now() - (room.updatedAt || 0) > 20_000) {
-    const recent = room.recent || [];
     room = fresh(templateId);
-    room.recent = recent;
-  } else {
-    room = await drawAsync(room);
+    room.recent = recent.filter(
+      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+    );
   }
   await write(room);
   return withTimer(room);
@@ -229,16 +254,22 @@ export async function joinShared(
   name: string,
   pickOrPicks: number | number[],
 ): Promise<SharedRoom> {
+  if (isFakePlayerId(playerId) || isFakePlayerName(name)) {
+    throw new Error('Real account required — demo/bot players not allowed');
+  }
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
   room = await drawAsync(room);
   if (room.status !== 'open') {
-    const kept = room.recent || [];
+    const kept = (room.recent || []).filter(
+      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+    );
     room = fresh(templateId);
     room.recent = kept;
   }
+
   if (room.members.some((m) => m.playerId === playerId)) {
-    throw new Error('Already in this room');
+    return withTimer(room);
   }
 
   const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
@@ -252,7 +283,7 @@ export async function joinShared(
   }
   const taken = takenSet(room);
   for (const p of picks) {
-    if (taken.has(p)) throw new Error(`Number ${p} is taken`);
+    if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
   if (seatsTaken(room) + picks.length > room.groupSize) {
     throw new Error('Not enough seats left');
@@ -260,37 +291,13 @@ export async function joinShared(
 
   room.members.push({
     playerId,
-    name: name.slice(0, 40),
+    name: (name || 'Player').slice(0, 40),
     pick: picks[0]!,
     picks,
     joinedAt: Date.now(),
   });
+  room.members = room.members.filter((m) => isRealPlayer(m));
   room.updatedAt = Date.now();
   await write(room);
   return withTimer(room);
-}
-
-export async function listSharedOpen(): Promise<SharedRoom[]> {
-  if (!isDbConfigured()) return [];
-  const { data, error } = await sb()
-    .from('equb_live_rooms')
-    .select('payload, updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(80);
-  if (error || !data) return [];
-  const out: SharedRoom[] = [];
-  for (const row of data) {
-    let room = row.payload as SharedRoom;
-    if (!room?.templateId) continue;
-    room = await drawAsync({ ...room });
-    if (room.status === 'open' && seatsTaken(room) > 0) {
-      out.push(withTimer(room));
-      await write(room).catch(() => {});
-    }
-  }
-  return out.sort((a, b) => seatsTaken(b) - seatsTaken(a));
-}
-
-export function sharedEnabled() {
-  return isDbConfigured();
 }
