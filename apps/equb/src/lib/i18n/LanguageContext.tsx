@@ -70,3 +70,8 @@ export function useI18n() {
   if (!ctx) throw new Error('useI18n must be used within LanguageProvider');
   return ctx;
 }
+
+/** Locale only — used by EqubTable and other game UI */
+export function useLocale(): Locale {
+  return useI18n().locale;
+}

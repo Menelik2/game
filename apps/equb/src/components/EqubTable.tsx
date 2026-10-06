@@ -2,9 +2,8 @@
 
 import { useMemo } from 'react';
 import clsx from 'clsx';
-import { formatBirrCompact } from '@/lib/money';
-import { useLocale } from '@/lib/i18n/LanguageContext';
-import { useI18n } from '@/lib/i18n/LanguageContext';
+import { formatBirrCompact } from '@/lib/format';
+import { useLocale, useI18n } from '@/lib/i18n/LanguageContext';
 import { maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
@@ -46,7 +45,6 @@ type Props = {
   canFillBots?: boolean;
   canDraw?: boolean;
   locale?: string;
-  /** Max picks for this group (defaults from pick rule: 5→1, 10+→2) */
   maxSelect?: number;
   onToggleSelect: (n: number) => void;
   onBet: () => void;
@@ -80,7 +78,8 @@ export function EqubTable({
   onDraw,
 }: Props) {
   const locale = useLocale();
-  const { t } = useI18n();
+  const { t: _t } = useI18n();
+  void _t;
   const maxSelect = maxSelectProp ?? maxPicksForGroup(groupSize);
   const pot = Number(prizePool) || 0;
   const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
@@ -168,9 +167,7 @@ export function EqubTable({
                 ? locale === 'am'
                   ? 'በመቀላቀል…'
                   : 'Joining…'
-                : locale === 'am'
-                  ? `BET · ${selected.length}/${maxSelect}`
-                  : `BET · ${selected.length}/${maxSelect}`}
+                : `BET · ${selected.length}/${maxSelect}`}
             </button>
           )}
           {canDraw && onDraw && (
