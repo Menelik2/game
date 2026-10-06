@@ -102,8 +102,8 @@ export default function RoomsPage() {
       if (prev.length >= maxPicks) {
         setErr(
           locale === 'am'
-            ? `ከፍተኛ ${maxPicks} ቁጥር (ቡድን ${groupSize} ÷ 5)`
-            : `Max ${maxPicks} number(s) for ${groupSize}-player room`,
+            ? `ከፍተኛ ${maxPicks} ቁጥር`
+            : `Max ${maxPicks} number(s) for this room`,
         );
         return prev;
       }
@@ -321,8 +321,8 @@ export default function RoomsPage() {
           </div>
           <p className="mt-2 text-[11px] text-equb-300">
             {locale === 'am'
-              ? `ከፍተኛ ቁጥር ምርጫ = ${groupSize} ÷ 5 = ${maxPicks}`
-              : `Max numbers you can pick = ${groupSize} ÷ 5 = ${maxPicks}`}
+              ? `ከፍተኛ ቁጥር ምርጫ = ${maxPicks} (5=1፣ 10+=2)`
+              : `Max numbers you can pick = ${maxPicks} (5 players = 1, 10+ = 2)`}
           </p>
         </section>
 
@@ -336,7 +336,6 @@ export default function RoomsPage() {
             </span>
           </div>
 
-          {/* Animated seat hub */}
           <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-b from-black/40 to-black/20 p-4">
             <SeatRing
               total={groupSize}
@@ -359,7 +358,6 @@ export default function RoomsPage() {
             )}
           </div>
 
-          {/* Tactile number grid */}
           <div
             className="grid gap-1.5 sm:gap-2"
             style={{
