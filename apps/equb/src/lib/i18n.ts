@@ -1,6 +1,8 @@
+'use client';
+
 /**
- * Barrel for `@/lib/i18n` imports (EqubTable and others).
- * Implementation lives in `./i18n/LanguageContext`.
+ * Barrel for `@/lib/i18n`.
+ * EqubTable imports `useT` and `useLocale` from this path.
  */
 export {
   LanguageProvider,
@@ -8,5 +10,7 @@ export {
   useLocale,
 } from './i18n/LanguageContext';
 
-export { dictionaries } from './i18n/dictionaries';
+export { useT } from './i18n/LanguageContext';
+
+export { dictionaries, interpolate } from './i18n/dictionaries';
 export type { Locale, Dictionary } from './i18n/dictionaries';

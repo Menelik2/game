@@ -71,7 +71,12 @@ export function useI18n() {
   return ctx;
 }
 
-/** Locale only — used by EqubTable and other game UI */
+/** Locale string used by money formatters and EqubTable */
 export function useLocale(): Locale {
   return useI18n().locale;
+}
+
+/** Dictionary object — EqubTable calls this `useT` */
+export function useT(): Dictionary {
+  return useI18n().t;
 }
