@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useEqubStore } from '@/lib/store';
-import { takenPicks, isFull } from '@/lib/equb-math';
+import { takenPicks, isFull, splitPot } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
   joinRoom as mpJoin,
@@ -26,7 +26,10 @@ function PlayBackBar() {
   const { t } = useI18n();
   return (
     <div className="mb-2 flex items-center gap-2">
-      <Link href="/rooms" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80">
+      <Link
+        href="/rooms"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80"
+      >
         <ArrowLeft className="h-3.5 w-3.5" />
         {t.common.back}
       </Link>
@@ -76,55 +79,112 @@ export default function RoomDetailPage() {
   useEffect(() => {
     ensureRooms();
     refreshBalance();
-    if (!wantMp) { setConn('offline'); return; }
+    if (!wantMp) {
+      setConn('offline');
+      return;
+    }
     let cancelled = false;
     const hardTimeout = setTimeout(() => {
       if (!cancelled) setConn((c) => (c === 'checking' ? 'offline' : c));
     }, 5000);
     (async () => {
       try {
-        const ok = await Promise.race([probeApi(), new Promise<boolean>((r) => setTimeout(() => r(false), 4500))]);
+        const ok = await Promise.race([
+          probeApi(),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 4500)),
+        ]);
         if (cancelled) return;
-        if (!ok) { setConn('offline'); return; }
+        if (!ok) {
+          setConn('offline');
+          return;
+        }
         try {
           const room = await openRoom(templateId!);
           if (cancelled) return;
           setServerRoom(room);
           setConn('online');
-        } catch { if (!cancelled) setConn('offline'); }
-      } catch { if (!cancelled) setConn('offline'); }
+        } catch {
+          if (!cancelled) setConn('offline');
+        }
+      } catch {
+        if (!cancelled) setConn('offline');
+      }
     })();
-    return () => { cancelled = true; clearTimeout(hardTimeout); };
+    return () => {
+      cancelled = true;
+      clearTimeout(hardTimeout);
+    };
   }, [wantMp, ensureRooms, templateId, refreshBalance]);
 
   useEffect(() => {
     if (!multiplayer || !serverRoom?.id) return;
     const iv = setInterval(() => {
-      void fetchRoom(serverRoom.id).then(setServerRoom).catch(() => setConn('offline'));
+      void fetchRoom(serverRoom.id)
+        .then(setServerRoom)
+        .catch(() => setConn('offline'));
     }, 3000);
     return () => clearInterval(iv);
   }, [multiplayer, serverRoom?.id]);
 
   useDemoCountdown(tick, setTick, multiplayer && serverRoom?.secondsLeft != null);
   useEffect(() => {
-    if (multiplayer && serverRoom?.secondsLeft != null) setTick(Number(serverRoom.secondsLeft));
+    if (multiplayer && serverRoom?.secondsLeft != null) {
+      setTick(Number(serverRoom.secondsLeft));
+    }
   }, [multiplayer, serverRoom?.secondsLeft]);
 
+  // Only the single winner is paid (85% of pot) — once per room/draw
   useEffect(() => {
     if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
     const identity = getPlayerIdentity();
-    if (serverRoom.winnerId !== identity.playerId) return;
-    const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}`;
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key)) return;
-    const payout = Math.round(Number(serverRoom.prizePool || 0) * 0.85 * 100) / 100;
-    if (payout > 0) {
-      adjustBalance(payout);
-      setMsg(locale === 'am' ? `አሸንፈዋል! +${payout} ብር` : `You won! +${payout} Birr`);
-      try { sessionStorage.setItem(key, '1'); } catch { /* ignore */ }
+    if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
+    const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+    } catch {
+      /* ignore */
     }
-  }, [multiplayer, serverRoom?.status, serverRoom?.id, serverRoom?.winnerId, serverRoom?.winningNumber, serverRoom?.prizePool, user, adjustBalance, locale]);
+    const split = splitPot(Number(serverRoom.prizePool || 0));
+    const payout =
+      typeof serverRoom.winnerPayout === 'number' && serverRoom.winnerPayout > 0
+        ? serverRoom.winnerPayout
+        : split.winnerPayout;
+    if (payout <= 0) return;
+    const res = adjustBalance(payout);
+    if (res.ok) {
+      setMsg(
+        locale === 'am'
+          ? `አሸንፈዋል! +${payout} ብር (አንድ አሸናፊ)`
+          : `You won! +${payout} Birr (only winner)`,
+      );
+      try {
+        sessionStorage.setItem(key, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [
+    multiplayer,
+    serverRoom?.status,
+    serverRoom?.id,
+    serverRoom?.winnerId,
+    serverRoom?.winningNumber,
+    serverRoom?.prizePool,
+    serverRoom?.winnerPayout,
+    user,
+    adjustBalance,
+    locale,
+  ]);
 
-  useAutoCryptoDraw({ roomId: id, tick, setTick, setMsg, setDrawing, enabled: !multiplayer && conn !== 'checking', locale });
+  useAutoCryptoDraw({
+    roomId: id,
+    tick,
+    setTick,
+    setMsg,
+    setDrawing,
+    enabled: !multiplayer && conn !== 'checking',
+    locale,
+  });
 
   const historyResults: TableResult[] = useMemo(
     () => mergeRoundResults(history, serverRoom),
@@ -144,21 +204,31 @@ export default function RoomDetailPage() {
     const room = serverRoom;
     const identity = getPlayerIdentity();
     const taken = new Set(room.members.map((m) => m.pick) || []);
-    const yourPick = room.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
+    const yourPick =
+      room.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
     const inRoom = yourPick != null;
     const players: TablePlayer[] = room.members.map((m) => ({
       id: m.playerId,
       name: m.name,
       pick: m.pick,
       isYou: m.playerId === identity.playerId,
-      status: room.status === 'completed' ? (m.playerId === room.winnerId ? 'won' : 'lost') : 'waiting',
+      status:
+        room.status === 'completed'
+          ? m.playerId === room.winnerId
+            ? 'won'
+            : 'lost'
+          : 'waiting',
     }));
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
-        {room.status === 'completed' && room.winnerName && (
+        {room.status === 'completed' && (room.winnerName || room.winnerId) && (
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
-            Winner: {room.winnerName} · #{String(room.winningNumber).padStart(2, '0')}
+            Winner: {room.winnerName || room.winnerId} · #
+            {String(room.winningNumber).padStart(2, '0')}
+            {room.winnerPayout != null
+              ? ` · ${room.winnerPayout} Birr`
+              : ''}
           </p>
         )}
         <EqubTable
@@ -174,37 +244,59 @@ export default function RoomDetailPage() {
           results={historyResults}
           secondsLeft={Number(room.secondsLeft ?? tick)}
           roomId={room.id}
+          lastAdminFee={room.adminFee}
+          lastWinnerPayout={room.winnerPayout}
           disabled={inRoom || room.status !== 'open' || joining}
           joining={joining}
           canBet={room.status === 'open' && !inRoom && pick != null}
           locale={locale}
           onSelect={setPick}
           onBet={async () => {
-            if (pick == null) { setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize })); return; }
-            if (!user) { setMsg(t.common.signIn || 'Sign in first'); return; }
+            if (pick == null) {
+              setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
+              return;
+            }
+            if (!user) {
+              setMsg(t.common.signIn || 'Sign in first');
+              return;
+            }
             const fee = Number(room.contribution || 0);
             if (fee > 0 && user.balance < fee) {
-              setMsg(locale === 'am' ? `በቂ ብር የለም (ያስፈልጋል ${fee})` : `Need ${fee} Birr`);
+              setMsg(
+                locale === 'am'
+                  ? `በቂ ብር የለም (ያስፈልጋል ${fee})`
+                  : `Need ${fee} Birr`,
+              );
               return;
             }
             setJoining(true);
             if (fee > 0) {
               const deb = adjustBalance(-fee);
-              if (!deb.ok) { setMsg(deb.message); setJoining(false); return; }
+              if (!deb.ok) {
+                setMsg(deb.message);
+                setJoining(false);
+                return;
+              }
             }
             setServerRoom(optimisticJoin(room, pick));
             try {
               const joined = await mpJoin(templateId!, pick);
               setServerRoom(joined);
               setMsg(`#${String(pick).padStart(2, '0')}`);
-            } catch (e: any) {
+            } catch (e: unknown) {
               if (fee > 0) adjustBalance(fee);
-              setMsg(e?.message || t.common.error);
+              setMsg(e instanceof Error ? e.message : t.common.error);
               void refreshServer();
-            } finally { setJoining(false); }
+            } finally {
+              setJoining(false);
+            }
           }}
         />
-        {msg && <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">{msg}</p>}
+        {msg && (
+          <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
+            {msg}
+          </p>
+        )}
       </div>
     );
   }
@@ -215,7 +307,9 @@ export default function RoomDetailPage() {
       <div className="space-y-4 py-8 text-center">
         <PlayBackBar />
         <p className="text-white/50">{t.play.roomNotFound}</p>
-        <Link href="/rooms" className="text-equb-400 underline">{t.play.backToRooms}</Link>
+        <Link href="/rooms" className="text-equb-400 underline">
+          {t.play.backToRooms}
+        </Link>
       </div>
     );
   }
@@ -224,14 +318,24 @@ export default function RoomDetailPage() {
   const inRoom = yourPick != null;
   const full = isFull(room);
   const players: TablePlayer[] = room.members.map((m) => ({
-    id: m.id, name: m.name, pick: m.pick, isYou: !!(user && m.id === user.id),
-    status: room.status === 'completed' ? (m.id === room.winnerId ? 'won' : 'lost') : 'waiting',
+    id: m.id,
+    name: m.name,
+    pick: m.pick,
+    isYou: !!(user && m.id === user.id),
+    status:
+      room.status === 'completed'
+        ? m.id === room.winnerId
+          ? 'won'
+          : 'lost'
+        : 'waiting',
   }));
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
       {room.status === 'completed' && room.winnerName && (
-        <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">Winner: {room.winnerName} · #{String(room.winningNumber).padStart(2, '0')}</p>
+        <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
+          Winner: {room.winnerName} · #{String(room.winningNumber).padStart(2, '0')}
+        </p>
       )}
       <EqubTable
         groupSize={room.groupSize}
@@ -246,6 +350,8 @@ export default function RoomDetailPage() {
         results={historyResults}
         secondsLeft={tick}
         roomId={room.id}
+        lastAdminFee={room.lastAdminFee}
+        lastWinnerPayout={room.lastWinnerPayout}
         disabled={inRoom || room.status !== 'open'}
         joining={joining}
         drawing={drawing}
@@ -255,17 +361,32 @@ export default function RoomDetailPage() {
         locale={locale}
         onSelect={setPick}
         onBet={() => {
-          if (pick == null) { setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize })); return; }
+          if (pick == null) {
+            setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
+            return;
+          }
           if (!useEqubStore.getState().user) loginDemo();
           const res = joinLocal(room.id, pick);
           setMsg(res.message);
           if (res.ok) setPick(null);
         }}
         onFillBots={() => setMsg(fillSeats(room.id).message)}
-        onDraw={async () => { setDrawing(true); setMsg((await runDraw(room.id)).message); setDrawing(false); }}
-        onPlayAgain={() => { setMsg(reopenRoom(room.id).message); setPick(null); setTick(60); }}
+        onDraw={async () => {
+          setDrawing(true);
+          setMsg((await runDraw(room.id)).message);
+          setDrawing(false);
+        }}
+        onPlayAgain={() => {
+          setMsg(reopenRoom(room.id).message);
+          setPick(null);
+          setTick(60);
+        }}
       />
-      {msg && <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">{msg}</p>}
+      {msg && (
+        <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
+          {msg}
+        </p>
+      )}
     </div>
   );
 }
