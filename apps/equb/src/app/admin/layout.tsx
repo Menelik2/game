@@ -14,6 +14,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { AdminGuard } from '@/components/AdminGuard';
 
 const links = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
@@ -49,7 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
           <Link
-            href="/"
+            href="/rooms"
             className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-3.5 py-2 text-xs font-medium text-white/55 transition hover:border-amber-500/40 hover:text-amber-100"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -80,7 +81,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
       </div>
 
-      {children}
+      <AdminGuard>{children}</AdminGuard>
     </div>
   );
 }
