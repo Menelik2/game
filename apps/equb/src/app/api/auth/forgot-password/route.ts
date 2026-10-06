@@ -51,11 +51,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Password updated. You can log in now.',
-      data: {
-        id: r.user.id,
-        fullName: r.user.fullName,
-        phone: r.user.phone,
-      },
+      data: { phone, fullName },
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Reset failed';

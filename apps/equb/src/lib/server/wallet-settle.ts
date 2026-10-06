@@ -51,7 +51,10 @@ async function adjust(userId: string, delta: number, reason: string) {
     } catch {
       /* optional mirror for SSE */
     }
-    return r.balance;
+    if (typeof r !== 'number' || !Number.isFinite(r)) {
+      throw new Error('Balance update failed');
+    }
+    return r;
   }
   if (delta < 0) {
     const w = ensureWallet(userId);
@@ -62,14 +65,9 @@ async function adjust(userId: string, delta: number, reason: string) {
   return applyDelta(userId, delta, reason).balance;
 }
 
-/**
- * Debit join fee once per live round instance.
- * feeKey must include the live room instance id (not only template).
- */
 export async function settleJoinFee(input: {
   userId: string;
   amount: number;
-  /** Unique live room id for this round */
   roomId: string;
   picks: number[];
 }): Promise<{ balance: number; debited: boolean }> {
@@ -87,12 +85,11 @@ export async function settleJoinFee(input: {
     const balance = await adjust(input.userId, -amount, `join_fee:${input.roomId}`);
     g.__feeKeys!.add(feeKey);
     return { balance, debited: true };
-  } catch (e: any) {
-    throw new Error(e?.message || 'Insufficient balance');
+  } catch (e: unknown) {
+    throw new Error(e instanceof Error ? e.message : 'Insufficient balance');
   }
 }
 
-/** Credit winner once per room+number. */
 export async function settleWinPayout(input: {
   userId: string;
   amount: number;
@@ -117,8 +114,8 @@ export async function settleWinPayout(input: {
     );
     g.__paidKeys!.add(payKey);
     return { balance, credited: true };
-  } catch (e: any) {
-    throw new Error(e?.message || 'Credit failed');
+  } catch (e: unknown) {
+    throw new Error(e instanceof Error ? e.message : 'Credit failed');
   }
 }
 
@@ -146,3 +143,4 @@ export async function refundJoinFee(input: {
 export function isDbUser(id: string) {
   return isUuid(id);
 }
+void isDbConfigured;

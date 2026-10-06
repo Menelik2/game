@@ -1,25 +1,18 @@
 /** Fast Equb: pick numbers → computer draws → one winner */
 
-/** Group sizes: multiples of 5 (5, 10, 15, … 100) */
 export const GROUP_SIZES = [
   5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100,
 ] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
 
-/**
- * Number Selection Rule:
- * 5-player room  → max 1 number
- * 10+ players    → max 2 numbers (15, 20, 25, … 50 all max 2)
- */
 export function maxPicksForGroup(groupSize: number): number {
   const size = Math.floor(Number(groupSize) || 0);
   if (size <= 5) return 1;
   return 2;
 }
 
-/** Platform / admin share of each pot when a game completes */
 export const ADMIN_FEE_RATE = 0.15;
-export const WINNER_SHARE_RATE = 1 - ADMIN_FEE_RATE; // 0.85
+export const WINNER_SHARE_RATE = 1 - ADMIN_FEE_RATE;
 
 export function splitPot(prizePool: number): {
   grossPot: number;
@@ -30,12 +23,7 @@ export function splitPot(prizePool: number): {
   const gross = Math.round(Number(prizePool) * 100) / 100;
   const adminFee = Math.round(gross * ADMIN_FEE_RATE * 100) / 100;
   const winnerPayout = Math.round((gross - adminFee) * 100) / 100;
-  return {
-    grossPot: gross,
-    adminFee,
-    winnerPayout,
-    adminFeeRate: ADMIN_FEE_RATE,
-  };
+  return { grossPot: gross, adminFee, winnerPayout, adminFeeRate: ADMIN_FEE_RATE };
 }
 
 export function buildPrizePools(): number[] {
@@ -95,7 +83,7 @@ export type EqubMember = {
   pick: number;
   picks?: number[];
   isBot?: boolean;
-  joinedAt: number;
+  joinedAt?: number;
 };
 
 export type LiveRoom = {
@@ -116,6 +104,9 @@ export type LiveRoom = {
   lastWinnerPayout?: number | null;
   drawAt?: number;
   secondsLeft?: number;
+  entropyHex?: string;
+  commitmentHash?: string;
+  paidOut?: boolean;
 };
 
 export function memberPicks(m: EqubMember): number[] {
@@ -154,24 +145,17 @@ export function validatePicks(
   const clean = [...new Set(picks.map((n) => Math.floor(Number(n))))].filter(
     (n) => n >= 1 && n <= groupSize,
   );
-  if (clean.length === 0) {
-    return { ok: false, message: `Pick 1–${max} number(s)` };
-  }
+  if (clean.length === 0) return { ok: false, message: `Pick 1–${max} number(s)` };
   if (clean.length > max) {
     return {
       ok: false,
-      message:
-        groupSize <= 5
-          ? `Max 1 number for 5-player room`
-          : `Max 2 numbers for ${groupSize}-player room`,
+      message: groupSize <= 5 ? 'Max 1 number for 5-player room' : `Max 2 numbers for ${groupSize}-player room`,
     };
   }
   if (taken) {
     const set = taken instanceof Set ? taken : new Set(taken);
     for (const n of clean) {
-      if (set.has(n)) {
-        return { ok: false, message: `Number ${n} is already taken` };
-      }
+      if (set.has(n)) return { ok: false, message: `Number ${n} is already taken` };
     }
   }
   return { ok: true, picks: clean };
