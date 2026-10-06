@@ -111,7 +111,7 @@ function memRegister(input: {
     fullName: input.fullName,
     phone: input.phone,
     passwordHash: input.passwordHash,
-    balance: 100,
+    balance: 0,
     referralCode: referralCode(),
     role: 'player',
     banned: false,
@@ -155,7 +155,6 @@ export async function dbRegister(input: {
   | { ok: true; user: DbUser; storage: 'database' | 'memory' }
   | { ok: false; error: string }
 > {
-  // Production: must use real database
   if (!isDbConfigured()) {
     if (requireDb()) {
       return {
@@ -169,7 +168,6 @@ export async function dbRegister(input: {
     return { ok: true, user: r.user, storage: 'memory' };
   }
 
-  // 1) RPC
   try {
     const { data, error } = await sb().rpc('app_register', {
       p_full_name: input.fullName,
@@ -190,7 +188,6 @@ export async function dbRegister(input: {
     console.error('[dbRegister] rpc', e);
   }
 
-  // 2) Direct table insert
   try {
     const code = referralCode();
     const { data, error } = await sb()
@@ -199,7 +196,7 @@ export async function dbRegister(input: {
         full_name: input.fullName,
         phone: input.phone,
         password_hash: input.passwordHash,
-        balance: 100,
+        balance: 0,
         referral_code: code,
         role: 'player',
         banned: false,
@@ -237,7 +234,6 @@ export async function dbRegister(input: {
     }
   }
 
-  // Dev fallback only
   if (!requireDb()) {
     const r = memRegister(input);
     if (!r.ok) return r;
