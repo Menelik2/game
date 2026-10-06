@@ -39,7 +39,6 @@ export default function RoomsPage() {
   const rooms = useEqubStore((s) => s.rooms);
   const ensureRooms = useEqubStore((s) => s.ensureRooms);
   const user = useEqubStore((s) => s.user);
-  const loginDemo = useEqubStore((s) => s.loginDemo);
   const joinLocal = useEqubStore((s) => s.joinRoom);
 
   const [groupSize, setGroupSize] = useState(5);
@@ -71,7 +70,6 @@ export default function RoomsPage() {
         listLiveRooms().catch(() => [] as ServerRoom[]),
         listTemplates().catch(() => [] as LiveTemplate[]),
       ]);
-      // Only open rooms with at least 1 player — others can join
       const open = (roomsList || [])
         .filter((r) => r.status === 'open' && (r.members?.length || 0) > 0)
         .sort((a, b) => (b.members?.length || 0) - (a.members?.length || 0));
@@ -83,9 +81,9 @@ export default function RoomsPage() {
   }, [multiplayer]);
 
   useEffect(() => {
-    if (!user) loginDemo();
+    // Never auto-login as demo — that was wiping real sessions on refresh
     ensureRooms();
-  }, [ensureRooms, user, loginDemo]);
+  }, [ensureRooms]);
 
   useEffect(() => {
     void refreshLive();
@@ -98,13 +96,9 @@ export default function RoomsPage() {
   }, [groupSize]);
 
   function openLocalRoom(chosenPick: number): boolean {
-    let u = useEqubStore.getState().user;
+    const u = useEqubStore.getState().user;
     if (!u) {
-      loginDemo();
-      u = useEqubStore.getState().user;
-    }
-    if (!u) {
-      setErr(t.common.error);
+      setErr(locale === 'am' ? 'መጀመሪያ ይግቡ' : 'Sign in first');
       return false;
     }
     ensureRooms();
@@ -141,6 +135,11 @@ export default function RoomsPage() {
       setErr(interpolate(t.rooms.pickFirst, { size: groupSize }));
       return;
     }
+    if (!user) {
+      setErr(locale === 'am' ? 'መጀመሪያ ይግቡ' : 'Sign in first');
+      router.push('/profile');
+      return;
+    }
 
     setBusy(true);
     setErr('');
@@ -148,8 +147,7 @@ export default function RoomsPage() {
 
     try {
       if (multiplayer) {
-        const name =
-          useEqubStore.getState().user?.name || user?.name || 'Player';
+        const name = user?.name || 'Player';
         setPlayerName(name);
         try {
           await openRoom(templateId);
@@ -178,11 +176,10 @@ export default function RoomsPage() {
     }
   }
 
-  /** Prefer live shared rooms; fall back to local open rooms */
-  const localOpen = rooms.filter((r) => r.status === 'open' && r.members.length > 0).slice(0, 12);
+  const localOpen = rooms
+    .filter((r) => r.status === 'open' && r.members.length > 0)
+    .slice(0, 12);
   const previewTaken = pick != null ? new Set([pick]) : new Set<number>();
-
-  // Templates with someone already seated (from API)
   const activeTemplates = templates.filter(
     (t) => t.status === 'open' && t.seatsTaken > 0,
   );
@@ -208,7 +205,15 @@ export default function RoomsPage() {
         </div>
       </div>
 
-      {/* Shared open rooms — other players see these and join */}
+      {!user && (
+        <Link
+          href="/profile"
+          className="block rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-center text-sm font-semibold text-amber-100"
+        >
+          {locale === 'am' ? 'ለመጫወት መጀመሪያ ይግቡ' : 'Sign in to play'}
+        </Link>
+      )}
+
       {(liveOpen.length > 0 || activeTemplates.length > 0) && (
         <section className="rounded-2xl border border-equb-500/30 bg-equb-500/10 p-4">
           <div className="mb-3 flex items-center gap-2">
@@ -240,7 +245,6 @@ export default function RoomsPage() {
                     <p className="mt-0.5 text-[11px] text-white/45">
                       {r.members.length}/{r.groupSize} · {left}{' '}
                       {locale === 'am' ? 'መቀመጫ ቀርቷል' : 'seats left'}
-                      {r.secondsLeft != null ? ` · ${r.secondsLeft}s` : ''}
                     </p>
                     <div className="mt-2">
                       <SeatNodes
@@ -294,7 +298,6 @@ export default function RoomsPage() {
                 {t.rooms.step1}
               </p>
             </div>
-            <p className="mb-3 text-[11px] text-white/40">{t.rooms.step1Hint}</p>
             <div className="flex flex-wrap gap-2">
               {GROUP_SIZES.map((g) => (
                 <button
@@ -313,26 +316,14 @@ export default function RoomsPage() {
           </section>
 
           <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
-                  2
-                </span>
-                <p className="text-xs font-bold uppercase tracking-wider text-white/50">
-                  {t.rooms.step2}
-                </p>
-              </div>
-              {pick != null && (
-                <span className="rounded-full bg-equb-500/20 px-2.5 py-1 font-mono text-xs font-bold text-equb-300">
-                  {t.common.selected} · #{String(pick).padStart(2, '0')}
-                </span>
-              )}
+            <div className="mb-1 flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
+                2
+              </span>
+              <p className="text-xs font-bold uppercase tracking-wider text-white/50">
+                {t.rooms.step2}
+              </p>
             </div>
-            <p className="mb-3 text-[11px] text-white/40">
-              {interpolate(t.rooms.step2Hint, {
-                size: String(groupSize).padStart(2, '0'),
-              })}
-            </p>
             <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
               <SeatRing
                 total={groupSize}
@@ -427,7 +418,7 @@ export default function RoomsPage() {
 
           <button
             type="button"
-            disabled={pick == null || busy}
+            disabled={pick == null || busy || !user}
             onClick={() => void handleOpenRoom()}
             className="btn-gold w-full disabled:opacity-40 disabled:shadow-none"
           >
@@ -482,11 +473,7 @@ export default function RoomsPage() {
               </div>
             ) : (
               <div className="glass rounded-2xl p-6 text-center text-sm text-white/35">
-                {liveOk
-                  ? locale === 'am'
-                    ? 'ምንም የተያዙ ክፍሎች የሉም — አዲስ ክፈቱ'
-                    : 'No occupied rooms yet — open one above'
-                  : t.rooms.emptyOpen}
+                {t.rooms.emptyOpen}
               </div>
             )}
           </div>

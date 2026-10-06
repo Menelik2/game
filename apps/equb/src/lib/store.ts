@@ -18,10 +18,14 @@ import {
   updateLocalBalance,
   getAccountById,
   tryDebitAccount,
-  creditAccount,
 } from './auth-local';
 import { apiAdjustBalance, apiRefreshUser, isDbUserId } from './auth-api';
-import { loadSessionUserId, saveSessionUserId } from './session';
+import {
+  loadSessionUser,
+  loadSessionUserId,
+  saveSessionUser,
+  clearSession,
+} from './session';
 
 export type User = {
   id: string;
@@ -63,6 +67,7 @@ type State = {
   history: HistoryEvent[];
   adminEarningsTotal: number;
   adminFeeLog: AdminFeeEvent[];
+  hydrated: boolean;
   setSessionUser: (user: User) => void;
   loginDemo: (name?: string) => void;
   logout: () => void;
@@ -108,11 +113,6 @@ function freshRound(room: LiveRoom): LiveRoom {
   };
 }
 
-function persistBalance(user: User | null) {
-  if (!user?.id || isDbUserId(user.id)) return;
-  updateLocalBalance(user.id, user.balance);
-}
-
 function balanceFromLedger(userId: string, fallback: number): number {
   if (isDbUserId(userId)) return fallback;
   const a = getAccountById(userId);
@@ -132,6 +132,50 @@ function emitBalance(balance: number, userId: string) {
   }
 }
 
+function restoreUserFromStorage(): User | null {
+  // 1) Full snapshot
+  const snap = loadSessionUser();
+  if (snap?.id) {
+    // Prefer live local ledger balance
+    if (!isDbUserId(snap.id)) {
+      const a = getAccountById(snap.id);
+      if (a) {
+        return {
+          id: a.id,
+          name: a.fullName,
+          phone: a.phone,
+          email: `${a.phone.replace('+', '')}@phone.equb`,
+          balance: a.balance,
+          referralCode: a.referralCode,
+          role: a.role || 'player',
+          banned: a.banned,
+        };
+      }
+    }
+    return snap as User;
+  }
+
+  // 2) Id only → local account registry
+  const id = loadSessionUserId();
+  if (!id) return null;
+  if (!isDbUserId(id)) {
+    const a = getAccountById(id);
+    if (a) {
+      return {
+        id: a.id,
+        name: a.fullName,
+        phone: a.phone,
+        email: `${a.phone.replace('+', '')}@phone.equb`,
+        balance: a.balance,
+        referralCode: a.referralCode,
+        role: a.role || 'player',
+        banned: a.banned,
+      };
+    }
+  }
+  return null;
+}
+
 export const useEqubStore = create<State>()(
   persist(
     (set, get) => ({
@@ -140,54 +184,59 @@ export const useEqubStore = create<State>()(
       history: [],
       adminEarningsTotal: 0,
       adminFeeLog: [],
+      hydrated: false,
 
       setSessionUser: (user) => {
         const bal = isDbUserId(user.id)
           ? user.balance
           : balanceFromLedger(user.id, user.balance);
-        const next = { ...user, balance: bal };
+        const next: User = { ...user, balance: bal };
         set({ user: next });
-        saveSessionUserId(user.id);
+        saveSessionUser(next);
         emitBalance(bal, user.id);
         if (isDbUserId(user.id)) {
           void apiRefreshUser(user.id).then((u) => {
             if (!u) return;
             const cur = get().user;
             if (cur?.id !== u.id) return;
-            set({
-              user: {
-                ...cur,
-                name: u.fullName,
-                phone: u.phone,
-                balance: u.balance,
-                role: u.role as any,
-                referralCode: u.referralCode,
-              },
-            });
+            const refreshed: User = {
+              ...cur,
+              name: u.fullName,
+              phone: u.phone,
+              balance: u.balance,
+              role: u.role as 'player' | 'admin',
+              referralCode: u.referralCode,
+              banned: u.banned,
+            };
+            set({ user: refreshed });
+            saveSessionUser(refreshed);
             emitBalance(u.balance, u.id);
           });
         }
       },
 
       loginDemo: (name) => {
+        // Do not replace an existing logged-in session
+        if (get().user) return;
         const n = (name || 'ተጫዋች').slice(0, 24);
-        const u = {
+        const u: User = {
           id: `demo_${Date.now().toString(36)}`,
           name: n,
-          phone: undefined as string | undefined,
+          phone: undefined,
           email: `${n.toLowerCase().replace(/\s/g, '')}@demo.equb`,
           balance: 100,
           referralCode:
             n.slice(0, 4).toUpperCase() +
             Math.random().toString(36).slice(2, 6).toUpperCase(),
-          role: 'player' as const,
+          role: 'player',
         };
         set({ user: u });
+        // Demo guests are ephemeral — do not saveSessionUser
         emitBalance(u.balance, u.id);
       },
 
       logout: () => {
-        saveSessionUserId(null);
+        clearSession();
         set({ user: null });
       },
 
@@ -316,6 +365,10 @@ export const useEqubStore = create<State>()(
             get().adjustBalance(winnerPayout);
           }
           const nextUser = get().user;
+          if (nextUser) {
+            saveSessionUser(nextUser);
+            emitBalance(nextUser.balance, nextUser.id);
+          }
           const bal = nextUser?.balance ?? 0;
           const canAgain = bal >= room.contribution;
           const again = canAgain ? msg('playAgainHint') : msg('needMoreHint');
@@ -329,7 +382,6 @@ export const useEqubStore = create<State>()(
             at: Date.now(),
           };
 
-          if (nextUser) emitBalance(nextUser.balance, nextUser.id);
           set({
             user: nextUser,
             adminEarningsTotal: Math.round((adminEarningsTotal + adminFee) * 100) / 100,
@@ -429,7 +481,9 @@ export const useEqubStore = create<State>()(
               }),
             };
           }
-          set({ user: { ...user, balance: nextBal } });
+          const next = { ...user, balance: nextBal };
+          set({ user: next });
+          saveSessionUser(next);
           emitBalance(nextBal, user.id);
           void apiAdjustBalance(
             user.id,
@@ -440,13 +494,16 @@ export const useEqubStore = create<State>()(
               const cur = get().user;
               if (cur?.id === user.id) {
                 set({ user: { ...cur, balance: user.balance } });
+                saveSessionUser({ ...cur, balance: user.balance });
                 emitBalance(user.balance, user.id);
               }
               return;
             }
             const cur = get().user;
             if (cur?.id === r.user.id) {
-              set({ user: { ...cur, balance: r.user.balance } });
+              const nextU = { ...cur, balance: r.user.balance };
+              set({ user: nextU });
+              saveSessionUser(nextU);
               emitBalance(r.user.balance, r.user.id);
             }
           });
@@ -461,12 +518,19 @@ export const useEqubStore = create<State>()(
             debit.balance >= 0
               ? debit.balance
               : Math.round((user.balance - need) * 100) / 100;
-          set({ user: { ...user, balance: nextBal } });
+          const next = { ...user, balance: nextBal };
+          set({ user: next });
+          saveSessionUser(next);
           emitBalance(nextBal, user.id);
           return { ok: true, message: 'ok', balance: nextBal };
         }
         const nextBal = Math.round((user.balance + delta) * 100) / 100;
-        set({ user: { ...user, balance: nextBal } });
+        if (!isDbUserId(user.id)) {
+          updateLocalBalance(user.id, nextBal);
+        }
+        const next = { ...user, balance: nextBal };
+        set({ user: next });
+        saveSessionUser(next);
         emitBalance(nextBal, user.id);
         return { ok: true, message: 'ok', balance: nextBal };
       },
@@ -479,23 +543,23 @@ export const useEqubStore = create<State>()(
             if (!u) return;
             const cur = get().user;
             if (!cur || cur.id !== u.id) return;
-            if (cur.balance !== u.balance) {
-              set({
-                user: {
-                  ...cur,
-                  balance: u.balance,
-                  name: u.fullName,
-                  role: u.role as any,
-                },
-              });
-              emitBalance(u.balance, u.id);
-            }
+            const next: User = {
+              ...cur,
+              balance: u.balance,
+              name: u.fullName,
+              role: u.role as 'player' | 'admin',
+            };
+            set({ user: next });
+            saveSessionUser(next);
+            emitBalance(u.balance, u.id);
           });
           return;
         }
         const bal = balanceFromLedger(user.id, user.balance);
         if (bal !== user.balance) {
-          set({ user: { ...user, balance: bal } });
+          const next = { ...user, balance: bal };
+          set({ user: next });
+          saveSessionUser(next);
           emitBalance(bal, user.id);
         }
       },
@@ -511,40 +575,58 @@ export const useEqubStore = create<State>()(
           referredBy: code.trim().toUpperCase(),
         };
         set({ user: nextUser });
+        saveSessionUser(nextUser);
         return { ok: true, message: msg('referralOk') };
       },
     }),
     {
-      name: 'fast-equb-v7',
-      version: 7,
+      name: 'fast-equb-v8',
+      version: 8,
       partialize: (s) => ({
+        // Persist user so refresh keeps login
+        user: s.user && !String(s.user.id).startsWith('demo_') ? s.user : null,
         rooms: s.rooms,
         history: s.history,
         adminEarningsTotal: s.adminEarningsTotal,
         adminFeeLog: s.adminFeeLog,
       }),
-      onRehydrateStorage: () => () => {
-        const id = loadSessionUserId();
-        if (!id || !isDbUserId(id)) return;
-        void apiRefreshUser(id).then((u) => {
-          if (!u) {
-            saveSessionUserId(null);
-            return;
+      onRehydrateStorage: () => (state) => {
+        // Sync from localStorage session (more reliable than partial alone)
+        const restored = restoreUserFromStorage();
+        if (restored) {
+          useEqubStore.setState({ user: restored, hydrated: true });
+          // Refresh DB user in background
+          if (isDbUserId(restored.id)) {
+            void apiRefreshUser(restored.id).then((u) => {
+              if (!u) return;
+              const next: User = {
+                id: u.id,
+                name: u.fullName,
+                email: `${u.phone}@phone.equb`,
+                phone: u.phone,
+                balance: u.balance,
+                referralCode: u.referralCode,
+                role: u.role as 'player' | 'admin',
+                banned: u.banned,
+              };
+              useEqubStore.setState({ user: next });
+              saveSessionUser(next);
+            });
           }
-          useEqubStore.setState({
-            user: {
-              id: u.id,
-              name: u.fullName,
-              email: `${u.phone}@phone.equb`,
-              phone: u.phone,
-              balance: u.balance,
-              referralCode: u.referralCode,
-              role: u.role as 'player' | 'admin',
-              banned: u.banned,
-            },
-          });
-        });
+        } else if (state) {
+          useEqubStore.setState({ hydrated: true });
+        } else {
+          useEqubStore.setState({ hydrated: true });
+        }
       },
     },
   ),
 );
+
+// Client bootstrap: restore session immediately if store not yet hydrated
+if (typeof window !== 'undefined') {
+  const early = restoreUserFromStorage();
+  if (early && !useEqubStore.getState().user) {
+    useEqubStore.setState({ user: early, hydrated: true });
+  }
+}
