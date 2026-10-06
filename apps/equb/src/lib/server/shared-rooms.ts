@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from 'crypto';
 import { isDbConfigured } from './db-users';
 import { createClient } from '@supabase/supabase-js';
+import { computePayout, settleWinPayout } from './wallet-settle';
 
 const ROUND_MS = 60_000;
 export type Member = {
@@ -21,6 +22,9 @@ export type SharedRoom = {
   winningNumber: number | null;
   winnerId: string | null;
   winnerName: string | null;
+  adminFee?: number | null;
+  winnerPayout?: number | null;
+  paidOut?: boolean;
   entropyHex: string | null;
   commitmentHash: string | null;
   drawAt: number;
@@ -79,6 +83,9 @@ function fresh(templateId: string): SharedRoom {
     winningNumber: null,
     winnerId: null,
     winnerName: null,
+    adminFee: null,
+    winnerPayout: null,
+    paidOut: false,
     entropyHex: null,
     commitmentHash: null,
     drawAt: now + ROUND_MS,
@@ -123,15 +130,32 @@ function draw(room: SharedRoom): SharedRoom {
     winningNumber = allPicks[entropy.readUInt8(4) % allPicks.length]!;
   }
   const winner = room.members.find((m) => memberPicks(m).includes(winningNumber));
+  const { adminFee, winnerPayout } = computePayout(room.prizePool);
+
   room.status = 'completed';
   room.winningNumber = winningNumber;
   room.winnerId = winner?.playerId ?? null;
   room.winnerName = winner?.name ?? null;
+  room.adminFee = adminFee;
+  room.winnerPayout = winnerPayout;
   room.entropyHex = entropyHex;
   room.commitmentHash = createHash('sha256')
     .update(`${entropyHex}:${winningNumber}`)
     .digest('hex');
   room.updatedAt = Date.now();
+
+  if (winner?.playerId && !room.paidOut) {
+    room.paidOut = true;
+    void settleWinPayout({
+      userId: winner.playerId,
+      amount: winnerPayout,
+      roomId: room.id,
+      winningNumber,
+    }).catch(() => {
+      room.paidOut = false;
+    });
+  }
+
   const row = {
     id: room.id,
     winningNumber,

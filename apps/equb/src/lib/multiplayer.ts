@@ -49,6 +49,7 @@ export type ServerRoom = {
   winnerName?: string | null;
   adminFee?: number | null;
   winnerPayout?: number | null;
+  paidOut?: boolean;
   entropyHex?: string | null;
   commitmentHash?: string | null;
   drawAt?: number;
@@ -159,6 +160,46 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+/** Join + returns room and optional balance from server settlement */
+export async function joinRoomWithBalance(
+  templateId: string,
+  pickOrPicks: number | number[],
+): Promise<{ room: ServerRoom; balance?: number; fee?: number }> {
+  const { playerId, name } = getPlayerIdentity();
+  const picks = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12_000);
+  try {
+    const res = await fetch(
+      apiUrl(`/equb/rooms/${encodeURIComponent(templateId)}/join`),
+      {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          playerId,
+          userId: playerId,
+          name,
+          picks,
+          pick: picks[0],
+        }),
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json?.message || `HTTP ${res.status}`);
+    }
+    return {
+      room: (json.data || json) as ServerRoom,
+      balance: typeof json.balance === 'number' ? json.balance : undefined,
+      fee: typeof json.fee === 'number' ? json.fee : undefined,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function probeApi(): Promise<boolean> {
   const bases: string[] = [''];
   const env = resolveApiBase();
@@ -206,17 +247,7 @@ export function fetchRoom(id: string) {
 
 /** Join with one or more picks (max = groupSize/5 on server) */
 export function joinRoom(templateId: string, pickOrPicks: number | number[]) {
-  const { playerId, name } = getPlayerIdentity();
-  const picks = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
-  return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(templateId)}/join`, {
-    method: 'POST',
-    body: JSON.stringify({
-      playerId,
-      name,
-      picks,
-      pick: picks[0],
-    }),
-  });
+  return joinRoomWithBalance(templateId, pickOrPicks).then((r) => r.room);
 }
 
 export type ServerWallet = {

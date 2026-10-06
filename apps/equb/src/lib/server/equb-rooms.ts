@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'crypto';
+import { computePayout, settleWinPayout } from './wallet-settle';
 
 const ROUND_MS = 60_000;
 const GROUP_SIZES = [
@@ -25,6 +26,9 @@ export type Room = {
   winningNumber: number | null;
   winnerId: string | null;
   winnerName: string | null;
+  adminFee: number | null;
+  winnerPayout: number | null;
+  paidOut?: boolean;
   entropyHex: string | null;
   commitmentHash: string | null;
   drawAt: number;
@@ -132,6 +136,9 @@ function createRoom(templateId: string): Room {
     winningNumber: null,
     winnerId: null,
     winnerName: null,
+    adminFee: null,
+    winnerPayout: null,
+    paidOut: false,
     entropyHex: null,
     commitmentHash: null,
     drawAt: now + ROUND_MS,
@@ -201,13 +208,31 @@ export function maybeDraw(room: Room): Room {
   const winner = room.members.find((m) =>
     memberPicks(m).includes(proof.winningNumber),
   );
+  const { adminFee, winnerPayout } = computePayout(room.prizePool);
+
   room.status = 'completed';
   room.winningNumber = proof.winningNumber;
   room.winnerId = winner?.playerId ?? null;
   room.winnerName = winner?.name ?? null;
+  room.adminFee = adminFee;
+  room.winnerPayout = winnerPayout;
   room.entropyHex = proof.entropyHex;
   room.commitmentHash = proof.commitmentHash;
   room.updatedAt = Date.now();
+
+  // Credit winner wallet (async fire-and-track via paidOut)
+  if (winner?.playerId && !room.paidOut) {
+    room.paidOut = true;
+    void settleWinPayout({
+      userId: winner.playerId,
+      amount: winnerPayout,
+      roomId: room.id,
+      winningNumber: proof.winningNumber,
+    }).catch(() => {
+      room.paidOut = false;
+    });
+  }
+
   rooms.set(room.id, room);
   return withTimer(room);
 }
