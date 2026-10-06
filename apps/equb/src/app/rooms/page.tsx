@@ -10,6 +10,7 @@ import {
   roomId,
   seatsLeft,
   takenPicks,
+  maxPicksForGroup,
   type LiveRoom,
 } from '@/lib/equb-math';
 import {
@@ -24,7 +25,6 @@ import {
   type LiveTemplate,
 } from '@/lib/multiplayer';
 import { useI18n } from '@/lib/i18n/LanguageContext';
-import { interpolate } from '@/lib/i18n/dictionaries';
 import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
@@ -42,7 +42,7 @@ export default function RoomsPage() {
   const joinLocal = useEqubStore((s) => s.joinRoom);
 
   const [groupSize, setGroupSize] = useState(5);
-  const [pick, setPick] = useState<number | null>(null);
+  const [picks, setPicks] = useState<number[]>([]);
   const [prize, setPrize] = useState(500);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -51,10 +51,12 @@ export default function RoomsPage() {
   const [liveOk, setLiveOk] = useState(false);
   const multiplayer = isMultiplayerEnabled();
 
+  const maxPicks = maxPicksForGroup(groupSize);
   const contribution = useMemo(
     () => contributionPerMember(prize, groupSize),
     [prize, groupSize],
   );
+  const totalFee = Math.round(contribution * picks.length * 100) / 100;
   const templateId = roomId(groupSize, prize);
 
   const refreshLive = useCallback(async () => {
@@ -81,7 +83,6 @@ export default function RoomsPage() {
   }, [multiplayer]);
 
   useEffect(() => {
-    // Never auto-login as demo — that was wiping real sessions on refresh
     ensureRooms();
   }, [ensureRooms]);
 
@@ -91,11 +92,28 @@ export default function RoomsPage() {
     return () => clearInterval(iv);
   }, [refreshLive]);
 
+  // When group size changes → reset picks (rule max changes)
   useEffect(() => {
-    setPick(null);
+    setPicks([]);
   }, [groupSize]);
 
-  function openLocalRoom(chosenPick: number): boolean {
+  function togglePick(n: number) {
+    setPicks((prev) => {
+      if (prev.includes(n)) return prev.filter((x) => x !== n);
+      if (prev.length >= maxPicks) {
+        setErr(
+          locale === 'am'
+            ? `ከፍተኛ ${maxPicks} ቁጥር (ቡድን ${groupSize} ÷ 5)`
+            : `Max ${maxPicks} number(s) for ${groupSize}-player room`,
+        );
+        return prev;
+      }
+      setErr('');
+      return [...prev, n].sort((a, b) => a - b);
+    });
+  }
+
+  function openLocalRoom(chosen: number[]): boolean {
     const u = useEqubStore.getState().user;
     if (!u) {
       setErr(locale === 'am' ? 'መጀመሪያ ይግቡ' : 'Sign in first');
@@ -122,7 +140,7 @@ export default function RoomsPage() {
         ],
       });
     }
-    const res = joinLocal(templateId, chosenPick);
+    const res = joinLocal(templateId, chosen);
     if (!res.ok) {
       setErr(res.message);
       return false;
@@ -131,8 +149,16 @@ export default function RoomsPage() {
   }
 
   async function handleOpenRoom() {
-    if (pick == null) {
-      setErr(interpolate(t.rooms.pickFirst, { size: groupSize }));
+    if (picks.length === 0) {
+      setErr(
+        locale === 'am'
+          ? `ቢያንስ 1 ቁጥር ይምረጡ (ከፍተኛ ${maxPicks})`
+          : `Select at least 1 number (max ${maxPicks})`,
+      );
+      return;
+    }
+    if (picks.length > maxPicks) {
+      setErr(`Max ${maxPicks} for group ${groupSize}`);
       return;
     }
     if (!user) {
@@ -147,28 +173,27 @@ export default function RoomsPage() {
 
     try {
       if (multiplayer) {
-        const name = user?.name || 'Player';
-        setPlayerName(name);
+        setPlayerName(user.name || 'Player');
         try {
           await openRoom(templateId);
-          await mpJoin(templateId, pick);
+          await mpJoin(templateId, picks);
           clearTimeout(safety);
           setBusy(false);
-          router.push(`/rooms/${templateId}?pick=${pick}`);
+          router.push(`/rooms/${templateId}?picks=${picks.join(',')}`);
           return;
         } catch (apiErr: unknown) {
           console.warn('API open/join failed — local room', apiErr);
         }
       }
 
-      const ok = openLocalRoom(pick);
+      const ok = openLocalRoom(picks);
       clearTimeout(safety);
       setBusy(false);
       if (ok) router.push(`/rooms/${templateId}`);
     } catch (e: unknown) {
       clearTimeout(safety);
       setBusy(false);
-      if (openLocalRoom(pick)) {
+      if (openLocalRoom(picks)) {
         router.push(`/rooms/${templateId}`);
       } else {
         setErr(e instanceof Error ? e.message : t.common.error);
@@ -179,9 +204,9 @@ export default function RoomsPage() {
   const localOpen = rooms
     .filter((r) => r.status === 'open' && r.members.length > 0)
     .slice(0, 12);
-  const previewTaken = pick != null ? new Set([pick]) : new Set<number>();
+  const previewTaken = new Set(picks);
   const activeTemplates = templates.filter(
-    (t) => t.status === 'open' && t.seatsTaken > 0,
+    (x) => x.status === 'open' && x.seatsTaken > 0,
   );
 
   return (
@@ -195,14 +220,11 @@ export default function RoomsPage() {
           {liveOk && (
             <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-equb-400">
               <Radio className="h-3 w-3 animate-pulse" />
-              {locale === 'am' ? 'ቀጥታ ክፍሎች · አብረው ይጫወቱ' : 'Live rooms · play together'}
+              {locale === 'am' ? 'ቀጥታ ክፍሎች' : 'Live rooms'}
             </p>
           )}
         </div>
-        <div className="shrink-0 text-right">
-          <p className="mb-1 text-[10px] text-white/40">{t.common.language}</p>
-          <LanguageSwitcher />
-        </div>
+        <LanguageSwitcher />
       </div>
 
       {!user && (
@@ -219,13 +241,14 @@ export default function RoomsPage() {
           <div className="mb-3 flex items-center gap-2">
             <Users className="h-4 w-4 text-equb-300" />
             <h2 className="text-sm font-bold text-equb-100">
-              {locale === 'am' ? 'ክፍት ክፍሎች · አሁን ይቀላቀሉ' : 'Open rooms · join now'}
+              {locale === 'am' ? 'ክፍት ክፍሎች · ይቀላቀሉ' : 'Open rooms · join'}
             </h2>
           </div>
           <div className="space-y-2">
             {liveOpen.map((r) => {
-              const taken = new Set(r.members.map((m) => m.pick));
-              const left = Math.max(0, r.groupSize - r.members.length);
+              const taken = new Set(
+                r.members.flatMap((m) => m.picks || [m.pick]),
+              );
               const href = r.templateId
                 ? `/rooms/${r.templateId}`
                 : `/rooms/${r.id}`;
@@ -233,30 +256,28 @@ export default function RoomsPage() {
                 <Link
                   key={r.id}
                   href={href}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3 transition hover:border-equb-400/40"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white">
+                  <div>
+                    <p className="text-sm font-semibold">
                       {r.groupSize} {t.rooms.players} ·{' '}
                       <span className="text-gold-400">
                         {formatBirrCompact(r.prizePool, locale)}
                       </span>
                     </p>
-                    <p className="mt-0.5 text-[11px] text-white/45">
-                      {r.members.length}/{r.groupSize} · {left}{' '}
-                      {locale === 'am' ? 'መቀመጫ ቀርቷል' : 'seats left'}
+                    <p className="text-[11px] text-white/45">
+                      max {maxPicksForGroup(r.groupSize)} picks/player
                     </p>
-                    <div className="mt-2">
-                      <SeatNodes
-                        total={r.groupSize}
-                        taken={taken}
-                        yourPick={null}
-                        size="sm"
-                        maxVisible={Math.min(r.groupSize, 20)}
-                      />
-                    </div>
+                    <SeatNodes
+                      total={r.groupSize}
+                      taken={taken}
+                      yourPick={null}
+                      size="sm"
+                      maxVisible={Math.min(r.groupSize, 20)}
+                      className="mt-2"
+                    />
                   </div>
-                  <span className="shrink-0 rounded-full bg-equb-500 px-3 py-1.5 text-[11px] font-bold text-white">
+                  <span className="rounded-full bg-equb-500 px-3 py-1.5 text-[11px] font-bold text-white">
                     {locale === 'am' ? 'ቀላቀል' : 'Join'}
                   </span>
                 </Link>
@@ -267,19 +288,11 @@ export default function RoomsPage() {
                 <Link
                   key={tpl.id}
                   href={`/rooms/${tpl.id}`}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-3 py-3"
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-3"
                 >
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {tpl.groupSize} {t.rooms.players} ·{' '}
-                      <span className="text-gold-400">
-                        {formatBirrCompact(tpl.prizePool, locale)}
-                      </span>
-                    </p>
-                    <p className="text-[11px] text-white/45">
-                      {tpl.seatsTaken}/{tpl.groupSize} seated
-                    </p>
-                  </div>
+                  <p className="text-sm font-semibold">
+                    {tpl.groupSize} · {formatBirrCompact(tpl.prizePool, locale)}
+                  </p>
                   <ChevronRight className="h-4 w-4 text-white/30" />
                 </Link>
               ))}
@@ -287,198 +300,187 @@ export default function RoomsPage() {
         </section>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-5 lg:gap-8">
-        <div className="space-y-5 lg:col-span-3">
-          <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
-                1
-              </span>
-              <p className="text-xs font-bold uppercase tracking-wider text-white/50">
-                {t.rooms.step1}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {GROUP_SIZES.map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setGroupSize(g)}
-                  className={clsx(
-                    'min-w-[2.75rem] rounded-xl px-3 py-2 text-sm font-bold transition active:scale-95',
-                    groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
-                  )}
-                >
-                  {g}
-                </button>
-              ))}
-            </div>
-          </section>
+      {/* Current room only */}
+      <div className="space-y-4">
+        <section className="glass rounded-2xl p-4 sm:p-5">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
+            1 · {locale === 'am' ? 'የቡድን መጠን' : 'Group size'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {GROUP_SIZES.filter((g) => g <= 50).map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGroupSize(g)}
+                className={clsx(
+                  'min-w-[2.75rem] rounded-xl px-3 py-2 text-sm font-bold',
+                  groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
+                )}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-equb-300">
+            {locale === 'am'
+              ? `ከፍተኛ ቁጥር ምርጫ = ${groupSize} ÷ 5 = ${maxPicks}`
+              : `Max numbers you can pick = ${groupSize} ÷ 5 = ${maxPicks}`}
+          </p>
+        </section>
 
-          <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-equb-500/25 text-[11px] font-bold text-equb-300">
-                2
-              </span>
-              <p className="text-xs font-bold uppercase tracking-wider text-white/50">
-                {t.rooms.step2}
+        <section className="glass rounded-2xl p-4 sm:p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-white/50">
+              2 · {locale === 'am' ? 'ቁጥሮችዎ' : 'Your numbers'}
+            </p>
+            <span className="rounded-full bg-equb-500/20 px-2.5 py-1 text-[11px] font-bold text-equb-300">
+              {picks.length}/{maxPicks}
+            </span>
+          </div>
+          <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
+            <SeatRing
+              total={groupSize}
+              filledCount={picks.length}
+              yourPick={picks[0] ?? null}
+              taken={previewTaken}
+            />
+            <SeatNodes
+              total={groupSize}
+              taken={previewTaken}
+              yourPick={picks[0] ?? null}
+              size="md"
+              maxVisible={Math.min(groupSize, 20)}
+              className="justify-center"
+            />
+            {picks.length > 0 && (
+              <p className="font-mono text-xs text-equb-300">
+                #{picks.map((p) => String(p).padStart(2, '0')).join(' · #')}
               </p>
-            </div>
-            <div className="mb-3 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
-              <SeatRing
-                total={groupSize}
-                filledCount={pick != null ? 1 : 0}
-                yourPick={pick}
-                taken={previewTaken}
-              />
-              <SeatNodes
-                total={groupSize}
-                taken={previewTaken}
-                yourPick={pick}
-                size="md"
-                maxVisible={groupSize}
-                className="justify-center"
-              />
-            </div>
-            <div
-              className="grid gap-1.5"
-              style={{
-                gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
-              }}
-            >
-              {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => (
+            )}
+          </div>
+          <div
+            className="grid gap-1.5"
+            style={{
+              gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
+            }}
+          >
+            {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
+              const on = picks.includes(n);
+              const locked = !on && picks.length >= maxPicks;
+              return (
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setPick(n)}
+                  disabled={locked}
+                  onClick={() => togglePick(n)}
                   className={clsx(
-                    'aspect-square rounded-lg text-[11px] font-bold transition active:scale-95 sm:text-xs',
-                    pick === n
-                      ? 'bg-equb-500 text-white shadow-md shadow-equb-500/30 ring-2 ring-equb-300/50'
-                      : 'bg-[#151c1a] text-white/75 hover:bg-white/10',
+                    'aspect-square rounded-lg text-[11px] font-bold sm:text-xs',
+                    on
+                      ? 'bg-equb-500 text-white ring-2 ring-equb-300/50'
+                      : locked
+                        ? 'bg-[#151c1a] text-white/25'
+                        : 'bg-[#151c1a] text-white/75 hover:bg-white/10',
                   )}
                 >
                   {String(n).padStart(2, '0')}
                 </button>
-              ))}
-            </div>
-          </section>
+              );
+            })}
+          </div>
+        </section>
 
-          <section className="glass rounded-2xl p-4 sm:p-5">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gold-500/25 text-[11px] font-bold text-gold-400">
-                3
-              </span>
-              <p className="text-xs font-bold uppercase tracking-wider text-white/50">
-                {t.rooms.step3}
+        <section className="glass rounded-2xl p-4 sm:p-5">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
+            3 · {locale === 'am' ? 'ሽልማት' : 'Prize pot'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PRIZES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPrize(p)}
+                className={clsx(
+                  'rounded-xl px-3.5 py-2.5 text-xs font-bold',
+                  prize === p
+                    ? 'bg-gradient-to-b from-gold-400 to-gold-500 text-black'
+                    : 'bg-white/10 text-white/70',
+                )}
+              >
+                {formatBirrCompact(p, locale)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-black/30 p-3 text-center">
+            <div>
+              <p className="text-[9px] uppercase text-white/35">
+                {locale === 'am' ? 'ክፍያ' : 'Fee'}
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-equb-400">
+                {formatBirrCompact(totalFee || contribution, locale)}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {PRIZES.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPrize(p)}
-                  className={clsx(
-                    'rounded-xl px-3.5 py-2.5 text-xs font-bold transition active:scale-95',
-                    prize === p
-                      ? 'bg-gradient-to-b from-gold-400 to-gold-500 text-black shadow-md shadow-gold-500/30'
-                      : 'bg-white/10 text-white/70 hover:bg-white/15',
-                  )}
-                >
-                  {formatBirrCompact(p, locale)}
-                </button>
-              ))}
+            <div>
+              <p className="text-[9px] uppercase text-white/35">{t.rooms.players}</p>
+              <p className="mt-0.5 font-mono text-sm font-bold">{groupSize}</p>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-black/30 p-3 text-center">
-              <div>
-                <p className="text-[9px] uppercase text-white/35">{t.rooms.entryEach}</p>
-                <p className="mt-0.5 font-mono text-sm font-bold text-equb-400">
-                  {formatBirrCompact(contribution, locale)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase text-white/35">{t.rooms.players}</p>
-                <p className="mt-0.5 font-mono text-sm font-bold text-white">{groupSize}</p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase text-white/35">{t.rooms.potLabel}</p>
-                <p className="mt-0.5 font-mono text-sm font-bold text-gold-400">
-                  {formatBirrCompact(prize, locale)}
-                </p>
-              </div>
+            <div>
+              <p className="text-[9px] uppercase text-white/35">{t.rooms.potLabel}</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-gold-400">
+                {formatBirrCompact(prize, locale)}
+              </p>
             </div>
-          </section>
+          </div>
+        </section>
 
-          {err && (
-            <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-300">
-              {err}
-            </p>
-          )}
+        {err && (
+          <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-300">
+            {err}
+          </p>
+        )}
 
-          <button
-            type="button"
-            disabled={pick == null || busy || !user}
-            onClick={() => void handleOpenRoom()}
-            className="btn-gold w-full disabled:opacity-40 disabled:shadow-none"
-          >
-            {busy ? t.common.opening : t.common.openRoom}
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={picks.length === 0 || busy || !user}
+          onClick={() => void handleOpenRoom()}
+          className="btn-gold w-full disabled:opacity-40"
+        >
+          {busy ? t.common.opening : t.common.openRoom}
+        </button>
+      </div>
 
-        <div className="lg:col-span-2">
-          <div className="lg:sticky lg:top-24">
-            <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">
-              {t.rooms.openRooms}
-            </p>
-            {localOpen.length > 0 ? (
-              <div className="space-y-2">
-                {localOpen.map((r: LiveRoom) => {
-                  const taken = takenPicks(r);
-                  const yours = user
-                    ? r.members.find((m) => m.id === user.id)?.pick ?? null
-                    : null;
-                  return (
-                    <Link
-                      key={r.id}
-                      href={`/rooms/${r.id}`}
-                      className="glass block rounded-2xl px-3.5 py-3.5 transition hover:border-equb-500/30"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-white">
-                            {r.groupSize} {t.rooms.players}
-                          </p>
-                          <p className="mt-0.5 text-xs text-gold-400/90">
-                            {formatBirrCompact(r.prizePool, locale)}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-white/5 px-2.5 py-1 text-[10px] text-white/45">
-                          {r.members.length}/{r.groupSize} · {seatsLeft(r)}{' '}
-                          {t.rooms.left}
-                        </span>
-                      </div>
-                      <div className="mt-2.5 border-t border-white/5 pt-2.5">
-                        <SeatNodes
-                          total={r.groupSize}
-                          taken={taken}
-                          yourPick={yours}
-                          size="sm"
-                          maxVisible={r.groupSize <= 20 ? r.groupSize : 20}
-                        />
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="glass rounded-2xl p-6 text-center text-sm text-white/35">
-                {t.rooms.emptyOpen}
-              </div>
-            )}
+      {localOpen.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-bold uppercase text-white/30">
+            {t.rooms.openRooms}
+          </p>
+          <div className="space-y-2">
+            {localOpen.map((r: LiveRoom) => (
+              <Link
+                key={r.id}
+                href={`/rooms/${r.id}`}
+                className="glass block rounded-2xl px-3.5 py-3"
+              >
+                <div className="flex justify-between">
+                  <p className="text-sm font-semibold">
+                    {r.groupSize} · {formatBirrCompact(r.prizePool, locale)}
+                  </p>
+                  <span className="text-[10px] text-white/45">
+                    {seatsLeft(r)} left
+                  </span>
+                </div>
+                <SeatNodes
+                  total={r.groupSize}
+                  taken={takenPicks(r)}
+                  yourPick={null}
+                  size="sm"
+                  maxVisible={20}
+                  className="mt-2"
+                />
+              </Link>
+            ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
