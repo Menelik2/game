@@ -1,5 +1,5 @@
 /**
- * Multiplayer client — distinct accounts share the same server rooms.
+ * Multiplayer client — prefers same-origin /api (Vercel) then NEXT_PUBLIC_API_URL.
  */
 
 function resolveApiBase(): string {
@@ -78,10 +78,27 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   }
 
   try {
-    const sid = sessionStorage.getItem('equb_session_user_id');
+    const snap = localStorage.getItem('equb_session_user_v1');
+    if (snap) {
+      const u = JSON.parse(snap);
+      if (u?.id) {
+        return {
+          playerId: String(u.id),
+          name: String(u.name || u.phone || 'Player').slice(0, 40),
+        };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const sid =
+      localStorage.getItem('equb_session_user_id') ||
+      sessionStorage.getItem('equb_session_user_id');
     if (sid && sid.length >= 4) {
       let name = localStorage.getItem('equb_player_name') || 'Player';
-      for (const key of ['fast-equb-v7', 'fast-equb-v6', 'fast-equb-v5']) {
+      for (const key of ['fast-equb-v8', 'fast-equb-v7', 'fast-equb-v6']) {
         try {
           const raw = localStorage.getItem(key);
           if (!raw) continue;
@@ -100,7 +117,7 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
     /* ignore */
   }
 
-  for (const key of ['fast-equb-v7', 'fast-equb-v6', 'fast-equb-v5']) {
+  for (const key of ['fast-equb-v8', 'fast-equb-v7', 'fast-equb-v6']) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
@@ -117,9 +134,7 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   }
 
   const playerId = anonymousPid();
-  const name =
-    (typeof window !== 'undefined' && localStorage.getItem('equb_player_name')) ||
-    'Player';
+  const name = localStorage.getItem('equb_player_name') || 'Player';
   return { playerId, name: name.slice(0, 40) };
 }
 
@@ -147,6 +162,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+      cache: 'no-store',
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -166,48 +182,36 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function probeApi(): Promise<boolean> {
-  const bases: string[] = [];
+  // Prefer same-origin (Vercel Next API routes) first so live rooms work without Nest
+  const bases: string[] = [''];
   const env = resolveApiBase();
   if (env) bases.push(env);
-  bases.push('');
   for (const base of bases) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 4_000);
-      const res = await fetch(`${base}/api/health`, { signal: ctrl.signal });
-      clearTimeout(timer);
-      if (res.ok) {
-        if (typeof window !== 'undefined') (window as any).__equbApiBase = base;
-        return true;
+    for (const path of ['/api/health', '/api/equb/ping', '/api/equb/templates']) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4_000);
+        const res = await fetch(`${base}${path}`, {
+          signal: ctrl.signal,
+          cache: 'no-store',
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          if (typeof window !== 'undefined') (window as any).__equbApiBase = base;
+          return true;
+        }
+      } catch {
+        /* next */
       }
-    } catch {
-      /* next */
-    }
-  }
-  // Also try equb ping
-  for (const base of bases) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 3_000);
-      const res = await fetch(`${base}/api/equb/ping`, { signal: ctrl.signal });
-      clearTimeout(timer);
-      if (res.ok) {
-        if (typeof window !== 'undefined') (window as any).__equbApiBase = base;
-        return true;
-      }
-    } catch {
-      /* next */
     }
   }
   return false;
 }
 
-/** Shared open templates with live seat counts */
 export function listTemplates() {
   return req<LiveTemplate[]>('/equb/templates');
 }
 
-/** All live room instances (open + recent) */
 export function listLiveRooms() {
   return req<ServerRoom[]>('/equb/rooms');
 }
