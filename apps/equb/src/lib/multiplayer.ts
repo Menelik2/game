@@ -37,7 +37,13 @@ export type ServerRoom = {
   contribution: number;
   tier?: string;
   status: 'open' | 'drawing' | 'completed';
-  members: Array<{ playerId: string; name: string; pick: number; joinedAt: number }>;
+  members: Array<{
+    playerId: string;
+    name: string;
+    pick: number;
+    picks?: number[];
+    joinedAt: number;
+  }>;
   winningNumber: number | null;
   winnerId: string | null;
   winnerName?: string | null;
@@ -76,7 +82,6 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   if (typeof window === 'undefined') {
     return { playerId: 'ssr', name: 'Player' };
   }
-
   try {
     const snap = localStorage.getItem('equb_session_user_v1');
     if (snap) {
@@ -91,33 +96,7 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   } catch {
     /* ignore */
   }
-
-  try {
-    const sid =
-      localStorage.getItem('equb_session_user_id') ||
-      sessionStorage.getItem('equb_session_user_id');
-    if (sid && sid.length >= 4) {
-      let name = localStorage.getItem('equb_player_name') || 'Player';
-      for (const key of ['fast-equb-v8', 'fast-equb-v7', 'fast-equb-v6']) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) continue;
-          const user = JSON.parse(raw)?.state?.user;
-          if (user?.id === sid) {
-            name = String(user.name || user.phone || name);
-            break;
-          }
-        } catch {
-          /* next */
-        }
-      }
-      return { playerId: sid, name: name.slice(0, 40) };
-    }
-  } catch {
-    /* ignore */
-  }
-
-  for (const key of ['fast-equb-v8', 'fast-equb-v7', 'fast-equb-v6']) {
+  for (const key of ['fast-equb-v8', 'fast-equb-v7']) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
@@ -132,7 +111,6 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
       /* next */
     }
   }
-
   const playerId = anonymousPid();
   const name = localStorage.getItem('equb_player_name') || 'Player';
   return { playerId, name: name.slice(0, 40) };
@@ -182,7 +160,6 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function probeApi(): Promise<boolean> {
-  // Prefer same-origin (Vercel Next API routes) first so live rooms work without Nest
   const bases: string[] = [''];
   const env = resolveApiBase();
   if (env) bases.push(env);
@@ -227,11 +204,18 @@ export function fetchRoom(id: string) {
   return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(id)}`);
 }
 
-export function joinRoom(templateId: string, pick: number) {
+/** Join with one or more picks (max = groupSize/5 on server) */
+export function joinRoom(templateId: string, pickOrPicks: number | number[]) {
   const { playerId, name } = getPlayerIdentity();
+  const picks = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
   return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(templateId)}/join`, {
     method: 'POST',
-    body: JSON.stringify({ playerId, name, pick }),
+    body: JSON.stringify({
+      playerId,
+      name,
+      picks,
+      pick: picks[0],
+    }),
   });
 }
 

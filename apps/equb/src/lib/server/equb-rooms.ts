@@ -1,12 +1,15 @@
 import { randomBytes, createHash } from 'crypto';
 
 const ROUND_MS = 60_000;
-const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const GROUP_SIZES = [
+  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100,
+];
 
 export type Member = {
   playerId: string;
   name: string;
   pick: number;
+  picks?: number[];
   joinedAt: number;
 };
 
@@ -33,6 +36,25 @@ export type Room = {
 const g = globalThis as unknown as { __equbRooms?: Map<string, Room> };
 if (!g.__equbRooms) g.__equbRooms = new Map();
 const rooms = g.__equbRooms;
+
+function maxPicks(groupSize: number) {
+  return Math.max(1, Math.floor(groupSize / 5));
+}
+
+function memberPicks(m: Member): number[] {
+  if (m.picks && m.picks.length) return m.picks;
+  return [m.pick];
+}
+
+function seatsTaken(room: Room) {
+  return room.members.reduce((n, m) => n + memberPicks(m).length, 0);
+}
+
+function takenSet(room: Room) {
+  const s = new Set<number>();
+  for (const m of room.members) for (const p of memberPicks(m)) s.add(p);
+  return s;
+}
 
 function contributionOf(prizePool: number, groupSize: number) {
   return Math.round((prizePool / groupSize) * 100) / 100;
@@ -150,7 +172,7 @@ export function maybeDraw(room: Room): Room {
   if (room.status !== 'open') return withTimer(room);
   if (Date.now() < room.drawAt) return withTimer(room);
 
-  if (room.members.length < 1) {
+  if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
     rooms.set(room.id, room);
@@ -160,7 +182,7 @@ export function maybeDraw(room: Room): Room {
   room.status = 'drawing';
   rooms.set(room.id, room);
 
-  const picks = room.members.map((m) => m.pick);
+  const picks = room.members.flatMap((m) => memberPicks(m));
   let proof = cryptoDraw(room.groupSize);
 
   if (!picks.includes(proof.winningNumber)) {
@@ -176,7 +198,9 @@ export function maybeDraw(room: Room): Room {
     }
   }
 
-  const winner = room.members.find((m) => m.pick === proof.winningNumber);
+  const winner = room.members.find((m) =>
+    memberPicks(m).includes(proof.winningNumber),
+  );
   room.status = 'completed';
   room.winningNumber = proof.winningNumber;
   room.winnerId = winner?.playerId ?? null;
@@ -192,7 +216,7 @@ export function joinRoom(
   templateId: string,
   playerId: string,
   name: string,
-  pick: number,
+  pickOrPicks: number | number[],
 ): Room {
   let room = ensureOpen(templateId);
   room = maybeDraw(room);
@@ -204,20 +228,30 @@ export function joinRoom(
   if (room.members.some((m) => m.playerId === playerId)) {
     throw new Error('Already in this room');
   }
-  if (!Number.isFinite(pick) || pick < 1 || pick > room.groupSize) {
-    throw new Error(`Pick a number from 1 to ${room.groupSize}`);
+
+  const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const max = maxPicks(room.groupSize);
+  const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
+    (n) => n >= 1 && n <= room.groupSize,
+  );
+  if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
+  if (picks.length > max) {
+    throw new Error(`Max ${max} numbers for ${room.groupSize}-player room`);
   }
-  if (room.members.some((m) => m.pick === pick)) {
-    throw new Error('Number already taken');
+
+  const taken = takenSet(room);
+  for (const p of picks) {
+    if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
-  if (room.members.length >= room.groupSize) {
-    throw new Error('Room is full — wait for next round');
+  if (seatsTaken(room) + picks.length > room.groupSize) {
+    throw new Error('Not enough seats left');
   }
 
   room.members.push({
     playerId,
     name: (name || 'Player').slice(0, 40),
-    pick: Math.floor(pick),
+    pick: picks[0]!,
+    picks,
     joinedAt: Date.now(),
   });
   room.updatedAt = Date.now();

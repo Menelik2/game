@@ -3,7 +3,13 @@ import { isDbConfigured } from './db-users';
 import { createClient } from '@supabase/supabase-js';
 
 const ROUND_MS = 60_000;
-export type Member = { playerId: string; name: string; pick: number; joinedAt: number };
+export type Member = {
+  playerId: string;
+  name: string;
+  pick: number;
+  picks?: number[];
+  joinedAt: number;
+};
 export type SharedRoom = {
   id: string;
   templateId: string;
@@ -22,6 +28,22 @@ export type SharedRoom = {
   updatedAt: number;
   recent?: Array<{ id: string; winningNumber: number; winnerName: string; pot: number; at: number }>;
 };
+
+function maxPicks(groupSize: number) {
+  return Math.max(1, Math.floor(groupSize / 5));
+}
+function memberPicks(m: Member): number[] {
+  if (m.picks && m.picks.length) return m.picks;
+  return [m.pick];
+}
+function seatsTaken(room: SharedRoom) {
+  return room.members.reduce((n, m) => n + memberPicks(m).length, 0);
+}
+function takenSet(room: SharedRoom) {
+  const s = new Set<number>();
+  for (const m of room.members) for (const p of memberPicks(m)) s.add(p);
+  return s;
+}
 
 function sb() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -89,18 +111,18 @@ async function write(room: SharedRoom) {
 
 function draw(room: SharedRoom): SharedRoom {
   if (room.status !== 'open' || Date.now() < room.drawAt) return withTimer(room);
-  if (room.members.length < 1) {
+  if (seatsTaken(room) < 1) {
     room.drawAt = Date.now() + ROUND_MS;
     return withTimer(room);
   }
   const entropy = randomBytes(32);
   const entropyHex = entropy.toString('hex');
+  const allPicks = room.members.flatMap((m) => memberPicks(m));
   let winningNumber = (entropy.readUInt32BE(0) % room.groupSize) + 1;
-  const picks = room.members.map((m) => m.pick);
-  if (!picks.includes(winningNumber)) {
-    winningNumber = picks[entropy.readUInt8(4) % picks.length]!;
+  if (!allPicks.includes(winningNumber)) {
+    winningNumber = allPicks[entropy.readUInt8(4) % allPicks.length]!;
   }
-  const winner = room.members.find((m) => m.pick === winningNumber);
+  const winner = room.members.find((m) => memberPicks(m).includes(winningNumber));
   room.status = 'completed';
   room.winningNumber = winningNumber;
   room.winnerId = winner?.playerId ?? null;
@@ -151,7 +173,7 @@ export async function joinShared(
   templateId: string,
   playerId: string,
   name: string,
-  pick: number,
+  pickOrPicks: number | number[],
 ): Promise<SharedRoom> {
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
@@ -164,13 +186,29 @@ export async function joinShared(
   if (room.members.some((m) => m.playerId === playerId)) {
     throw new Error('Already in this room');
   }
-  if (pick < 1 || pick > room.groupSize) throw new Error('Invalid number');
-  if (room.members.some((m) => m.pick === pick)) throw new Error('Number taken');
-  if (room.members.length >= room.groupSize) throw new Error('Room full');
+
+  const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const max = maxPicks(room.groupSize);
+  const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
+    (n) => n >= 1 && n <= room.groupSize,
+  );
+  if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
+  if (picks.length > max) {
+    throw new Error(`Max ${max} numbers for ${room.groupSize}-player room`);
+  }
+  const taken = takenSet(room);
+  for (const p of picks) {
+    if (taken.has(p)) throw new Error(`Number ${p} is taken`);
+  }
+  if (seatsTaken(room) + picks.length > room.groupSize) {
+    throw new Error('Not enough seats left');
+  }
+
   room.members.push({
     playerId,
     name: name.slice(0, 40),
-    pick,
+    pick: picks[0]!,
+    picks,
     joinedAt: Date.now(),
   });
   room.updatedAt = Date.now();
@@ -178,7 +216,6 @@ export async function joinShared(
   return withTimer(room);
 }
 
-/** All open rooms that have at least one player — for Join list */
 export async function listSharedOpen(): Promise<SharedRoom[]> {
   if (!isDbConfigured()) return [];
   const { data, error } = await sb()
@@ -192,13 +229,12 @@ export async function listSharedOpen(): Promise<SharedRoom[]> {
     let room = row.payload as SharedRoom;
     if (!room?.templateId) continue;
     room = draw({ ...room });
-    // Persist draw side-effects (completed → still list if had members, or open with seats)
-    if (room.status === 'open' && (room.members?.length || 0) > 0) {
+    if (room.status === 'open' && seatsTaken(room) > 0) {
       out.push(withTimer(room));
       await write(room).catch(() => {});
     }
   }
-  return out.sort((a, b) => b.members.length - a.members.length);
+  return out.sort((a, b) => seatsTaken(b) - seatsTaken(a));
 }
 
 export function sharedEnabled() {
