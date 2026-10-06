@@ -45,58 +45,31 @@ export async function resolveBalance(userId: string): Promise<number> {
   try {
     if (isDbConfigured()) {
       const u = await dbGetUser(userId);
-      if (u) return Math.max(0, Number(u.balance) || 0);
+      if (u) return Number(u.balance || 0);
     }
   } catch {
-    /* ignore */
+    /* */
   }
   try {
     const w = ensureWallet(userId);
-    if (w && Number.isFinite(w.balance)) return Math.max(0, w.balance);
+    return Number(w.balance || 0);
   } catch {
-    /* ignore */
+    return 0;
   }
-  const local = g.__wallets!.get(userId);
-  return local ? Math.max(0, local.balance) : 0;
 }
 
-export function walletOf(userId: string): Wallet {
+function walletOf(userId: string): Wallet {
   let w = g.__wallets!.get(userId);
   if (!w) {
-    let seed = 0;
-    try {
-      seed = ensureWallet(userId).balance;
-    } catch {
-      seed = 0;
-    }
-    w = { userId, balance: seed, withdrawable: seed };
+    w = { userId, balance: 0, withdrawable: 0 };
     g.__wallets!.set(userId, w);
   }
   return w;
 }
 
-export async function walletOfAsync(userId: string): Promise<Wallet> {
-  const bal = await resolveBalance(userId);
-  const w = walletOf(userId);
-  w.balance = bal;
-  w.withdrawable = bal;
-  return { ...w };
-}
-
-export function listDeposits(userId?: string): Deposit[] {
-  const all = [...g.__dep!.values()];
-  return (userId ? all.filter((d) => d.userId === userId) : all).sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
-  );
-}
-
-export function getDeposit(id: string): Deposit | undefined {
-  return g.__dep!.get(id);
-}
-
-function parseAmount(raw: unknown, min: number, max: number): number | null {
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
+function parseAmount(amount: unknown, min: number, max: number) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return null;
   const rounded = Math.round(n * 100) / 100;
   if (rounded < min || rounded > max) return null;
   return rounded;
@@ -169,7 +142,10 @@ async function creditConfirmed(
   try {
     if (isDbConfigured()) {
       const r = await dbAdjustBalance(d.userId, creditAmt, 'deposit_telebirr');
-      after = Number(r.balance);
+      if (typeof r === 'number' && Number.isFinite(r)) after = r;
+      else if (r && typeof r === 'object' && 'balance' in (r as object)) {
+        after = Number((r as { balance: number }).balance);
+      }
     }
   } catch {
     after = Math.round((before + creditAmt) * 100) / 100;
@@ -246,12 +222,23 @@ export async function adminRejectDeposit(input: {
     return { ok: false as const, message: 'Deposit not found' };
   }
   if (d.status === 'CONFIRMED') {
-    return { ok: false as const, message: 'Cannot reject a confirmed deposit', deposit: d };
+    return {
+      ok: false as const,
+      message: 'Cannot reject a confirmed deposit',
+      deposit: d,
+    };
   }
   d.status = 'FAILED';
   d.failureReason = input.reason || 'Rejected by admin';
-  d.adminNote = input.reason || 'Rejected by admin';
-  return { ok: true as const, message: 'Deposit rejected', deposit: d };
+  return { ok: true as const, deposit: d };
+}
+
+export function listDeposits(userId?: string) {
+  const all = [...g.__dep!.values()].sort(
+    (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt),
+  );
+  if (!userId) return all;
+  return all.filter((d) => d.userId === userId);
 }
 
 export async function verifyDeposit(input: {
@@ -261,14 +248,14 @@ export async function verifyDeposit(input: {
 }) {
   const d = g.__dep!.get(input.depositId);
   if (!d || d.userId !== input.userId) {
-    return { ok: false, status: 'FAILED' as const, message: 'Deposit not found.' };
+    return { ok: false as const, status: 'FAILED' as const, message: 'Deposit not found' };
   }
   if (d.status === 'CONFIRMED') {
     const bal = await resolveBalance(d.userId);
     return {
-      ok: false,
+      ok: true as const,
       status: 'CONFIRMED' as const,
-      message: 'This deposit is already confirmed.',
+      message: 'Already confirmed',
       deposit: d,
       balance: bal,
     };
@@ -277,7 +264,7 @@ export async function verifyDeposit(input: {
   if (d.verificationAttempts > 8) {
     d.status = 'REVIEW_REQUIRED';
     return {
-      ok: false,
+      ok: false as const,
       status: 'REVIEW_REQUIRED' as const,
       message: 'Deposit under review.',
       deposit: d,
@@ -286,7 +273,7 @@ export async function verifyDeposit(input: {
   const txn = input.transactionNumber.trim();
   if (txn.length < 6) {
     return {
-      ok: false,
+      ok: false as const,
       status: 'FAILED' as const,
       message: 'Enter the Telebirr transaction number.',
     };
@@ -294,7 +281,7 @@ export async function verifyDeposit(input: {
   if (g.__usedTxn!.has(txn)) {
     d.status = 'REVIEW_REQUIRED';
     return {
-      ok: false,
+      ok: false as const,
       status: 'REVIEW_REQUIRED' as const,
       message: 'This transaction has already been used.',
       deposit: d,
@@ -317,7 +304,7 @@ export async function verifyDeposit(input: {
             ? 'FAILED'
             : 'PROCESSING';
     d.failureReason = result.message;
-    return { ok: false, status: d.status, message: result.message, deposit: d };
+    return { ok: false as const, status: d.status, message: result.message, deposit: d };
   }
 
   return creditConfirmed(
@@ -352,6 +339,106 @@ export async function creditFromWebhook(input: {
   }
   const credited = await creditConfirmed(d, input.providerTransactionId, input.amount);
   return { ok: credited.ok, message: credited.message, balance: credited.balance };
+}
+
+/**
+ * User flow: paste Telebirr transaction number only → verify API → credit real money.
+ * Amount comes from the verification API response (not pre-declared).
+ */
+export async function claimByTransactionNumber(input: {
+  userId: string;
+  transactionNumber: string;
+}) {
+  const txn = String(input.transactionNumber || '').trim();
+  if (!input.userId) {
+    return { ok: false as const, status: 'FAILED' as const, message: 'Sign in first' };
+  }
+  if (txn.length < 6) {
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      message: 'Enter a valid Telebirr transaction number.',
+    };
+  }
+  if (g.__usedTxn!.has(txn)) {
+    const bal = await resolveBalance(input.userId);
+    return {
+      ok: false as const,
+      status: 'CONFIRMED' as const,
+      message: 'This transaction has already been used.',
+      balance: bal,
+    };
+  }
+
+  const result = await verifyTelebirrWithVerifyEt({
+    transactionNumber: txn,
+    expectedAmount: 0,
+  });
+
+  if (!result.verified) {
+    return {
+      ok: false as const,
+      status: result.status,
+      message: result.message,
+      amount: result.amount,
+    };
+  }
+
+  const amount = Number(result.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      ok: false as const,
+      status: 'REVIEW_REQUIRED' as const,
+      message:
+        'Transaction verified but amount is missing. Contact admin with your transaction number.',
+    };
+  }
+
+  const cfg = verifyEtConfig();
+  if (amount < cfg.minDeposit || amount > cfg.maxDeposit) {
+    return {
+      ok: false as const,
+      status: 'REVIEW_REQUIRED' as const,
+      message: `Amount ${amount} ETB is outside allowed range (${cfg.minDeposit}–${cfg.maxDeposit}).`,
+      amount,
+    };
+  }
+
+  const id = randomUUID();
+  const merchantOrderId =
+    `EQ${Date.now().toString(36)}${id.slice(0, 6)}`.toUpperCase();
+  const deposit: Deposit = {
+    id,
+    userId: input.userId,
+    amount,
+    currency: 'ETB',
+    status: 'PENDING',
+    merchantOrderId,
+    transactionNumber: txn,
+    providerTransactionId: result.providerTransactionId || txn,
+    checkoutUrl: null,
+    failureReason: null,
+    verificationAttempts: 1,
+    createdAt: new Date().toISOString(),
+    confirmedAt: null,
+    adminNote: null,
+  };
+  g.__dep!.set(id, deposit);
+
+  const credited = await creditConfirmed(
+    deposit,
+    result.providerTransactionId || txn,
+    amount,
+  );
+
+  return {
+    ok: credited.ok,
+    status: credited.status,
+    message: credited.message,
+    amount,
+    balance: credited.balance,
+    deposit: credited.deposit,
+  };
 }
 
 export { publicWalletConfig };
