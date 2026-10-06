@@ -5,12 +5,13 @@ import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import { interpolate, type Locale } from '@/lib/i18n/dictionaries';
 import { SeatNodes, SeatRing } from '@/components/SeatNodes';
-import { ADMIN_FEE_RATE, splitPot } from '@/lib/equb-math';
+import { ADMIN_FEE_RATE, maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
   id: string;
   name: string;
   pick: number | null;
+  picks?: number[];
   status: 'waiting' | 'ready' | 'won' | 'lost';
   isYou?: boolean;
 };
@@ -29,15 +30,16 @@ type Props = {
   prizePool: number;
   contribution: number;
   taken: Set<number>;
-  selected: number | null;
-  yourPick: number | null;
+  /** Multi-select: numbers currently chosen by this player */
+  selected: number[];
+  /** Numbers already locked for this player after join */
+  yourPicks: number[];
   winningNumber: number | null;
   status: 'open' | 'drawing' | 'completed';
   players: TablePlayer[];
   results?: TableResult[];
   secondsLeft?: number;
   roomId?: string;
-  /** After draw — platform cut */
   lastAdminFee?: number | null;
   lastWinnerPayout?: number | null;
   disabled?: boolean;
@@ -47,7 +49,7 @@ type Props = {
   canFillBots?: boolean;
   canDraw?: boolean;
   locale: Locale;
-  onSelect: (n: number) => void;
+  onToggleSelect: (n: number) => void;
   onBet: () => void;
   onFillBots?: () => void;
   onDraw?: () => void;
@@ -67,7 +69,7 @@ export function EqubTable({
   contribution,
   taken,
   selected,
-  yourPick,
+  yourPicks,
   winningNumber,
   status,
   players,
@@ -83,7 +85,7 @@ export function EqubTable({
   canFillBots,
   canDraw,
   locale,
-  onSelect,
+  onToggleSelect,
   onBet,
   onFillBots,
   onDraw,
@@ -91,12 +93,16 @@ export function EqubTable({
 }: Props) {
   const { t } = useI18n();
   const cols = gridCols(groupSize);
+  const maxPicks = maxPicksForGroup(groupSize);
   const safe = Math.max(0, Math.floor(secondsLeft));
   const mm = String(Math.floor(safe / 60)).padStart(2, '0');
   const ss = String(safe % 60).padStart(2, '0');
   const urgent = safe <= 10 && status === 'open';
+  const yourSet = new Set(yourPicks);
+  const selectedSet = new Set(selected);
+  const feeTotal =
+    Math.round(contribution * Math.max(selected.length, 1) * 100) / 100;
 
-  // Always compute fee for this pot (every game)
   const preview = splitPot(prizePool);
   const feePct = Math.round(ADMIN_FEE_RATE * 100);
   const shownFee =
@@ -115,7 +121,7 @@ export function EqubTable({
               {t.play.title}
             </span>
             {roomId && (
-              <p className="mt-0.5 truncate font-mono text-[9px] text-white/35 sm:text-[10px]">
+              <p className="mt-0.5 truncate font-mono text-[9px] text-white/35">
                 ID: {roomId.slice(0, 14)}
               </p>
             )}
@@ -126,17 +132,21 @@ export function EqubTable({
               urgent ? 'animate-pulse text-gold-400' : 'text-white',
             )}
           >
-            {status === 'drawing' ? '…' : status === 'completed' ? '00:00' : `${mm}:${ss}`}
+            {status === 'drawing'
+              ? '…'
+              : status === 'completed'
+                ? '00:00'
+                : `${mm}:${ss}`}
           </div>
-          <div className="min-w-0 flex-1 text-right text-[9px] text-white/40 sm:text-[10px]">
-            <p className="truncate">
+          <div className="min-w-0 flex-1 text-right text-[9px] text-white/40">
+            <p>
               {t.common.pot}{' '}
               <span className="font-bold text-gold-400">
                 {formatBirrCompact(prizePool, locale)}
               </span>
             </p>
             <p>
-              {players.length}/{groupSize}
+              {players.length} players · max {maxPicks} picks
             </p>
           </div>
         </div>
@@ -147,49 +157,50 @@ export function EqubTable({
           <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-[#0e1815] to-[#0a1210] p-2.5 shadow-soft sm:p-4">
             <div className="mb-2 text-center sm:mb-3">
               <p className="text-xs font-semibold text-white/90 sm:text-sm">
-                {interpolate(t.board.chooseOneShort, { size: groupSize })}
+                {locale === 'am'
+                  ? `እስከ ${maxPicks} ቁጥር ይምረጡ (${groupSize}÷5)`
+                  : `Pick up to ${maxPicks} number(s) (${groupSize}÷5)`}
               </p>
-              <p className="text-[10px] text-white/40 sm:text-[11px]">{t.board.oneWinner}</p>
+              <p className="text-[10px] text-equb-300 sm:text-[11px]">
+                {selected.length}/{maxPicks} selected
+                {selected.length > 0 && (
+                  <span className="ml-2 font-mono">
+                    #{selected.map((p) => String(p).padStart(2, '0')).join(' · #')}
+                  </span>
+                )}
+              </p>
             </div>
 
             {status === 'completed' && winningNumber != null && (
-              <div className="mb-3 space-y-2 sm:mb-4">
-                <div className="rounded-xl border border-gold-500/30 bg-gold-500/10 py-3 text-center sm:py-4">
+              <div className="mb-3 space-y-2">
+                <div className="rounded-xl border border-gold-500/30 bg-gold-500/10 py-3 text-center">
                   <p className="text-[10px] uppercase tracking-widest text-white/40">
                     {t.board.winningNumber}
                   </p>
-                  <p className="font-mono text-4xl font-black text-gold-400 sm:text-5xl">
+                  <p className="font-mono text-4xl font-black text-gold-400">
                     {String(winningNumber).padStart(2, '0')}
                   </p>
                 </div>
-                {/* Admin fee on every game */}
                 <div className="grid grid-cols-3 gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-center">
                   <div>
                     <p className="text-[9px] uppercase text-white/40">Pot</p>
-                    <p className="font-mono text-xs font-bold text-white sm:text-sm">
+                    <p className="font-mono text-xs font-bold">
                       {formatBirrCompact(prizePool, locale)}
                     </p>
                   </div>
                   <div>
                     <p className="text-[9px] uppercase text-equb-300/80">Winner 85%</p>
-                    <p className="font-mono text-xs font-bold text-equb-300 sm:text-sm">
+                    <p className="font-mono text-xs font-bold text-equb-300">
                       {formatBirrCompact(shownWinner, locale)}
                     </p>
                   </div>
                   <div>
                     <p className="text-[9px] uppercase text-amber-300/80">Admin {feePct}%</p>
-                    <p className="font-mono text-xs font-bold text-amber-300 sm:text-sm">
+                    <p className="font-mono text-xs font-bold text-amber-300">
                       {formatBirrCompact(shownFee, locale)}
                     </p>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {status === 'open' && (
-              <div className="mb-2 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-center text-[10px] text-white/40">
-                Winner gets 85% · Admin fee {feePct}% (
-                {formatBirrCompact(preview.adminFee, locale)}) every game
               </div>
             )}
 
@@ -201,21 +212,32 @@ export function EqubTable({
               }}
             >
               {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
-                const isTaken = taken.has(n) && yourPick !== n;
-                const isSelected = selected === n;
-                const isYours = yourPick === n;
+                const isYours = yourSet.has(n);
+                const isSelected = selectedSet.has(n);
+                const isTaken = taken.has(n) && !isYours;
+                const atMax =
+                  !isSelected &&
+                  selected.length >= maxPicks &&
+                  yourPicks.length === 0;
                 const isWinner = winningNumber === n;
                 return (
                   <button
                     key={n}
                     type="button"
-                    disabled={disabled || isTaken || status !== 'open'}
-                    onClick={() => onSelect(n)}
+                    disabled={
+                      disabled ||
+                      isTaken ||
+                      status !== 'open' ||
+                      (atMax && !isSelected)
+                    }
+                    onClick={() => onToggleSelect(n)}
                     className={clsx(
-                      'flex aspect-square min-h-[2rem] items-center justify-center rounded-md text-[10px] font-bold transition active:scale-95 touch-manipulation sm:min-h-0 sm:text-xs',
+                      'flex aspect-square min-h-[2rem] items-center justify-center rounded-md text-[10px] font-bold transition active:scale-95 sm:text-xs',
                       isWinner &&
-                        'bg-gold-500 text-black ring-2 ring-gold-300 shadow-lg shadow-gold-500/40',
-                      !isWinner && isYours && 'bg-equb-500 text-white ring-2 ring-equb-300',
+                        'bg-gold-500 text-black ring-2 ring-gold-300',
+                      !isWinner &&
+                        isYours &&
+                        'bg-equb-500 text-white ring-2 ring-equb-300',
                       !isWinner &&
                         !isYours &&
                         isSelected &&
@@ -229,6 +251,13 @@ export function EqubTable({
                         !isYours &&
                         !isSelected &&
                         !isTaken &&
+                        atMax &&
+                        'cursor-not-allowed bg-[#151c1a] text-white/25',
+                      !isWinner &&
+                        !isYours &&
+                        !isSelected &&
+                        !isTaken &&
+                        !atMax &&
                         'bg-[#151c1a] text-white/80 hover:bg-white/15',
                     )}
                   >
@@ -238,23 +267,29 @@ export function EqubTable({
               })}
             </div>
 
-            <div className="mt-3 space-y-2 sm:mt-4">
+            <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/50 px-3 py-2">
-                <span className="text-xs text-white/50">{t.common.entry}</span>
-                <span className="font-mono text-sm font-black text-equb-300 sm:text-base">
-                  {formatBirrCompact(contribution, locale)}
+                <span className="text-xs text-white/50">
+                  {t.common.entry}
+                  {selected.length > 1 ? ` × ${selected.length}` : ''}
+                </span>
+                <span className="font-mono text-sm font-black text-equb-300">
+                  {formatBirrCompact(
+                    selected.length > 0 ? feeTotal : contribution,
+                    locale,
+                  )}
                 </span>
               </div>
               {status === 'open' && (
                 <button
                   type="button"
-                  disabled={joining}
+                  disabled={joining || !canBet}
                   onClick={onBet}
                   className={clsx(
-                    'w-full touch-manipulation rounded-xl py-3.5 text-sm font-black uppercase tracking-wide shadow-lg transition active:scale-[0.98] sm:py-4 sm:text-base',
+                    'w-full rounded-xl py-3.5 text-sm font-black uppercase tracking-wide shadow-lg',
                     canBet
                       ? 'bg-equb-500 text-white shadow-equb-500/40'
-                      : 'bg-equb-600/80 text-white/90',
+                      : 'bg-equb-600/50 text-white/50',
                   )}
                 >
                   {joining ? t.common.joining : t.board.bet}
@@ -262,7 +297,9 @@ export function EqubTable({
               )}
               {status === 'open' && !canBet && (
                 <p className="text-center text-[11px] text-amber-400/90">
-                  {t.board.selectThenBet}
+                  {locale === 'am'
+                    ? `ቢያንስ 1 ቁጥር ይምረጡ (ከፍተኛ ${maxPicks})`
+                    : `Select 1–${maxPicks} number(s), then join`}
                 </p>
               )}
             </div>
@@ -271,7 +308,7 @@ export function EqubTable({
               <button
                 type="button"
                 onClick={onFillBots}
-                className="mt-2 w-full touch-manipulation rounded-lg border border-white/15 py-2.5 text-xs font-semibold text-white/60"
+                className="mt-2 w-full rounded-lg border border-white/15 py-2.5 text-xs font-semibold text-white/60"
               >
                 {t.common.fillBots}
               </button>
@@ -281,7 +318,7 @@ export function EqubTable({
                 type="button"
                 disabled={drawing}
                 onClick={onDraw}
-                className="mt-2 w-full touch-manipulation rounded-lg bg-gold-500 py-3 text-sm font-black text-black disabled:opacity-40"
+                className="mt-2 w-full rounded-lg bg-gold-500 py-3 text-sm font-black text-black disabled:opacity-40"
               >
                 {drawing ? t.common.drawing : t.common.runDraw}
               </button>
@@ -290,7 +327,7 @@ export function EqubTable({
               <button
                 type="button"
                 onClick={onPlayAgain}
-                className="mt-2 w-full touch-manipulation rounded-lg bg-equb-500 py-3 text-sm font-black"
+                className="mt-2 w-full rounded-lg bg-equb-500 py-3 text-sm font-black"
               >
                 {t.common.playAgain}
               </button>
@@ -301,19 +338,19 @@ export function EqubTable({
         <aside className="order-2 lg:order-1">
           <div className="rounded-xl border border-white/10 bg-[#0a1210] p-2">
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-white/40">
-              {t.common.seats} ({players.length}/{groupSize})
+              {t.common.seats}
             </p>
             <div className="mb-2 flex flex-col items-center gap-2 rounded-lg bg-black/30 p-2">
               <SeatRing
                 total={groupSize}
-                filledCount={players.length}
-                yourPick={yourPick}
+                filledCount={taken.size}
+                yourPick={yourPicks[0] ?? selected[0] ?? null}
                 taken={taken}
               />
               <SeatNodes
                 total={groupSize}
                 taken={taken}
-                yourPick={yourPick}
+                yourPick={yourPicks[0] ?? null}
                 size="md"
                 className="justify-center"
               />
@@ -322,36 +359,40 @@ export function EqubTable({
               {players.length === 0 && (
                 <li className="px-2 py-3 text-center text-xs text-white/30">—</li>
               )}
-              {players.map((p) => (
-                <li
-                  key={p.id}
-                  className={clsx(
-                    'flex items-center justify-between rounded-lg px-2 py-1.5 text-xs',
-                    p.isYou ? 'bg-equb-500/20 ring-1 ring-equb-500/40' : 'bg-white/5',
-                  )}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-white/90">
-                      {p.isYou ? `${p.name} ★` : p.name}
-                    </p>
-                    <p className="font-mono text-[10px] text-white/40">
-                      {p.pick != null ? `#${String(p.pick).padStart(2, '0')}` : '—'}
-                    </p>
-                  </div>
-                  <span
+              {players.map((p) => {
+                const pp =
+                  p.picks && p.picks.length
+                    ? p.picks
+                    : p.pick != null
+                      ? [p.pick]
+                      : [];
+                return (
+                  <li
+                    key={p.id}
                     className={clsx(
-                      'shrink-0 text-[10px] font-bold uppercase',
-                      p.status === 'waiting' && 'text-gold-400',
-                      p.status === 'won' && 'text-gold-400',
-                      p.status === 'lost' && 'text-white/30',
+                      'flex items-center justify-between rounded-lg px-2 py-1.5 text-xs',
+                      p.isYou
+                        ? 'bg-equb-500/20 ring-1 ring-equb-500/40'
+                        : 'bg-white/5',
                     )}
                   >
-                    {p.status === 'waiting' && t.board.waiting}
-                    {p.status === 'won' && t.board.won}
-                    {p.status === 'lost' && '—'}
-                  </span>
-                </li>
-              ))}
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-white/90">
+                        {p.isYou ? `${p.name} ★` : p.name}
+                      </p>
+                      <p className="font-mono text-[10px] text-white/40">
+                        {pp.length
+                          ? pp.map((x) => `#${String(x).padStart(2, '0')}`).join(' ')
+                          : '—'}
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase text-gold-400">
+                      {p.status === 'waiting' && t.board.waiting}
+                      {p.status === 'won' && t.board.won}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </aside>
@@ -361,7 +402,7 @@ export function EqubTable({
             <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-equb-400">
               {t.board.results}
             </p>
-            <ul className="flex max-h-28 gap-1.5 overflow-x-auto pb-1 font-mono text-[10px] lg:max-h-72 lg:flex-col lg:space-y-1 lg:overflow-y-auto lg:overflow-x-hidden">
+            <ul className="flex max-h-28 gap-1.5 overflow-x-auto pb-1 font-mono text-[10px] lg:max-h-72 lg:flex-col lg:space-y-1 lg:overflow-y-auto">
               {results.length === 0 && (
                 <li className="px-2 py-2 text-white/30">{t.board.noResults}</li>
               )}
@@ -374,16 +415,13 @@ export function EqubTable({
                     <span className="text-gold-400">
                       #{String(r.winningNumber).padStart(2, '0')}
                     </span>
-                    <span className="max-w-[4rem] truncate text-white/50 lg:max-w-[6rem]">
+                    <span className="max-w-[4rem] truncate text-white/50">
                       {r.winnerName}
                     </span>
-                    <span className="text-equb-400">{formatBirrCompact(r.pot, locale)}</span>
-                  </div>
-                  {r.adminFee != null && r.adminFee > 0 && (
-                    <span className="text-[9px] text-amber-400/80">
-                      admin {feePct}%: {formatBirrCompact(r.adminFee, locale)}
+                    <span className="text-equb-400">
+                      {formatBirrCompact(r.pot, locale)}
                     </span>
-                  )}
+                  </div>
                 </li>
               ))}
             </ul>

@@ -5,7 +5,13 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useEqubStore } from '@/lib/store';
-import { takenPicks, isFull, splitPot } from '@/lib/equb-math';
+import {
+  takenPicks,
+  isFull,
+  splitPot,
+  maxPicksForGroup,
+  memberPicks,
+} from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
   joinRoom as mpJoin,
@@ -15,9 +21,7 @@ import {
   probeApi,
   type ServerRoom,
 } from '@/lib/multiplayer';
-import { optimisticJoin } from '@/lib/optimistic';
 import { useI18n } from '@/lib/i18n/LanguageContext';
-import { interpolate } from '@/lib/i18n/dictionaries';
 import { EqubTable, type TablePlayer, type TableResult } from '@/components/EqubTable';
 import { mergeRoundResults } from '@/lib/round-results';
 import { useAutoCryptoDraw, useDemoCountdown } from '@/lib/use-auto-draw';
@@ -37,6 +41,15 @@ function PlayBackBar() {
   );
 }
 
+function allTaken(room: ServerRoom): Set<number> {
+  const s = new Set<number>();
+  for (const m of room.members || []) {
+    const list = m.picks && m.picks.length ? m.picks : [m.pick];
+    for (const p of list) s.add(p);
+  }
+  return s;
+}
+
 type Conn = 'checking' | 'online' | 'offline';
 
 export default function RoomDetailPage() {
@@ -51,11 +64,10 @@ export default function RoomDetailPage() {
   const fillSeats = useEqubStore((s) => s.fillSeats);
   const runDraw = useEqubStore((s) => s.runDraw);
   const reopenRoom = useEqubStore((s) => s.reopenRoom);
-  const loginDemo = useEqubStore((s) => s.loginDemo);
   const adjustBalance = useEqubStore((s) => s.adjustBalance);
   const refreshBalance = useEqubStore((s) => s.refreshBalance);
   const [msg, setMsg] = useState('');
-  const [pick, setPick] = useState<number | null>(null);
+  const [picks, setPicks] = useState<number[]>([]);
   const [drawing, setDrawing] = useState(false);
   const [joining, setJoining] = useState(false);
   const [serverRoom, setServerRoom] = useState<ServerRoom | null>(null);
@@ -133,9 +145,9 @@ export default function RoomDetailPage() {
     }
   }, [multiplayer, serverRoom?.secondsLeft]);
 
-  // Only the single winner is paid (85% of pot) — once per room/draw
   useEffect(() => {
-    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user) return;
+    if (!multiplayer || !serverRoom || serverRoom.status !== 'completed' || !user)
+      return;
     const identity = getPlayerIdentity();
     if (!serverRoom.winnerId || serverRoom.winnerId !== identity.playerId) return;
     const key = `paid-${serverRoom.id}-${serverRoom.winningNumber}-${serverRoom.winnerId}`;
@@ -154,8 +166,8 @@ export default function RoomDetailPage() {
     if (res.ok) {
       setMsg(
         locale === 'am'
-          ? `አሸንፈዋል! +${payout} ብር (አንድ አሸናፊ)`
-          : `You won! +${payout} Birr (only winner)`,
+          ? `አሸንፈዋል! +${payout} ብር`
+          : `You won! +${payout} Birr`,
       );
       try {
         sessionStorage.setItem(key, '1');
@@ -191,6 +203,24 @@ export default function RoomDetailPage() {
     [history, serverRoom],
   );
 
+  function togglePick(n: number, groupSize: number, taken: Set<number>) {
+    if (taken.has(n)) return;
+    const max = maxPicksForGroup(groupSize);
+    setPicks((prev) => {
+      if (prev.includes(n)) return prev.filter((x) => x !== n);
+      if (prev.length >= max) {
+        setMsg(
+          locale === 'am'
+            ? `ከፍተኛ ${max} ቁጥር (${groupSize}÷5)`
+            : `Max ${max} numbers for this room`,
+        );
+        return prev;
+      }
+      setMsg('');
+      return [...prev, n].sort((a, b) => a - b);
+    });
+  }
+
   if (conn === 'checking') {
     return (
       <div className="space-y-4 py-12 text-center">
@@ -203,14 +233,19 @@ export default function RoomDetailPage() {
   if (multiplayer && serverRoom) {
     const room = serverRoom;
     const identity = getPlayerIdentity();
-    const taken = new Set(room.members.map((m) => m.pick) || []);
-    const yourPick =
-      room.members.find((m) => m.playerId === identity.playerId)?.pick ?? null;
-    const inRoom = yourPick != null;
+    const taken = allTaken(room);
+    const me = room.members.find((m) => m.playerId === identity.playerId);
+    const yourPicks = me
+      ? me.picks && me.picks.length
+        ? me.picks
+        : [me.pick]
+      : [];
+    const inRoom = yourPicks.length > 0;
     const players: TablePlayer[] = room.members.map((m) => ({
       id: m.playerId,
       name: m.name,
       pick: m.pick,
+      picks: m.picks,
       isYou: m.playerId === identity.playerId,
       status:
         room.status === 'completed'
@@ -219,6 +254,7 @@ export default function RoomDetailPage() {
             : 'lost'
           : 'waiting',
     }));
+
     return (
       <div className="space-y-2 pb-4">
         <PlayBackBar />
@@ -226,9 +262,6 @@ export default function RoomDetailPage() {
           <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
             Winner: {room.winnerName || room.winnerId} · #
             {String(room.winningNumber).padStart(2, '0')}
-            {room.winnerPayout != null
-              ? ` · ${room.winnerPayout} Birr`
-              : ''}
           </p>
         )}
         <EqubTable
@@ -236,8 +269,8 @@ export default function RoomDetailPage() {
           prizePool={room.prizePool}
           contribution={room.contribution}
           taken={taken}
-          selected={pick}
-          yourPick={yourPick}
+          selected={inRoom ? [] : picks}
+          yourPicks={yourPicks}
           winningNumber={room.winningNumber}
           status={room.status}
           players={players}
@@ -248,19 +281,25 @@ export default function RoomDetailPage() {
           lastWinnerPayout={room.winnerPayout}
           disabled={inRoom || room.status !== 'open' || joining}
           joining={joining}
-          canBet={room.status === 'open' && !inRoom && pick != null}
+          canBet={room.status === 'open' && !inRoom && picks.length > 0}
           locale={locale}
-          onSelect={setPick}
+          onToggleSelect={(n) => togglePick(n, room.groupSize, taken)}
           onBet={async () => {
-            if (pick == null) {
-              setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
+            if (picks.length === 0) {
+              setMsg(
+                locale === 'am'
+                  ? 'ቁጥር ይምረጡ'
+                  : 'Select at least one number',
+              );
               return;
             }
             if (!user) {
               setMsg(t.common.signIn || 'Sign in first');
               return;
             }
-            const fee = Number(room.contribution || 0);
+            const fee =
+              Math.round(Number(room.contribution || 0) * picks.length * 100) /
+              100;
             if (fee > 0 && user.balance < fee) {
               setMsg(
                 locale === 'am'
@@ -278,11 +317,13 @@ export default function RoomDetailPage() {
                 return;
               }
             }
-            setServerRoom(optimisticJoin(room, pick));
             try {
-              const joined = await mpJoin(templateId!, pick);
+              const joined = await mpJoin(templateId!, picks);
               setServerRoom(joined);
-              setMsg(`#${String(pick).padStart(2, '0')}`);
+              setPicks([]);
+              setMsg(
+                `Joined · #${picks.map((p) => String(p).padStart(2, '0')).join(' · #')}`,
+              );
             } catch (e: unknown) {
               if (fee > 0) adjustBalance(fee);
               setMsg(e instanceof Error ? e.message : t.common.error);
@@ -314,13 +355,15 @@ export default function RoomDetailPage() {
     );
   }
   const taken = takenPicks(room);
-  const yourPick = user ? room.members.find((m) => m.id === user.id)?.pick ?? null : null;
-  const inRoom = yourPick != null;
+  const me = user ? room.members.find((m) => m.id === user.id) : null;
+  const yourPicks = me ? memberPicks(me) : [];
+  const inRoom = yourPicks.length > 0;
   const full = isFull(room);
   const players: TablePlayer[] = room.members.map((m) => ({
     id: m.id,
     name: m.name,
     pick: m.pick,
+    picks: memberPicks(m),
     isYou: !!(user && m.id === user.id),
     status:
       room.status === 'completed'
@@ -329,12 +372,14 @@ export default function RoomDetailPage() {
           : 'lost'
         : 'waiting',
   }));
+
   return (
     <div className="space-y-2 pb-4">
       <PlayBackBar />
       {room.status === 'completed' && room.winnerName && (
         <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
-          Winner: {room.winnerName} · #{String(room.winningNumber).padStart(2, '0')}
+          Winner: {room.winnerName} · #
+          {String(room.winningNumber).padStart(2, '0')}
         </p>
       )}
       <EqubTable
@@ -342,8 +387,8 @@ export default function RoomDetailPage() {
         prizePool={room.prizePool}
         contribution={room.contribution}
         taken={taken}
-        selected={pick}
-        yourPick={yourPick}
+        selected={inRoom ? [] : picks}
+        yourPicks={yourPicks}
         winningNumber={room.winningNumber}
         status={room.status}
         players={players}
@@ -355,20 +400,21 @@ export default function RoomDetailPage() {
         disabled={inRoom || room.status !== 'open'}
         joining={joining}
         drawing={drawing}
-        canBet={room.status === 'open' && !inRoom && pick != null}
+        canBet={room.status === 'open' && !inRoom && picks.length > 0}
         canFillBots={inRoom && !full && room.status === 'open'}
         canDraw={inRoom && full && room.status === 'open'}
         locale={locale}
-        onSelect={setPick}
+        onToggleSelect={(n) => togglePick(n, room.groupSize, taken)}
         onBet={() => {
-          if (pick == null) {
-            setMsg(interpolate(t.rooms.pickFirst, { size: room.groupSize }));
+          if (picks.length === 0) {
+            setMsg(
+              locale === 'am' ? 'ቁጥር ይምረጡ' : 'Select at least one number',
+            );
             return;
           }
-          if (!useEqubStore.getState().user) loginDemo();
-          const res = joinLocal(room.id, pick);
+          const res = joinLocal(room.id, picks);
           setMsg(res.message);
-          if (res.ok) setPick(null);
+          if (res.ok) setPicks([]);
         }}
         onFillBots={() => setMsg(fillSeats(room.id).message)}
         onDraw={async () => {
@@ -378,7 +424,7 @@ export default function RoomDetailPage() {
         }}
         onPlayAgain={() => {
           setMsg(reopenRoom(room.id).message);
-          setPick(null);
+          setPicks([]);
           setTick(60);
         }}
       />
