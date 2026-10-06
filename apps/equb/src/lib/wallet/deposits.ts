@@ -27,6 +27,7 @@ export type Deposit = {
   verificationAttempts: number;
   createdAt: string;
   confirmedAt: string | null;
+  adminNote?: string | null;
 };
 
 type Wallet = { userId: string; balance: number; withdrawable: number };
@@ -40,7 +41,6 @@ if (!g.__dep) g.__dep = new Map();
 if (!g.__usedTxn) g.__usedTxn = new Set();
 if (!g.__wallets) g.__wallets = new Map();
 
-/** Resolve balance from DB user → shared wallets → deposit map */
 export async function resolveBalance(userId: string): Promise<number> {
   try {
     if (isDbConfigured()) {
@@ -63,7 +63,6 @@ export async function resolveBalance(userId: string): Promise<number> {
 export function walletOf(userId: string): Wallet {
   let w = g.__wallets!.get(userId);
   if (!w) {
-    // Seed from shared wallets map if present
     let seed = 0;
     try {
       seed = ensureWallet(userId).balance;
@@ -89,6 +88,10 @@ export function listDeposits(userId?: string): Deposit[] {
   return (userId ? all.filter((d) => d.userId === userId) : all).sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
+}
+
+export function getDeposit(id: string): Deposit | undefined {
+  return g.__dep!.get(id);
 }
 
 function parseAmount(raw: unknown, min: number, max: number): number | null {
@@ -129,6 +132,7 @@ export async function createDeposit(input: {
     verificationAttempts: 0,
     createdAt: new Date().toISOString(),
     confirmedAt: null,
+    adminNote: null,
   };
   g.__dep!.set(id, deposit);
   return { ok: true as const, deposit, checkoutUrl: null, config: publicWalletConfig() };
@@ -161,7 +165,6 @@ async function creditConfirmed(
     };
   }
 
-  // 1) DB user balance (source of truth when Supabase configured)
   let after = Math.round((before + creditAmt) * 100) / 100;
   try {
     if (isDbConfigured()) {
@@ -169,11 +172,9 @@ async function creditConfirmed(
       after = Number(r.balance);
     }
   } catch {
-    // User may be local-only (non-UUID)
     after = Math.round((before + creditAmt) * 100) / 100;
   }
 
-  // 2) Shared in-memory wallet (game /api/wallet)
   try {
     setBalance(d.userId, after);
   } catch {
@@ -184,7 +185,6 @@ async function creditConfirmed(
     }
   }
 
-  // 3) Deposit module map (history UI)
   const w = walletOf(d.userId);
   w.balance = after;
   w.withdrawable = after;
@@ -204,6 +204,54 @@ async function creditConfirmed(
     balance: after,
     balanceBefore: before,
   };
+}
+
+/** Admin: manually confirm a pending/review deposit and credit wallet */
+export async function adminConfirmDeposit(input: {
+  depositId: string;
+  transactionNumber?: string;
+  note?: string;
+}) {
+  const d = g.__dep!.get(input.depositId);
+  if (!d) {
+    return { ok: false as const, message: 'Deposit not found' };
+  }
+  if (d.status === 'CONFIRMED') {
+    const bal = await resolveBalance(d.userId);
+    return {
+      ok: false as const,
+      message: 'Already confirmed',
+      deposit: d,
+      balance: bal,
+    };
+  }
+  if (input.transactionNumber) {
+    d.transactionNumber = input.transactionNumber.trim();
+  }
+  const txn =
+    d.transactionNumber ||
+    d.providerTransactionId ||
+    `ADMIN-${d.id.slice(0, 8)}`;
+  if (input.note) d.adminNote = input.note;
+  return creditConfirmed(d, txn, d.amount);
+}
+
+/** Admin: reject a deposit */
+export async function adminRejectDeposit(input: {
+  depositId: string;
+  reason?: string;
+}) {
+  const d = g.__dep!.get(input.depositId);
+  if (!d) {
+    return { ok: false as const, message: 'Deposit not found' };
+  }
+  if (d.status === 'CONFIRMED') {
+    return { ok: false as const, message: 'Cannot reject a confirmed deposit', deposit: d };
+  }
+  d.status = 'FAILED';
+  d.failureReason = input.reason || 'Rejected by admin';
+  d.adminNote = input.reason || 'Rejected by admin';
+  return { ok: true as const, message: 'Deposit rejected', deposit: d };
 }
 
 export async function verifyDeposit(input: {
