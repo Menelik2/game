@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react';
 import clsx from 'clsx';
-import { formatBirrCompact } from '@/lib/format';
-import { useLocale, useI18n } from '@/lib/i18n';
+import { formatBirrCompact } from '@/lib/money';
+import { useLocale } from '@/lib/i18n/LanguageContext';
 import { maxPicksForGroup, splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
@@ -78,7 +78,6 @@ export function EqubTable({
   onDraw,
 }: Props) {
   const locale = useLocale();
-  useI18n();
   const maxSelect = maxSelectProp ?? maxPicksForGroup(groupSize);
   const pot = Number(prizePool) || 0;
   const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
@@ -100,8 +99,8 @@ export function EqubTable({
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40">
           <span className="font-semibold text-white/55">
             {locale === 'am'
-              ? `ቁጥር ይምረጡ · ከፍተኛ ${maxSelect} (5=1 · 10+=2)`
-              : `Pick numbers · max ${maxSelect} (5=1 · 10+=2)`}
+              ? `\u1271\u1325\u122d \u12ed\u121d\u1228\u1321 \u00b7 \u12a8\u134d\u1270\u129b ${maxSelect}`
+              : `Pick numbers \u00b7 max ${maxSelect}`}
           </span>
           {payoutHint != null && (
             <span className="text-gold-400/80">
@@ -113,8 +112,7 @@ export function EqubTable({
           className={clsx(
             'grid gap-1.5',
             groupSize <= 10 && 'grid-cols-5',
-            groupSize > 10 && groupSize <= 20 && 'grid-cols-5 sm:grid-cols-10',
-            groupSize > 20 && 'grid-cols-5 sm:grid-cols-10',
+            groupSize > 10 && 'grid-cols-5 sm:grid-cols-10',
           )}
         >
           {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
@@ -136,20 +134,11 @@ export function EqubTable({
                 className={clsx(
                   'relative flex aspect-square items-center justify-center rounded-xl text-[11px] font-black transition-all duration-200 sm:text-sm',
                   isWin && 'bg-gold-400 text-black ring-2 ring-gold-200',
-                  isYours &&
-                    !isWin &&
-                    'bg-equb-500 text-white ring-2 ring-equb-200',
+                  isYours && !isWin && 'bg-equb-500 text-white ring-2 ring-equb-200',
                   isTaken && !isYours && 'bg-white/5 text-white/25',
-                  locked &&
-                    !isTaken &&
-                    'cursor-not-allowed bg-[#151c1a] text-white/25',
-                  canClick &&
-                    'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
-                  !canClick &&
-                    !isYours &&
-                    !isTaken &&
-                    !isWin &&
-                    'bg-[#151c1a] text-white/40',
+                  locked && !isTaken && 'cursor-not-allowed bg-[#151c1a] text-white/25',
+                  canClick && 'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
+                  !canClick && !isYours && !isTaken && !isWin && 'bg-[#151c1a] text-white/40',
                 )}
               >
                 {String(n).padStart(2, '0')}
@@ -166,11 +155,7 @@ export function EqubTable({
               onClick={onBet}
               className="btn-gold flex-1 disabled:opacity-40"
             >
-              {joining
-                ? locale === 'am'
-                  ? 'በመቀላቀል…'
-                  : 'Joining…'
-                : `BET · ${selected.length}/${maxSelect}`}
+              {joining ? '...' : `BET \u00b7 ${selected.length}/${maxSelect}`}
             </button>
           )}
           {canDraw && onDraw && (
@@ -180,13 +165,7 @@ export function EqubTable({
               onClick={onDraw}
               className="rounded-xl border border-amber-400/40 bg-amber-400/15 px-4 py-2.5 text-sm font-bold text-amber-200"
             >
-              {drawing
-                ? locale === 'am'
-                  ? 'በመሳል…'
-                  : 'Drawing…'
-                : locale === 'am'
-                  ? 'ሳል'
-                  : 'Draw'}
+              {drawing ? '...' : 'Draw'}
             </button>
           )}
         </div>
@@ -194,11 +173,8 @@ export function EqubTable({
         {status === 'completed' &&
           (lastAdminFee != null || lastWinnerPayout != null) && (
             <p className="mt-2 text-center text-[11px] text-white/40">
-              {locale === 'am' ? 'አስተዳዳሪ 15%' : 'Admin 15%'}{' '}
-              {lastAdminFee != null
-                ? formatBirrCompact(lastAdminFee, locale)
-                : ''}{' · '}
-              {locale === 'am' ? 'አሸናፊ' : 'Winner'}{' '}
+              {lastAdminFee != null ? formatBirrCompact(lastAdminFee, locale) : ''}
+              {' \u00b7 '}
               {lastWinnerPayout != null
                 ? formatBirrCompact(lastWinnerPayout, locale)
                 : ''}
@@ -207,15 +183,9 @@ export function EqubTable({
       </div>
 
       <div className="order-2 rounded-2xl border border-white/10 bg-black/30 p-3">
-        <p className="text-[10px] font-bold uppercase text-white/40">
-          {locale === 'am' ? 'ተጫዋቾች' : 'Players'}
-        </p>
+        <p className="text-[10px] font-bold uppercase text-white/40">Players</p>
         <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
-          {players.length === 0 && (
-            <li className="text-white/30">
-              {locale === 'am' ? 'ገና የለም' : 'None yet'}
-            </li>
-          )}
+          {players.length === 0 && <li className="text-white/30">None yet</li>}
           {players.map((pl) => (
             <li
               key={pl.id}
@@ -243,20 +213,14 @@ export function EqubTable({
       </div>
 
       <div className="order-3 rounded-2xl border border-white/10 bg-black/30 p-3">
-        <p className="text-[10px] font-bold uppercase text-white/40">
-          {locale === 'am' ? 'ውጤቶች' : 'Results'}
-        </p>
+        <p className="text-[10px] font-bold uppercase text-white/40">Results</p>
         <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
-          {results.length === 0 && (
-            <li className="text-white/30">
-              {locale === 'am' ? 'ገና የለም' : 'None yet'}
-            </li>
-          )}
+          {results.length === 0 && <li className="text-white/30">None yet</li>}
           {results.slice(0, 12).map((r, i) => (
             <li key={r.id || i} className="flex justify-between gap-1">
               <span className="truncate">{r.winnerName}</span>
               <span className="shrink-0 font-mono text-gold-400/80">
-                #{String(r.winningNumber).padStart(2, '0')} ·{' '}
+                #{String(r.winningNumber).padStart(2, '0')} \u00b7{' '}
                 {formatBirrCompact(r.pot, locale)}
               </span>
             </li>

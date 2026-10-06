@@ -1,6 +1,3 @@
-/**
- * Barrel for `@/lib/format` — money formatters used by game UI.
- */
 export {
   formatBirr,
   formatBirrCompact,
