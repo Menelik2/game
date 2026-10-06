@@ -1,74 +1,86 @@
 'use client';
 
-import clsx from 'clsx';
 import { useMemo } from 'react';
-import { useT, useLocale } from '@/lib/i18n';
-import { formatBirrCompact } from '@/lib/format';
-import { filterRealResults, isRealPlayer } from '@/lib/real-players';
+import clsx from 'clsx';
+import { formatBirrCompact } from '@/lib/money';
+import { useLocale } from '@/lib/i18n/LanguageContext';
+import { useI18n } from '@/lib/i18n/LanguageContext';
+import { splitPot } from '@/lib/equb-math';
 
 export type TablePlayer = {
   id: string;
   name: string;
-  picks: number[];
+  pick: number;
+  picks?: number[];
   isYou?: boolean;
-  isBot?: boolean;
-  status?: 'waiting' | 'won' | 'lost';
+  status: 'waiting' | 'won' | 'lost';
 };
 
 export type TableResult = {
-  id: string;
+  id?: string;
   winningNumber: number;
   winnerName: string;
   pot: number;
-  at: number;
+  at?: number;
 };
 
 type Props = {
   groupSize: number;
+  prizePool: number;
+  contribution: number;
+  taken: Set<number>;
   selected: number[];
-  taken: number[];
-  maxSelect: number;
-  disabled?: boolean;
-  status?: string;
+  yourPicks: number[];
   winningNumber?: number | null;
-  players?: TablePlayer[];
+  status: 'open' | 'drawing' | 'completed';
+  players: TablePlayer[];
   results?: TableResult[];
-  pot?: number;
-  onToggleSelect?: (n: number) => void;
-  preview?: { winnerPayout?: number };
+  secondsLeft?: number;
+  roomId?: string;
+  lastAdminFee?: number | null;
+  lastWinnerPayout?: number | null;
+  disabled?: boolean;
+  joining?: boolean;
+  drawing?: boolean;
+  canBet?: boolean;
+  canFillBots?: boolean;
+  canDraw?: boolean;
+  locale?: string;
+  maxSelect: number;
+  onToggleSelect: (n: number) => void;
+  onBet: () => void;
+  onFillBots?: () => void;
+  onDraw?: () => void;
 };
 
 export function EqubTable({
   groupSize,
-  selected,
+  prizePool,
+  contribution,
   taken,
-  maxSelect,
-  disabled,
-  status = 'open',
+  selected,
+  yourPicks,
   winningNumber,
-  players = [],
+  status,
+  players,
   results = [],
-  pot = 0,
+  secondsLeft,
+  lastAdminFee,
+  lastWinnerPayout,
+  disabled,
+  joining,
+  drawing,
+  canBet,
+  canDraw,
+  maxSelect,
   onToggleSelect,
-  preview,
+  onBet,
+  onDraw,
 }: Props) {
-  const t = useT();
   const locale = useLocale();
-
-  // Real humans only in seat list + results
-  const realPlayers = useMemo(
-    () => players.filter((p) => isRealPlayer(p)),
-    [players],
-  );
-  const realResults = useMemo(
-    () => filterRealResults(results),
-    [results],
-  );
-
-  const numbers = useMemo(
-    () => Array.from({ length: groupSize }, (_, i) => i + 1),
-    [groupSize],
-  );
+  const { t } = useI18n();
+  const pot = Number(prizePool) || 0;
+  const preview = useMemo(() => (pot > 0 ? splitPot(pot) : null), [pot]);
 
   const takenSet = useMemo(() => new Set(taken), [taken]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -85,8 +97,10 @@ export function EqubTable({
     <div className="grid gap-3 lg:grid-cols-[1fr_9rem_9rem]">
       <div className="order-1">
         <div className="mb-2 flex items-center justify-between text-[11px] text-white/40">
-          <span>
-            {t.board?.pick || 'Pick'} · max {maxSelect}
+          <span className="font-semibold text-white/55">
+            {locale === 'am'
+              ? `ቁጥር ይምረጡ · ከፍተኛ ${maxSelect} (5=1 · 10+=2)`
+              : `Pick numbers · max ${maxSelect} (5=1 · 10+=2)`}
           </span>
           {payoutHint != null && (
             <span className="text-gold-400/80">
@@ -98,40 +112,31 @@ export function EqubTable({
           className={clsx(
             'grid gap-1.5',
             groupSize <= 10 && 'grid-cols-5',
-            groupSize > 10 && groupSize <= 25 && 'grid-cols-5 sm:grid-cols-5',
-            groupSize > 25 && 'grid-cols-5 sm:grid-cols-8',
+            groupSize > 10 && groupSize <= 20 && 'grid-cols-5 sm:grid-cols-10',
+            groupSize > 20 && 'grid-cols-5 sm:grid-cols-10',
           )}
         >
-          {numbers.map((n) => {
-            const isTaken = takenSet.has(n) && !selectedSet.has(n);
-            const isSelected = selectedSet.has(n);
+          {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
+            const isTaken = takenSet.has(n) && !selectedSet.has(n) && !yourPicks.includes(n);
+            const isYours = yourPicks.includes(n) || selectedSet.has(n);
             const isWin = status === 'completed' && winningNumber === n;
+            const locked = !isYours && (isTaken || (atMax && !selectedSet.has(n)));
+            const canClick = !disabled && status === 'open' && !locked && !isTaken;
+
             return (
               <button
                 key={n}
                 type="button"
-                disabled={
-                  disabled ||
-                  isTaken ||
-                  status !== 'open' ||
-                  (atMax && !isSelected)
-                }
-                onClick={() => onToggleSelect?.(n)}
+                disabled={!canClick}
+                onClick={() => onToggleSelect(n)}
                 className={clsx(
-                  'relative aspect-square rounded-xl text-sm font-bold transition',
-                  isWin &&
-                    'z-10 scale-110 bg-gold-500 text-black ring-2 ring-gold-200 shadow-[0_0_24px_rgba(251,191,36,0.65)] animate-[winnerPop_0.6s_ease-out]',
-                  !isWin &&
-                    isSelected &&
-                    'bg-equb-500 text-black ring-2 ring-equb-300',
-                  !isWin &&
-                    isTaken &&
-                    'cursor-not-allowed bg-white/5 text-white/25 line-through',
-                  !isWin &&
-                    !isSelected &&
-                    !isTaken &&
-                    'bg-white/10 text-white/80 hover:bg-white/20',
-                  disabled && 'opacity-50',
+                  'relative flex aspect-square items-center justify-center rounded-xl text-[11px] font-black transition-all duration-200 sm:text-sm',
+                  isWin && 'bg-gold-400 text-black ring-2 ring-gold-200',
+                  isYours && !isWin && 'bg-equb-500 text-white ring-2 ring-equb-200',
+                  isTaken && !isYours && 'bg-white/5 text-white/25',
+                  locked && !isTaken && 'cursor-not-allowed bg-[#151c1a] text-white/25',
+                  canClick && 'bg-[#151c1a] text-white/80 hover:scale-105 hover:bg-white/12',
+                  !canClick && !isYours && !isTaken && !isWin && 'bg-[#151c1a] text-white/40',
                 )}
               >
                 {String(n).padStart(2, '0')}
@@ -139,91 +144,109 @@ export function EqubTable({
             );
           })}
         </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {canBet && (
+            <button
+              type="button"
+              disabled={joining || selected.length === 0}
+              onClick={onBet}
+              className="btn-gold flex-1 disabled:opacity-40"
+            >
+              {joining
+                ? locale === 'am'
+                  ? 'በመቀላቀል…'
+                  : 'Joining…'
+                : locale === 'am'
+                  ? `BET · ${selected.length}/${maxSelect}`
+                  : `BET · ${selected.length}/${maxSelect}`}
+            </button>
+          )}
+          {canDraw && onDraw && (
+            <button
+              type="button"
+              disabled={drawing}
+              onClick={onDraw}
+              className="rounded-xl border border-amber-400/40 bg-amber-400/15 px-4 py-2.5 text-sm font-bold text-amber-200"
+            >
+              {drawing
+                ? locale === 'am'
+                  ? 'በመሳል…'
+                  : 'Drawing…'
+                : locale === 'am'
+                  ? 'ሳል'
+                  : 'Draw'}
+            </button>
+          )}
+        </div>
+
+        {status === 'completed' && (lastAdminFee != null || lastWinnerPayout != null) && (
+          <p className="mt-2 text-center text-[11px] text-white/40">
+            {locale === 'am' ? 'አስተዳዳሪ 15%' : 'Admin 15%'}{' '}
+            {lastAdminFee != null ? formatBirrCompact(lastAdminFee, locale) : ''}{' · '}
+            {locale === 'am' ? 'አሸናፊ' : 'Winner'}{' '}
+            {lastWinnerPayout != null ? formatBirrCompact(lastWinnerPayout, locale) : ''}
+          </p>
+        )}
       </div>
 
-      <aside className="order-2">
-        <div className="rounded-xl border border-white/10 bg-[#0a1210] p-2">
-          <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-equb-400">
-            {t.board?.players || 'Players'}
+      <div className="order-2 rounded-2xl border border-white/10 bg-black/30 p-3">
+        <p className="text-[10px] font-bold uppercase text-white/40">
+          {locale === 'am' ? 'ተጫዋቾች' : 'Players'}
+        </p>
+        <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
+          {players.length === 0 && (
+            <li className="text-white/30">
+              {locale === 'am' ? 'ገና የለም' : 'None yet'}
+            </li>
+          )}
+          {players.map((pl) => (
+            <li
+              key={pl.id}
+              className={clsx(
+                'flex justify-between gap-1 rounded-lg px-1.5 py-1',
+                pl.isYou && 'bg-equb-500/20',
+                pl.status === 'won' && 'bg-gold-400/15',
+              )}
+            >
+              <span className="truncate">{pl.name}</span>
+              <span className="font-mono text-white/50">
+                #{(pl.picks || [pl.pick]).map((x) => String(x).padStart(2, '0')).join(',')}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {secondsLeft != null && status === 'open' && (
+          <p className="mt-2 text-center font-mono text-xs text-amber-300/80">
+            {secondsLeft}s
           </p>
-          <ul className="max-h-28 space-y-1 overflow-y-auto text-xs lg:max-h-72">
-            {realPlayers.length === 0 && (
-              <li className="px-2 py-2 text-white/30">—</li>
-            )}
-            {realPlayers.map((p) => (
-              <li
-                key={p.id}
-                className={clsx(
-                  'flex items-center justify-between rounded px-2 py-1',
-                  p.isYou && 'bg-equb-500/15',
-                  p.status === 'won' && 'bg-gold-500/15',
-                )}
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {p.name}
-                    {p.isYou ? ' · you' : ''}
-                  </p>
-                  <p className="font-mono text-[10px] text-white/40">
-                    {(p.picks || []).map((x) => String(x).padStart(2, '0')).join(' ')}
-                  </p>
-                </div>
-                <span className="text-[10px] font-bold uppercase text-gold-400">
-                  {p.status === 'waiting' && (t.board?.waiting || '…')}
-                  {p.status === 'won' && (t.board?.won || 'WIN')}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </aside>
+        )}
+      </div>
 
-      <aside className="order-3">
-        <div className="rounded-xl border border-white/10 bg-[#0a1210] p-2">
-          <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-equb-400">
-            {t.board?.results || 'ውጤቶች'}
-          </p>
-          <ul className="flex max-h-28 gap-1.5 overflow-x-auto pb-1 font-mono text-[10px] lg:max-h-72 lg:flex-col lg:space-y-1 lg:overflow-y-auto">
-            {realResults.length === 0 && (
-              <li className="px-2 py-2 text-white/30">
-                {t.board?.noResults || '—'}
-              </li>
-            )}
-            {realResults.slice(0, 12).map((r) => (
-              <li
-                key={r.id}
-                className="flex shrink-0 flex-col gap-0.5 rounded bg-white/5 px-2 py-1.5 lg:w-full"
-              >
-                <div className="flex items-center gap-2 lg:justify-between">
-                  <span className="text-gold-400">
-                    #{String(r.winningNumber).padStart(2, '0')}
-                  </span>
-                  <span className="max-w-[4rem] truncate text-white/50">
-                    {r.winnerName}
-                  </span>
-                  <span className="text-equb-400">
-                    {formatBirrCompact(r.pot, locale)}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </aside>
-
-      <style jsx>{`
-        @keyframes winnerPop {
-          0% {
-            transform: scale(0.85);
-          }
-          60% {
-            transform: scale(1.15);
-          }
-          100% {
-            transform: scale(1.1);
-          }
-        }
-      `}</style>
+      <div className="order-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+        <p className="text-[10px] font-bold uppercase text-white/40">
+          {locale === 'am' ? 'ውጤቶች' : 'Results'}
+        </p>
+        <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs">
+          {results.length === 0 && (
+            <li className="text-white/30">
+              {locale === 'am' ? 'ገና የለም' : 'None yet'}
+            </li>
+          )}
+          {results.slice(0, 12).map((r, i) => (
+            <li key={r.id || i} className="flex justify-between gap-1">
+              <span className="truncate">{r.winnerName}</span>
+              <span className="shrink-0 font-mono text-gold-400/80">
+                #{String(r.winningNumber).padStart(2, '0')} ·{' '}
+                {formatBirrCompact(r.pot, locale)}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-[10px] text-white/30">
+          {formatBirrCompact(contribution, locale)} / seat
+        </p>
+      </div>
     </div>
   );
 }
