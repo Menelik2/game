@@ -79,6 +79,15 @@ function referralCode(): string {
   return randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
 }
 
+function namesMatch(a: string, b: string): boolean {
+  const norm = (s: string) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  return norm(a) === norm(b);
+}
+
 function memRegister(input: {
   fullName: string;
   phone: string;
@@ -111,6 +120,21 @@ function memLogin(input: {
     return { ok: false, error: 'Invalid phone or password' };
   }
   if (u.banned) return { ok: false, error: 'Account banned' };
+  return { ok: true, user: publicUser(u) };
+}
+
+function memResetPassword(input: {
+  phone: string;
+  fullName: string;
+  passwordHash: string;
+}): { ok: true; user: DbUser } | { ok: false; error: string } {
+  const u = memByPhone(input.phone);
+  if (!u) return { ok: false, error: 'No account found for this phone' };
+  if (!namesMatch(u.fullName, input.fullName)) {
+    return { ok: false, error: 'Full name does not match account' };
+  }
+  if (u.banned) return { ok: false, error: 'Account banned' };
+  u.passwordHash = input.passwordHash;
   return { ok: true, user: publicUser(u) };
 }
 
@@ -212,6 +236,48 @@ export async function dbLogin(input: {
     return memLogin(input);
   } catch {
     return memLogin(input);
+  }
+}
+
+/** Reset password after verifying phone + full name */
+export async function dbResetPassword(input: {
+  phone: string;
+  fullName: string;
+  passwordHash: string;
+}): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
+  try {
+    if (isDbConfigured()) {
+      try {
+        const { data } = await sb()
+          .from('app_users')
+          .select(
+            'id, full_name, phone, balance, referral_code, role, banned',
+          )
+          .eq('phone', input.phone)
+          .maybeSingle();
+
+        if (data) {
+          if (data.banned) return { ok: false, error: 'Account banned' };
+          if (!namesMatch(String(data.full_name || ''), input.fullName)) {
+            return { ok: false, error: 'Full name does not match account' };
+          }
+          const { error } = await sb()
+            .from('app_users')
+            .update({ password_hash: input.passwordHash })
+            .eq('id', data.id);
+          if (error) {
+            return { ok: false, error: error.message || 'Update failed' };
+          }
+          return { ok: true, user: mapUser(data) };
+        }
+      } catch {
+        /* fall through to mem */
+      }
+    }
+
+    return memResetPassword(input);
+  } catch {
+    return memResetPassword(input);
   }
 }
 

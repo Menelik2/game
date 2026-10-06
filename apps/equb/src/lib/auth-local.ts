@@ -65,7 +65,6 @@ export function getAccountBalance(userId: string): number | null {
   return a ? a.balance : null;
 }
 
-/** Write balance for registered users only (no-op for pure guests) */
 export function updateLocalBalance(userId: string, balance: number): boolean {
   const list = loadAccounts();
   const i = list.findIndex((a) => a.id === userId);
@@ -74,6 +73,11 @@ export function updateLocalBalance(userId: string, balance: number): boolean {
   list[i] = { ...list[i]!, balance: next };
   saveAccounts(list);
   return true;
+}
+
+function namesMatch(a: string, b: string): boolean {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  return norm(a) === norm(b);
 }
 
 export async function registerLocal(input: {
@@ -135,6 +139,41 @@ export async function loginLocal(input: {
     return { ok: false, error: 'ስልክ ወይም የይለፍ ቃል ትክክል አይደለም' };
   }
   return { ok: true, account };
+}
+
+/** Reset password after verifying phone + registered full name */
+export async function resetPasswordLocal(input: {
+  phone: string;
+  fullName: string;
+  newPassword: string;
+}): Promise<{ ok: true; account: LocalAccount } | { ok: false; error: string }> {
+  await ensureAdminAccount();
+  const phone = normalizePhone(input.phone);
+  if (!phone) return { ok: false, error: 'ትክክለኛ ስልክ ያስገቡ (09xxxxxxxx)' };
+
+  const fullName = input.fullName.trim().replace(/\s+/g, ' ');
+  if (fullName.length < 2) {
+    return { ok: false, error: 'ሙሉ ስም ያስገቡ (ለማረጋገጥ)' };
+  }
+  if (!input.newPassword || input.newPassword.length < 6) {
+    return { ok: false, error: 'አዲስ የይለፍ ቃል ቢያንስ 6 ቁምፊ' };
+  }
+
+  const list = loadAccounts();
+  const i = list.findIndex((a) => a.phone === phone);
+  if (i < 0) {
+    return { ok: false, error: 'በዚህ ስልክ መለያ አልተገኘም' };
+  }
+  const account = list[i]!;
+  if (account.banned) return { ok: false, error: 'መለያ ተከልክሏል' };
+  if (!namesMatch(account.fullName, fullName)) {
+    return { ok: false, error: 'ሙሉ ስም ከመለያ ጋር አይዛመድም' };
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+  list[i] = { ...account, passwordHash };
+  saveAccounts(list);
+  return { ok: true, account: list[i]! };
 }
 
 export async function ensureAdminAccount(): Promise<void> {
@@ -200,7 +239,6 @@ export function adminSetBanned(userId: string, banned: boolean) {
   saveAccounts(list);
 }
 
-/** Debit registered account if enough funds; returns new balance or -1 for guest */
 export function tryDebitAccount(
   userId: string,
   amount: number,

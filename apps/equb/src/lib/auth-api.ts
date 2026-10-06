@@ -55,6 +55,32 @@ export async function apiLogin(input: {
   }
 }
 
+export async function apiForgotPassword(input: {
+  phone: string;
+  fullName: string;
+  newPassword: string;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const { res, json } = await post('/api/auth/forgot-password', {
+      phone: input.phone,
+      fullName: input.fullName,
+      newPassword: input.newPassword,
+    });
+    if (!res.ok || !json?.success) {
+      return {
+        ok: false,
+        error: json?.message || `Reset failed (${res.status})`,
+      };
+    }
+    return {
+      ok: true,
+      message: json?.message || 'Password updated',
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Cannot reach reset API' };
+  }
+}
+
 export async function apiRefreshUser(id: string): Promise<ApiUser | null> {
   try {
     const res = await fetch(`/api/auth/me?id=${encodeURIComponent(id)}`);
