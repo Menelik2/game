@@ -19,34 +19,42 @@ export async function POST(req: NextRequest) {
       { status: 401 },
     );
   }
+
   let payload: Record<string, unknown> = {};
   try {
-    payload = JSON.parse(raw);
+    payload = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
       { success: false, message: 'Invalid payload' },
       { status: 400 },
     );
   }
+
   const eventId = String(
     payload.eventId || payload.transId || payload.merchOrderId || '',
   );
   const hash = createHash('sha256').update(raw).digest('hex');
-  if (seen.has(eventId || hash)) {
+  const dedupeKey = eventId || hash;
+
+  if (seen.has(dedupeKey)) {
     return NextResponse.json({ success: true, duplicate: true });
   }
+
   const status = String(
     payload.tradeStatus || payload.status || '',
   ).toUpperCase();
+
   if (
     status !== 'SUCCESS' &&
     status !== 'COMPLETED' &&
     status !== 'PAY_SUCCESS'
   ) {
-    seen.add(eventId || hash);
+    seen.add(dedupeKey);
     return NextResponse.json({ success: true, ignored: true });
   }
-  const result = await creditFromWebhook({
+
+  // Must await — creditFromWebhook is async
+  const credited = await creditFromWebhook({
     merchantOrderId: String(
       payload.merchOrderId || payload.merchantOrderId || '',
     ),
@@ -56,6 +64,13 @@ export async function POST(req: NextRequest) {
     amount: Number(payload.totalAmount || payload.amount),
     currency: String(payload.currency || 'ETB'),
   });
-  if (result.ok) seen.add(eventId || hash);
-  return NextResponse.json({ success: result.ok, message: result.message });
+
+  const ok = Boolean(credited?.ok);
+  const message = String(credited?.message || '');
+
+  if (ok) {
+    seen.add(dedupeKey);
+  }
+
+  return NextResponse.json({ success: ok, message });
 }
