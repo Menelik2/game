@@ -8,8 +8,17 @@ const key =
   process.env.SUPABASE_ANON_KEY ||
   '';
 
+/** True when Supabase URL + key are set (users persist in database) */
 export function isDbConfigured(): boolean {
   return Boolean(url && key && url.startsWith('http'));
+}
+
+/** Prefer real DB in production; memory only for local/demo without env */
+export function requireDb(): boolean {
+  return (
+    process.env.REQUIRE_DB === 'true' ||
+    process.env.NODE_ENV === 'production'
+  );
 }
 
 let client: SupabaseClient | null = null;
@@ -142,56 +151,104 @@ export async function dbRegister(input: {
   fullName: string;
   phone: string;
   passwordHash: string;
-}): Promise<{ ok: true; user: DbUser } | { ok: false; error: string }> {
-  try {
-    if (!isDbConfigured()) return memRegister(input);
-
-    try {
-      const { data, error } = await sb().rpc('app_register', {
-        p_full_name: input.fullName,
-        p_phone: input.phone,
-        p_password_hash: input.passwordHash,
-      });
-      if (!error && data) {
-        try {
-          return { ok: true, user: mapUser(data) };
-        } catch {
-          /* */
-        }
-      }
-      if (error?.message?.toLowerCase().includes('phone_exists')) {
-        return { ok: false, error: 'Phone already registered' };
-      }
-    } catch {
-      /* */
+}): Promise<
+  | { ok: true; user: DbUser; storage: 'database' | 'memory' }
+  | { ok: false; error: string }
+> {
+  // Production: must use real database
+  if (!isDbConfigured()) {
+    if (requireDb()) {
+      return {
+        ok: false,
+        error:
+          'Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Vercel.',
+      };
     }
-
-    try {
-      const code = referralCode();
-      const { data, error } = await sb()
-        .from('app_users')
-        .insert({
-          full_name: input.fullName,
-          phone: input.phone,
-          password_hash: input.passwordHash,
-          balance: 100,
-          referral_code: code,
-          role: 'player',
-        })
-        .select('id, full_name, phone, balance, referral_code, role, banned')
-        .single();
-      if (!error && data) return { ok: true, user: mapUser(data) };
-      if (error?.message?.toLowerCase().includes('duplicate')) {
-        return { ok: false, error: 'Phone already registered' };
-      }
-    } catch {
-      /* */
-    }
-
-    return memRegister(input);
-  } catch {
-    return memRegister(input);
+    const r = memRegister(input);
+    if (!r.ok) return r;
+    return { ok: true, user: r.user, storage: 'memory' };
   }
+
+  // 1) RPC
+  try {
+    const { data, error } = await sb().rpc('app_register', {
+      p_full_name: input.fullName,
+      p_phone: input.phone,
+      p_password_hash: input.passwordHash,
+    });
+    if (!error && data) {
+      try {
+        return { ok: true, user: mapUser(data), storage: 'database' };
+      } catch {
+        /* try insert */
+      }
+    }
+    if (error?.message?.toLowerCase().includes('phone_exists')) {
+      return { ok: false, error: 'Phone already registered' };
+    }
+  } catch (e) {
+    console.error('[dbRegister] rpc', e);
+  }
+
+  // 2) Direct table insert
+  try {
+    const code = referralCode();
+    const { data, error } = await sb()
+      .from('app_users')
+      .insert({
+        full_name: input.fullName,
+        phone: input.phone,
+        password_hash: input.passwordHash,
+        balance: 100,
+        referral_code: code,
+        role: 'player',
+        banned: false,
+      })
+      .select('id, full_name, phone, balance, referral_code, role, banned')
+      .single();
+
+    if (!error && data) {
+      return { ok: true, user: mapUser(data), storage: 'database' };
+    }
+
+    const msg = (error?.message || '').toLowerCase();
+    if (msg.includes('duplicate') || msg.includes('unique')) {
+      return { ok: false, error: 'Phone already registered' };
+    }
+    if (error) {
+      console.error('[dbRegister] insert', error.message);
+      if (requireDb()) {
+        return {
+          ok: false,
+          error: `Database error: ${error.message}. Run supabase/schema.sql in Supabase.`,
+        };
+      }
+    }
+  } catch (e) {
+    console.error('[dbRegister] insert exception', e);
+    if (requireDb()) {
+      return {
+        ok: false,
+        error:
+          e instanceof Error
+            ? e.message
+            : 'Database write failed. Check Supabase table app_users.',
+      };
+    }
+  }
+
+  // Dev fallback only
+  if (!requireDb()) {
+    const r = memRegister(input);
+    if (!r.ok) return r;
+    return { ok: true, user: r.user, storage: 'memory' };
+  }
+
+  return {
+    ok: false,
+    error:
+      'Could not save user to database. Create table app_users (see apps/equb/supabase/schema.sql).',
+  };
 }
 
 export async function dbLogin(input: {
@@ -228,6 +285,9 @@ export async function dbLogin(input: {
           if (data.banned) return { ok: false, error: 'Account banned' };
           return { ok: true, user: mapUser(data) };
         }
+        if (data && String(data.password_hash) !== input.passwordHash) {
+          return { ok: false, error: 'Invalid phone or password' };
+        }
       } catch {
         /* */
       }
@@ -239,7 +299,6 @@ export async function dbLogin(input: {
   }
 }
 
-/** Reset password after verifying phone + full name */
 export async function dbResetPassword(input: {
   phone: string;
   fullName: string;
@@ -250,9 +309,7 @@ export async function dbResetPassword(input: {
       try {
         const { data } = await sb()
           .from('app_users')
-          .select(
-            'id, full_name, phone, balance, referral_code, role, banned',
-          )
+          .select('id, full_name, phone, balance, referral_code, role, banned')
           .eq('phone', input.phone)
           .maybeSingle();
 
@@ -271,7 +328,7 @@ export async function dbResetPassword(input: {
           return { ok: true, user: mapUser(data) };
         }
       } catch {
-        /* fall through to mem */
+        /* fall through */
       }
     }
 
@@ -302,21 +359,32 @@ export async function dbGetUser(id: string): Promise<DbUser | null> {
   }
 }
 
-export async function dbSetBalance(id: string, balance: number, _reason = 'admin_adjust') {
+export async function dbSetBalance(
+  id: string,
+  balance: number,
+  _reason = 'admin_adjust',
+) {
   const local = mem.get(id);
   if (local) {
     local.balance = Math.max(0, balance);
     return publicUser(local);
   }
   if (!isDbConfigured()) throw new Error('User not found');
-  const { error } = await sb().from('app_users').update({ balance }).eq('id', id);
+  const { error } = await sb()
+    .from('app_users')
+    .update({ balance })
+    .eq('id', id);
   if (error) throw new Error(error.message);
   const u = await dbGetUser(id);
   if (!u) throw new Error('User not found');
   return u;
 }
 
-export async function dbAdjustBalance(id: string, delta: number, _reason = 'adjust') {
+export async function dbAdjustBalance(
+  id: string,
+  delta: number,
+  _reason = 'adjust',
+) {
   const local = mem.get(id);
   if (local) {
     const next = Math.round((local.balance + delta) * 100) / 100;

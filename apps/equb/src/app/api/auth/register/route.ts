@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hashPassword, normalizePhone } from '@/lib/password';
-import { dbRegister } from '@/lib/server/db-users';
+import { dbRegister, isDbConfigured } from '@/lib/server/db-users';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -57,7 +57,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, data: r.user });
+    return NextResponse.json({
+      success: true,
+      data: r.user,
+      storage: r.storage,
+      database: isDbConfigured(),
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Register failed';
     console.error('[auth/register]', message);
