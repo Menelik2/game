@@ -68,7 +68,8 @@ export default function AdminProfitPage() {
       const json = await res.json();
       if (json.success) {
         setAnalytics(json.data.analytics);
-        const rate = Number(json.data.settings?.platformFeeRate);
+        // Avoid `x * 100 ?? 15` — multiplication is never nullish (NaN if missing)
+        const rate = Number(json.data?.settings?.platformFeeRate);
         setFeePercent(String(Number.isFinite(rate) ? rate * 100 : 15));
         setMsg('');
       } else {
@@ -165,7 +166,6 @@ export default function AdminProfitPage() {
         </p>
       )}
 
-      {/* Prize settings */}
       <section className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4 sm:p-5">
         <div className="mb-3 flex items-center gap-2">
           <Settings2 className="h-4 w-4 text-amber-300" />
@@ -198,13 +198,13 @@ export default function AdminProfitPage() {
           </button>
           {analytics && (
             <p className="text-xs text-white/40">
-              Active: <span className="font-semibold text-gold-400">{analytics.feePercent}%</span>
+              Active:{' '}
+              <span className="font-semibold text-gold-400">{analytics.feePercent}%</span>
             </p>
           )}
         </div>
       </section>
 
-      {/* KPI cards */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((c) => (
           <article
@@ -226,7 +226,6 @@ export default function AdminProfitPage() {
         ))}
       </section>
 
-      {/* Per game */}
       <section className="rounded-2xl border border-white/10 bg-black/25 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Gamepad2 className="h-4 w-4 text-equb-300" />
@@ -289,7 +288,6 @@ export default function AdminProfitPage() {
         </div>
       </section>
 
-      {/* By template */}
       {(analytics?.byTemplate?.length || 0) > 0 && (
         <section className="rounded-2xl border border-white/10 bg-black/25 p-4">
           <h3 className="mb-3 text-sm font-bold">Profit by room type</h3>
