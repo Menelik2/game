@@ -1,4 +1,4 @@
-/** Local phone auth — balance lives in accounts registry + session sync */
+/** Local phone auth fallback — no hardcoded admin password on the client */
 
 export type Role = 'player' | 'admin';
 
@@ -14,10 +14,6 @@ export type LocalAccount = {
   role?: Role;
   banned?: boolean;
 };
-
-export const ADMIN_EMAIL = 'admin@equb.local';
-export const ADMIN_PASSWORD = 'Admin123!';
-export const ADMIN_PHONE = '+251900000000';
 
 const ACCOUNTS_KEY = 'equb-accounts-v1';
 
@@ -106,7 +102,7 @@ export async function registerLocal(input: {
     fullName,
     phone,
     passwordHash,
-    balance: 0, // real-money: deposit required
+    balance: 0,
     referralCode:
       fullName.slice(0, 3).toUpperCase().replace(/\s/g, '') +
       Math.random().toString(36).slice(2, 6).toUpperCase(),
@@ -122,10 +118,7 @@ export async function loginLocal(input: {
   phone: string;
   password: string;
 }): Promise<{ ok: true; account: LocalAccount } | { ok: false; error: string }> {
-  await ensureAdminAccount();
-  let phone = normalizePhone(input.phone);
-  if (!phone && input.phone.trim() === ADMIN_PHONE) phone = ADMIN_PHONE;
-  if (!phone && input.phone.replace(/\s/g, '') === '0900000000') phone = ADMIN_PHONE;
+  const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: 'ትክክለኛ ስልክ ያስገቡ (09xxxxxxxx)' };
   if (!input.password) return { ok: false, error: 'የይለፍ ቃል ያስገቡ' };
 
@@ -141,13 +134,11 @@ export async function loginLocal(input: {
   return { ok: true, account };
 }
 
-/** Reset password after verifying phone + registered full name */
 export async function resetPasswordLocal(input: {
   phone: string;
   fullName: string;
   newPassword: string;
 }): Promise<{ ok: true; account: LocalAccount } | { ok: false; error: string }> {
-  await ensureAdminAccount();
   const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: 'ትክክለኛ ስልክ ያስገቡ (09xxxxxxxx)' };
 
@@ -174,26 +165,6 @@ export async function resetPasswordLocal(input: {
   list[i] = { ...account, passwordHash };
   saveAccounts(list);
   return { ok: true, account: list[i]! };
-}
-
-export async function ensureAdminAccount(): Promise<void> {
-  const list = loadAccounts();
-  if (list.some((a) => a.role === 'admin' || a.phone === ADMIN_PHONE)) {
-    return;
-  }
-  const passwordHash = await hashPassword(ADMIN_PASSWORD);
-  list.push({
-    id: 'admin_seed',
-    fullName: 'Admin',
-    phone: ADMIN_PHONE,
-    email: ADMIN_EMAIL,
-    passwordHash,
-    balance: 1_000_000,
-    referralCode: 'ADMIN001',
-    createdAt: Date.now(),
-    role: 'admin',
-  });
-  saveAccounts(list);
 }
 
 export function adminListAccounts(): LocalAccount[] {

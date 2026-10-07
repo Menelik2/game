@@ -5,30 +5,24 @@ import { dbEnsureAdmin, dbLogin } from '@/lib/server/db-users';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Seed admin (legacy demo) + production admin phone from owner
-const ADMIN_ACCOUNTS: { phone: string; password: string }[] = [
-  { phone: '+251900000000', password: 'Admin123!' },
-  { phone: '+251918006053', password: 'Admin123!' },
-];
-
-function resolveAdminPhone(phoneRaw: string): string | null {
-  const digits = phoneRaw.replace(/\D/g, '');
-  if (
-    digits === '0900000000' ||
-    digits === '900000000' ||
-    digits === '251900000000' ||
-    phoneRaw.trim().toLowerCase() === 'admin'
-  ) {
-    return '+251900000000';
+/**
+ * Admin bootstrap (server-only env — never shipped to the browser):
+ *   ADMIN_PHONE=+2519xxxxxxxx
+ *   ADMIN_PASSWORD=your-secret
+ * Password is hashed and stored in the database only.
+ * Plaintext is never returned in API responses.
+ */
+async function ensureAdminFromEnv() {
+  const phoneRaw = process.env.ADMIN_PHONE || '';
+  const password = process.env.ADMIN_PASSWORD || '';
+  if (!phoneRaw || !password) return;
+  const phone = normalizePhone(phoneRaw) || phoneRaw.trim();
+  if (!phone || password.length < 6) return;
+  try {
+    await dbEnsureAdmin(phone, hashPassword(password));
+  } catch {
+    /* ignore seed errors */
   }
-  if (
-    digits === '0918006053' ||
-    digits === '918006053' ||
-    digits === '251918006053'
-  ) {
-    return '+251918006053';
-  }
-  return normalizePhone(phoneRaw);
 }
 
 export async function POST(req: NextRequest) {
@@ -43,14 +37,10 @@ export async function POST(req: NextRequest) {
     const phoneRaw = String(body.phone ?? body.username ?? '');
     const password = String(body.password ?? '');
 
-    const phone = resolveAdminPhone(phoneRaw);
-
+    const phone = normalizePhone(phoneRaw);
     if (!phone) {
       return NextResponse.json(
-        {
-          success: false,
-          message: 'Valid phone required (09xxxxxxxx)',
-        },
+        { success: false, message: 'Valid phone required (09xxxxxxxx)' },
         { status: 400 },
       );
     }
@@ -62,14 +52,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure seed admins exist (both phones)
-    for (const a of ADMIN_ACCOUNTS) {
-      try {
-        await dbEnsureAdmin(a.phone, hashPassword(a.password));
-      } catch {
-        /* ignore */
-      }
-    }
+    // Optional one-time seed from Vercel env into DB (hashed)
+    await ensureAdminFromEnv();
 
     const passwordHash = hashPassword(password);
     const r = await dbLogin({ phone, passwordHash });
@@ -81,15 +65,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Promote known admin phones
-    let role = r.user.role;
-    if (
-      r.user.phone === '+251900000000' ||
-      r.user.phone === '+251918006053' ||
-      role === 'admin'
-    ) {
-      role = 'admin';
-    }
+    // Role only from database — never trust client
+    const role = r.user.role === 'admin' ? 'admin' : 'player';
 
     return NextResponse.json({
       success: true,
