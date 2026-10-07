@@ -106,7 +106,7 @@ export async function registerLocal(input: {
     fullName,
     phone,
     passwordHash,
-    balance: 5000,
+    balance: 0, // real-money: deposit required
     referralCode:
       fullName.slice(0, 3).toUpperCase().replace(/\s/g, '') +
       Math.random().toString(36).slice(2, 6).toUpperCase(),
