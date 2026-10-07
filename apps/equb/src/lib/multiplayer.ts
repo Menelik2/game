@@ -31,12 +31,13 @@ export function isMultiplayerEnabled(): boolean {
 
 export type ServerRoom = {
   id: string;
+  gameId?: string;
   templateId?: string;
   groupSize: number;
   prizePool: number;
   contribution: number;
   tier?: string;
-  status: 'open' | 'drawing' | 'completed';
+  status: 'open' | 'drawing' | 'completed' | 'waiting';
   members: Array<{
     playerId: string;
     name: string;
@@ -55,6 +56,10 @@ export type ServerRoom = {
   drawAt?: number;
   secondsLeft?: number;
   updatedAt?: number;
+  playerCount?: number;
+  maxPlayers?: number;
+  minPlayers?: number;
+  joiningClosed?: boolean;
 };
 
 export type LiveTemplate = {
@@ -84,7 +89,6 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   if (typeof window === 'undefined') {
     return { playerId: 'ssr', name: 'Player' };
   }
-  // 1) Dedicated session snapshot
   try {
     const snap = localStorage.getItem('equb_session_user_v1');
     if (snap) {
@@ -99,7 +103,6 @@ export function getPlayerIdentity(): { playerId: string; name: string } {
   } catch {
     /* ignore */
   }
-  // 2) Zustand persist
   for (const key of ['fast-equb-v8', 'fast-equb-v7']) {
     try {
       const raw = localStorage.getItem(key);
