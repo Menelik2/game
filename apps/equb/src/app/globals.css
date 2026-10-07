@@ -20,7 +20,7 @@ body {
 }
 
 .glass {
-  @apply border border-white/[0.09] bg-[#0c1412]/80 backdrop-blur-xl;
+  @apply border border-white/10 bg-[#0c1412]/80 backdrop-blur-xl;
   box-shadow:
     0 0 0 1px rgba(16, 185, 129, 0.06),
     0 10px 40px rgba(0, 0, 0, 0.4),
@@ -28,7 +28,7 @@ body {
 }
 
 .glass-strong {
-  @apply border border-white/12 bg-[#0e1815]/92 backdrop-blur-2xl;
+  @apply border border-white/10 bg-[#0e1815]/90 backdrop-blur-2xl;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -37,7 +37,7 @@ body {
 }
 
 .btn-gold {
-  @apply rounded-2xl bg-gradient-to-b from-[#fcd34d] via-gold-400 to-gold-600 py-3.5 text-center text-sm font-black text-black shadow-lg shadow-gold-500/30 transition active:scale-[0.98] hover:brightness-110;
+  @apply rounded-2xl bg-gradient-to-b from-[#fcd34d] via-gold-400 to-gold-600 py-3.5 text-center text-sm font-black text-black transition active:scale-[0.98] hover:brightness-110;
   box-shadow:
     0 8px 24px rgba(245, 158, 11, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
