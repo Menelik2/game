@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         success: false,
         code: 'REAL_MONEY_DISABLED',
         message:
-          'Real-money deposits are disabled. Set REAL_MONEY_ENABLED=true and CHAPA_SECRET_KEY after obtaining required licenses. Demo mode uses virtual Birr only.',
+          'Real-money deposits require REAL_MONEY_ENABLED=true and TELEBIRR_MERCHANT_PHONE (or VERIFY_ET_API_KEY). Use Wallet → Telebirr transaction number to deposit.',
         data: cfg,
       },
       { status: 403 },
@@ -51,6 +51,22 @@ export async function POST(req: NextRequest) {
     if (!u) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
+  }
+
+  // Prefer Telebirr txn-claim flow over Chapa when provider is telebirr
+  if (cfg.provider === 'telebirr') {
+    return NextResponse.json({
+      success: true,
+      data: {
+        provider: 'telebirr',
+        status: 'USE_TXN_CLAIM',
+        message:
+          'Send Telebirr to merchant, then claim with transaction number on Wallet page.',
+        minDeposit: cfg.minDeposit,
+        maxDeposit: cfg.maxDeposit,
+        currency: cfg.currency,
+      },
+    });
   }
 
   const origin =
