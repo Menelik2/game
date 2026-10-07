@@ -367,12 +367,29 @@ export async function verifyDeposit(input: {
 
 export async function creditFromWebhook(input: {
   depositId?: string;
+  merchantOrderId?: string;
   transactionNumber?: string;
   amount?: number;
   providerTransactionId?: string;
+  /** Accepted for callers; only ETB is credited */
+  currency?: string;
 }) {
   let d: Deposit | null = null;
   if (input.depositId) d = await findDeposit(input.depositId);
+
+  if (!d && input.merchantOrderId) {
+    const orderId = input.merchantOrderId.trim();
+    if (orderId) {
+      const all = await listDepositsAsync();
+      d =
+        all.find(
+          (x) =>
+            x.merchantOrderId === orderId ||
+            x.id === orderId,
+        ) || null;
+    }
+  }
+
   if (!d && input.transactionNumber) {
     const all = await listDepositsAsync();
     d =
@@ -382,13 +399,26 @@ export async function creditFromWebhook(input: {
           x.providerTransactionId === input.transactionNumber,
       ) || null;
   }
+
+  if (!d && input.providerTransactionId) {
+    const all = await listDepositsAsync();
+    d =
+      all.find(
+        (x) =>
+          x.providerTransactionId === input.providerTransactionId ||
+          x.transactionNumber === input.providerTransactionId,
+      ) || null;
+  }
+
   if (!d) {
     return { ok: false as const, message: 'Deposit not found for webhook' };
   }
+
   const txn =
     input.providerTransactionId ||
     input.transactionNumber ||
     d.transactionNumber ||
+    d.merchantOrderId ||
     d.id;
   const amt =
     input.amount && input.amount > 0 ? input.amount : d.amount;
