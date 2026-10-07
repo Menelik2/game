@@ -68,7 +68,8 @@ export default function AdminProfitPage() {
       const json = await res.json();
       if (json.success) {
         setAnalytics(json.data.analytics);
-        setFeePercent(String(json.data.settings?.platformFeeRate * 100 ?? 15));
+        const rate = Number(json.data.settings?.platformFeeRate);
+        setFeePercent(String(Number.isFinite(rate) ? rate * 100 : 15));
         setMsg('');
       } else {
         setMsg(json.message || 'Failed to load');
