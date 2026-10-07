@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { verifyWebhookSignature } from '@/lib/telebirr/service';
-import {
-  creditFromWebhook,
-  type CreditFromWebhookInput,
-} from '@/lib/wallet/deposits';
+import { creditFromWebhook } from '@/lib/wallet/deposits';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -56,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, ignored: true });
   }
 
-  const input: CreditFromWebhookInput = {
+  const credited = await creditFromWebhook({
     merchantOrderId: String(
       payload.merchOrderId || payload.merchantOrderId || '',
     ),
@@ -65,10 +62,7 @@ export async function POST(req: NextRequest) {
     ),
     amount: Number(payload.totalAmount || payload.amount),
     currency: String(payload.currency || 'ETB'),
-  };
-
-  // Must await — creditFromWebhook is async
-  const credited = await creditFromWebhook(input);
+  });
 
   const ok = Boolean(credited?.ok);
   const message = String(credited?.message || '');
