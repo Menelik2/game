@@ -6,7 +6,7 @@ import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 export const metadata: Metadata = {
   title: 'ፋስት እቁብ · Fast Equb',
   description:
-    'ዲጂታል እቁብ — ከኢትዮጵያ ባህላዊ ቁጠባ ክበቦች የተነሳሳ። ምናባዊ ብር ዲሞ። Digital Equb with virtual Birr demo.',
+    'ዲጂታል እቁብ — እውነተኛ ብር በቴሌብር። ባህላዊ የኢትዮጵያ እቁብ በመስመር ላይ። Real-money Ethiopian Equb via Telebirr.',
 };
 
 export const viewport: Viewport = {
