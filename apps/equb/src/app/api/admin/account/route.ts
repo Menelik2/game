@@ -3,6 +3,8 @@ import { adminUpdate } from '@/lib/server/admin-users';
 import { dbGetUser, isDbConfigured } from '@/lib/server/db-users';
 import { hashPassword, normalizePhone } from '@/lib/password';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin, sanitizeText } from '@/lib/server/admin-auth';
+import { pushAudit } from '@/lib/server/audit';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,11 +19,11 @@ function sb() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/**
- * Admin changes own login credentials (phone / password / name).
- * Body: { userId, phone?, password?, fullName?, currentPassword? }
- */
+/** Admin changes own login credentials — requires current admin session. */
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
+
   try {
     if (!isDbConfigured()) {
       return NextResponse.json(
@@ -31,55 +33,40 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const userId = String(body.userId || body.id || '');
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, message: 'userId required' },
-        { status: 400 },
-      );
-    }
+    const userId = auth.admin.id;
 
     const existing = await dbGetUser(userId);
-    if (!existing) {
-      return NextResponse.json(
-        { success: false, message: 'User not found' },
-        { status: 404 },
-      );
-    }
-    if (existing.role !== 'admin') {
+    if (!existing || existing.role !== 'admin') {
       return NextResponse.json(
         { success: false, message: 'Only admins can use this endpoint' },
         { status: 403 },
       );
     }
 
-    // Optional: verify current password before change
     const currentPassword = String(body.currentPassword || '');
-    if (currentPassword) {
-      const { data } = await sb()
-        .from('app_users')
-        .select('password_hash')
-        .eq('id', userId)
-        .maybeSingle();
-      if (
-        data &&
-        String(data.password_hash) !== hashPassword(currentPassword)
-      ) {
-        return NextResponse.json(
-          { success: false, message: 'Current password is incorrect' },
-          { status: 401 },
-        );
-      }
+    if (!currentPassword) {
+      return NextResponse.json(
+        { success: false, message: 'Current password required' },
+        { status: 400 },
+      );
     }
 
-    const patch: {
-      fullName?: string;
-      phone?: string;
-      password?: string;
-    } = {};
+    const { data } = await sb()
+      .from('app_users')
+      .select('password_hash')
+      .eq('id', userId)
+      .maybeSingle();
+    if (data && String(data.password_hash) !== hashPassword(currentPassword)) {
+      return NextResponse.json(
+        { success: false, message: 'Current password is incorrect' },
+        { status: 401 },
+      );
+    }
+
+    const patch: { fullName?: string; phone?: string; password?: string } = {};
 
     if (body.fullName != null && String(body.fullName).trim()) {
-      patch.fullName = String(body.fullName).trim();
+      patch.fullName = sanitizeText(body.fullName, 80);
     }
     if (body.phone != null && String(body.phone).trim()) {
       const phone = normalizePhone(String(body.phone));
@@ -109,6 +96,13 @@ export async function POST(req: NextRequest) {
     }
 
     const updated = await adminUpdate(userId, patch);
+    pushAudit({
+      action: 'admin.account.update',
+      entity: 'user',
+      entityId: userId,
+      userId,
+      meta: { keys: Object.keys(patch) },
+    });
 
     return NextResponse.json({
       success: true,

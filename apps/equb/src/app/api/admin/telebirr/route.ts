@@ -6,12 +6,16 @@ import {
   adminConfirmDeposit,
   adminRejectDeposit,
 } from '@/lib/wallet/deposits';
+import { requireAdmin, sanitizeText } from '@/lib/server/admin-auth';
+import { pushAudit } from '@/lib/server/audit';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET — Telebirr merchant + Verify.ET status + deposit summary (no secrets) */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
+
   const tb = telebirrPublicConfig();
   const ve = verifyEtConfig();
   const pub = publicWalletConfig();
@@ -64,12 +68,14 @@ export async function GET() {
   });
 }
 
-/** POST — manual confirm / reject deposit (admin review) */
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || '');
-    const depositId = String(body.depositId || '');
+    const depositId = sanitizeText(body.depositId, 80);
     if (!depositId) {
       return NextResponse.json(
         { success: false, message: 'depositId required' },
@@ -81,9 +87,16 @@ export async function POST(req: NextRequest) {
       const result = await adminConfirmDeposit({
         depositId,
         transactionNumber: body.transactionNumber
-          ? String(body.transactionNumber)
+          ? sanitizeText(body.transactionNumber, 64)
           : undefined,
-        note: body.note ? String(body.note) : undefined,
+        note: body.note ? sanitizeText(body.note, 200) : undefined,
+      });
+      pushAudit({
+        action: 'admin.deposit.confirm',
+        entity: 'deposit',
+        entityId: depositId,
+        userId: auth.admin.id,
+        meta: { ok: result.ok },
       });
       return NextResponse.json(
         {
@@ -99,7 +112,15 @@ export async function POST(req: NextRequest) {
     if (action === 'reject') {
       const result = await adminRejectDeposit({
         depositId,
-        reason: body.reason ? String(body.reason) : 'Rejected by admin',
+        reason: body.reason
+          ? sanitizeText(body.reason, 200)
+          : 'Rejected by admin',
+      });
+      pushAudit({
+        action: 'admin.deposit.reject',
+        entity: 'deposit',
+        entityId: depositId,
+        userId: auth.admin.id,
       });
       return NextResponse.json(
         {
