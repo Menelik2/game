@@ -26,7 +26,7 @@ export async function listSharedOpen(): Promise<SharedRoom[]> {
       .filter((room): room is SharedRoom => Boolean(room && room.status === 'open'))
       .map((room) => ({
         ...room,
-        secondsLeft: Math.max(0, Math.ceil((room.drawAt - now) / 1000)),
+        secondsLeft: Math.max(0, Math.ceil((Number(room.drawAt) - now) / 1000)),
       }));
   } catch {
     return [];
