@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEqubStore } from '@/lib/store';
-import { Home, Users, Wallet, User, Shield } from 'lucide-react';
+import { Home, Users, Wallet, User, Shield, CircleHelp } from 'lucide-react';
 import clsx from 'clsx';
 import { BackButton } from '@/components/BackButton';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -30,6 +30,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     { href: '/', label: t.nav.home, icon: Home },
     { href: '/rooms', label: t.nav.rooms, icon: Users },
     { href: '/wallet', label: t.nav.wallet, icon: Wallet },
+    { href: '/how-to-play', label: t.nav.howToPlay, icon: CircleHelp },
     { href: '/profile', label: t.nav.profile, icon: User },
   ];
 
@@ -70,7 +71,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <nav className="hidden items-center gap-1 lg:flex">
             {nav.map(({ href, label, icon: Icon }) => {
               const active =
-                path === href || (href === '/rooms' && path.startsWith('/rooms'));
+                path === href ||
+                (href === '/rooms' && path.startsWith('/rooms')) ||
+                (href === '/how-to-play' && path.startsWith('/how-to-play'));
               return (
                 <Link
                   key={href}
@@ -144,7 +147,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 key={href}
                 href={href}
                 className={clsx(
-                  'flex min-w-[3.5rem] flex-col items-center gap-0.5 px-2 py-1.5 text-[10px] touch-manipulation',
+                  'flex min-w-[3rem] flex-col items-center gap-0.5 px-1.5 py-1.5 text-[9px] touch-manipulation sm:min-w-[3.5rem] sm:px-2 sm:text-[10px]',
                   active ? 'text-equb-400' : 'text-white/40',
                 )}
               >
