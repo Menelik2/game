@@ -309,8 +309,13 @@ export default function RoomsPage() {
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
             1 · {locale === 'am' ? 'የቡድን መጠን' : 'Group size'}
           </p>
+          <p className="mb-2 text-[11px] text-white/40">
+            {locale === 'am'
+              ? 'ክፍል የሚቀላቀሉ ተጫዋቾች ብዛት'
+              : 'How many players can join this room'}
+          </p>
           <div className="flex flex-wrap gap-2">
-            {GROUP_SIZES.filter((g) => g <= 50).map((g) => {
+            {GROUP_SIZES.map((g) => {
               const gMax = maxPicksForGroup(g);
               return (
                 <button
