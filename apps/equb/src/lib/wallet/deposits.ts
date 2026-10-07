@@ -266,7 +266,7 @@ export async function verifyDeposit(input: {
     return {
       ok: false as const,
       status: 'REVIEW_REQUIRED' as const,
-      message: 'Deposit under review.',
+      message: 'Deposit under review — admin will confirm.',
       deposit: d,
     };
   }
@@ -288,21 +288,33 @@ export async function verifyDeposit(input: {
     };
   }
 
+  d.transactionNumber = txn;
+
   const result = await verifyTelebirrWithVerifyEt({
     transactionNumber: txn,
     expectedAmount: d.amount,
   });
-  d.transactionNumber = txn;
 
   if (!result.verified) {
+    // Missing API key / unavailable → queue for admin approval
+    if (result.status === 'UNAVAILABLE') {
+      d.status = 'REVIEW_REQUIRED';
+      d.failureReason =
+        'Verify.ET not configured — waiting for admin approval.';
+      return {
+        ok: false as const,
+        status: 'REVIEW_REQUIRED' as const,
+        message:
+          'Payment submitted for admin review. You will be credited after approval.',
+        deposit: d,
+      };
+    }
     d.status =
-      result.status === 'UNAVAILABLE'
-        ? 'PROCESSING'
-        : result.status === 'REVIEW_REQUIRED'
-          ? 'REVIEW_REQUIRED'
-          : result.status === 'FAILED'
-            ? 'FAILED'
-            : 'PROCESSING';
+      result.status === 'REVIEW_REQUIRED'
+        ? 'REVIEW_REQUIRED'
+        : result.status === 'FAILED'
+          ? 'FAILED'
+          : 'PROCESSING';
     d.failureReason = result.message;
     return { ok: false as const, status: d.status, message: result.message, deposit: d };
   }
@@ -342,12 +354,13 @@ export async function creditFromWebhook(input: {
 }
 
 /**
- * User flow: paste Telebirr transaction number only → verify API → credit real money.
- * Amount comes from the verification API response (not pre-declared).
+ * User flow: paste Telebirr transaction number → verify or queue for admin.
  */
 export async function claimByTransactionNumber(input: {
   userId: string;
   transactionNumber: string;
+  /** Optional amount when Verify.ET is offline (admin still confirms) */
+  amount?: number;
 }) {
   const txn = String(input.transactionNumber || '').trim();
   if (!input.userId) {
@@ -370,37 +383,102 @@ export async function claimByTransactionNumber(input: {
     };
   }
 
+  // Already queued for this user + txn?
+  const existing = [...g.__dep!.values()].find(
+    (d) =>
+      d.userId === input.userId &&
+      d.transactionNumber === txn &&
+      d.status !== 'FAILED',
+  );
+  if (existing) {
+    return {
+      ok: false as const,
+      status: existing.status,
+      message:
+        existing.status === 'CONFIRMED'
+          ? 'Already confirmed'
+          : 'Already submitted — waiting for admin approval.',
+      deposit: existing,
+      amount: existing.amount,
+    };
+  }
+
   const result = await verifyTelebirrWithVerifyEt({
     transactionNumber: txn,
     expectedAmount: 0,
   });
 
-  if (!result.verified) {
+  const cfg = verifyEtConfig();
+
+  // Auto path when Verify.ET works
+  if (result.verified) {
+    const amount = Number(result.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return {
+        ok: false as const,
+        status: 'REVIEW_REQUIRED' as const,
+        message:
+          'Transaction verified but amount is missing. Contact admin with your transaction number.',
+      };
+    }
+    if (amount < cfg.minDeposit || amount > cfg.maxDeposit) {
+      return {
+        ok: false as const,
+        status: 'REVIEW_REQUIRED' as const,
+        message: `Amount ${amount} ETB is outside allowed range (${cfg.minDeposit}–${cfg.maxDeposit}).`,
+        amount,
+      };
+    }
+    const id = randomUUID();
+    const merchantOrderId =
+      `EQ${Date.now().toString(36)}${id.slice(0, 6)}`.toUpperCase();
+    const deposit: Deposit = {
+      id,
+      userId: input.userId,
+      amount,
+      currency: 'ETB',
+      status: 'PENDING',
+      merchantOrderId,
+      transactionNumber: txn,
+      providerTransactionId: result.providerTransactionId || txn,
+      checkoutUrl: null,
+      failureReason: null,
+      verificationAttempts: 1,
+      createdAt: new Date().toISOString(),
+      confirmedAt: null,
+      adminNote: null,
+    };
+    g.__dep!.set(id, deposit);
+    const credited = await creditConfirmed(
+      deposit,
+      result.providerTransactionId || txn,
+      amount,
+    );
     return {
-      ok: false as const,
-      status: result.status,
-      message: result.message,
-      amount: result.amount,
+      ok: credited.ok,
+      status: credited.status,
+      message: credited.message,
+      amount,
+      balance: credited.balance,
+      deposit: credited.deposit,
     };
   }
 
-  const amount = Number(result.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  // Verify.ET missing / failed → queue for admin approval
+  const claimedAmount = Number(input.amount);
+  const amount =
+    Number.isFinite(claimedAmount) && claimedAmount > 0
+      ? Math.round(claimedAmount * 100) / 100
+      : Number.isFinite(Number(result.amount)) && Number(result.amount) > 0
+        ? Math.round(Number(result.amount) * 100) / 100
+        : 0;
+
+  if (!(amount > 0)) {
     return {
       ok: false as const,
       status: 'REVIEW_REQUIRED' as const,
       message:
-        'Transaction verified but amount is missing. Contact admin with your transaction number.',
-    };
-  }
-
-  const cfg = verifyEtConfig();
-  if (amount < cfg.minDeposit || amount > cfg.maxDeposit) {
-    return {
-      ok: false as const,
-      status: 'REVIEW_REQUIRED' as const,
-      message: `Amount ${amount} ETB is outside allowed range (${cfg.minDeposit}–${cfg.maxDeposit}).`,
-      amount,
+        'Verify.ET is offline. Create a deposit order with amount first, or wait for admin after pasting your txn on an order.',
     };
   }
 
@@ -412,12 +490,15 @@ export async function claimByTransactionNumber(input: {
     userId: input.userId,
     amount,
     currency: 'ETB',
-    status: 'PENDING',
+    status: 'REVIEW_REQUIRED',
     merchantOrderId,
     transactionNumber: txn,
-    providerTransactionId: result.providerTransactionId || txn,
+    providerTransactionId: null,
     checkoutUrl: null,
-    failureReason: null,
+    failureReason:
+      result.status === 'UNAVAILABLE'
+        ? 'VERIFY_ET_API_KEY not set — admin must approve'
+        : result.message || 'Awaiting admin review',
     verificationAttempts: 1,
     createdAt: new Date().toISOString(),
     confirmedAt: null,
@@ -425,19 +506,13 @@ export async function claimByTransactionNumber(input: {
   };
   g.__dep!.set(id, deposit);
 
-  const credited = await creditConfirmed(
-    deposit,
-    result.providerTransactionId || txn,
-    amount,
-  );
-
   return {
-    ok: credited.ok,
-    status: credited.status,
-    message: credited.message,
+    ok: false as const,
+    status: 'REVIEW_REQUIRED' as const,
+    message:
+      'Submitted for admin approval. Balance updates after an admin confirms your Telebirr payment.',
     amount,
-    balance: credited.balance,
-    deposit: credited.deposit,
+    deposit,
   };
 }
 
