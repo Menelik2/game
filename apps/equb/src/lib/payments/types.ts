@@ -11,3 +11,20 @@ export type DepositStatus =
   | 'EXPIRED'
   | 'REVERSED'
   | 'REVIEW_REQUIRED';
+
+export type PaymentDirection = 'deposit' | 'withdraw';
+
+/** In-memory / provider payment transaction record */
+export type PaymentTransaction = {
+  id: string;
+  userId: string;
+  provider: PaymentProviderName;
+  providerRef: string;
+  amount: number;
+  currency: string;
+  status: DepositStatus;
+  direction: PaymentDirection;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+};
