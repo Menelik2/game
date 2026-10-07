@@ -3,9 +3,8 @@ import { computePayout, settleWinPayout } from './wallet-settle';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
-const GROUP_SIZES = [
-  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100,
-];
+/** Join capacity only: 5, then every 10 up to 100 */
+const GROUP_SIZES = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
 export type Member = {
   playerId: string;
@@ -51,7 +50,6 @@ if (!g.__equbRooms) g.__equbRooms = new Map();
 const rooms = g.__equbRooms;
 
 function maxPicks(groupSize: number) {
-  // 5 → 1 pick; 10+ → max 2 picks
   const size = Math.floor(Number(groupSize) || 0);
   if (size <= 5) return 1;
   return 2;
