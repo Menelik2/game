@@ -6,6 +6,7 @@ import { isRealMoneyLive } from '@/lib/payments/config';
 
 export const dynamic = 'force-dynamic';
 
+/** Deposit statuses match DepositStatus in payments/types (CONFIRMED, not COMPLETED). */
 export async function POST(req: NextRequest) {
   if (!isRealMoneyLive()) {
     return NextResponse.json({ success: false, message: 'Real money disabled' }, { status: 403 });
@@ -27,9 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   const data = body.data as Record<string, unknown> | undefined;
-  const txRef = String(
-    body.tx_ref || body.trx_ref || data?.tx_ref || '',
-  );
+  const txRef = String(body.tx_ref || body.trx_ref || data?.tx_ref || '');
   if (!txRef) {
     return NextResponse.json({ success: false, message: 'tx_ref missing' }, { status: 400 });
   }
