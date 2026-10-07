@@ -27,6 +27,7 @@ export type VerifyEtResult = {
 };
 
 type VerifyItem = {
+  requestId?: string;
   bank?: string;
   status?: string;
   verified?: boolean;
@@ -67,7 +68,7 @@ function parseItem(json: Record<string, unknown>): VerifyItem | null {
 }
 
 function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult {
-  const requestId = undefined;
+  const requestId = item.requestId;
   const verified = Boolean(
     item.verified === true || item.status === 'success',
   );
@@ -87,6 +88,7 @@ function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult 
       amount: Number.isFinite(amount) ? amount : undefined,
       settlementMatched,
       bank: item.bank,
+      requestId,
     };
   }
 
@@ -96,6 +98,7 @@ function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult 
       status: 'REVIEW_REQUIRED',
       message: 'Currency is not ETB.',
       bank: item.bank,
+      requestId,
     };
   }
 
@@ -110,6 +113,7 @@ function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult 
       message: `Amount mismatch: paid ${amount} ETB, expected ${expectedAmount} ETB.`,
       amount,
       bank: item.bank,
+      requestId,
     };
   }
 
@@ -124,6 +128,7 @@ function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult 
       amount: Number.isFinite(amount) ? amount : expectedAmount || undefined,
       settlementMatched: false,
       bank: item.bank,
+      requestId,
     };
   }
 
@@ -308,7 +313,7 @@ export async function verifyTelebirrWithVerifyEt(input: {
                 : `Verify.ET error (${res.status})`);
       return {
         verified: false,
-        status: res.status === 422 ? 'FAILED' : 'FAILED',
+        status: 'FAILED',
         message: String(msg),
         requestId: requestId || undefined,
       };
