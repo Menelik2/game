@@ -15,7 +15,7 @@ export type DepositStatus =
 export type PaymentDirection = 'deposit' | 'withdraw';
 
 /** In-memory / provider payment transaction record */
-export type PaymentTransaction = {
+export interface PaymentTransaction {
   id: string;
   userId: string;
   provider: PaymentProviderName;
@@ -27,4 +27,6 @@ export type PaymentTransaction = {
   createdAt: string;
   updatedAt: string;
   metadata?: Record<string, unknown>;
-};
+}
+
+export type { PaymentTransaction as PaymentTx };

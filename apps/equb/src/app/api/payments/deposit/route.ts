@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto';
 import { isRealMoneyLive, paymentPublicConfig } from '@/lib/payments/config';
 import { chapaInitialize } from '@/lib/payments/chapa';
 import { saveTx } from '@/lib/payments/store';
-import type { PaymentTransaction } from '@/lib/payments/types';
 import { isDbConfigured, dbGetUser } from '@/lib/server/db-users';
 
 export const dynamic = 'force-dynamic';
@@ -53,7 +52,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Prefer Telebirr txn-claim flow over Chapa when provider is telebirr
+  // Telebirr: claim-by-txn on Wallet page (no Chapa redirect)
   if (cfg.provider === 'telebirr') {
     return NextResponse.json({
       success: true,
@@ -88,7 +87,7 @@ export async function POST(req: NextRequest) {
       returnUrl: returnUrl || `${origin}/wallet?deposit=return`,
     });
 
-    const record: PaymentTransaction = {
+    saveTx({
       id,
       userId,
       provider: 'chapa',
@@ -100,8 +99,7 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       metadata: { checkoutUrl: init.checkoutUrl },
-    };
-    saveTx(record);
+    });
 
     return NextResponse.json({
       success: true,
@@ -114,10 +112,8 @@ export async function POST(req: NextRequest) {
           'Redirect user to checkout. Wallet credits only after provider confirms.',
       },
     });
-  } catch (e: any) {
-    return NextResponse.json(
-      { success: false, message: e?.message || 'Payment init failed' },
-      { status: 502 },
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Payment init failed';
+    return NextResponse.json({ success: false, message }, { status: 502 });
   }
 }
