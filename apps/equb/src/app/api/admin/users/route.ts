@@ -26,7 +26,10 @@ export async function GET(req: NextRequest) {
           totalBalance: users.reduce((s, u) => s + Number(u.balance || 0), 0),
           deposits: deposits.length,
           pendingDeposits: deposits.filter(
-            (d) => d.status === 'PENDING' || d.status === 'PROCESSING',
+            (d) =>
+              d.status === 'PENDING' ||
+              d.status === 'PROCESSING' ||
+              d.status === 'REVIEW_REQUIRED',
           ).length,
         },
       },
