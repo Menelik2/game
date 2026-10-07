@@ -1,3 +1,5 @@
+/** Payment types — keep PaymentTransaction exported for store + APIs */
+
 export type PaymentMode = 'demo' | 'real_money';
 
 export type PaymentProviderName = 'none' | 'chapa' | 'stripe' | 'telebirr';
@@ -13,7 +15,7 @@ export type DepositStatus =
 
 export type PaymentDirection = 'deposit' | 'withdraw';
 
-export type PaymentTransaction = {
+export interface PaymentTransaction {
   id: string;
   userId: string;
   provider: PaymentProviderName;
@@ -25,4 +27,7 @@ export type PaymentTransaction = {
   createdAt: string;
   updatedAt: string;
   metadata?: Record<string, unknown>;
-};
+}
+
+// Ensure named export exists for `import type { PaymentTransaction }`
+export type { PaymentTransaction as PaymentTransactionType };

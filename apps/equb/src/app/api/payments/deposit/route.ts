@@ -1,3 +1,8 @@
+/**
+ * Wallet deposit API.
+ * BUILD_MARKER: 2026-10-07-no-PaymentTransaction-import
+ * Do not import PaymentTransaction here — saveTx accepts the object shape.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { isRealMoneyLive, paymentPublicConfig } from '@/lib/payments/config';
