@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "cd apps/equb && npm run build"
+  "buildCommand": "npm run build --workspace=@apex/equb"
 }

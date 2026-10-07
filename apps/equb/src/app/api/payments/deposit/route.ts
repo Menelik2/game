@@ -4,7 +4,6 @@ import { isRealMoneyLive, paymentPublicConfig } from '@/lib/payments/config';
 import { chapaInitialize } from '@/lib/payments/chapa';
 import { saveTx } from '@/lib/payments/store';
 import { isDbConfigured, dbGetUser } from '@/lib/server/db-users';
-import type { PaymentTransaction } from '@/lib/payments/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        provider: 'telebirr' as const,
+        provider: 'telebirr',
         status: 'USE_TXN_CLAIM',
         message:
           'Send Telebirr to merchant, then claim with transaction number on Wallet page.',
@@ -88,7 +87,7 @@ export async function POST(req: NextRequest) {
       returnUrl: returnUrl || `${origin}/wallet?deposit=return`,
     });
 
-    const record: PaymentTransaction = {
+    saveTx({
       id,
       userId,
       provider: 'chapa',
@@ -100,8 +99,7 @@ export async function POST(req: NextRequest) {
       createdAt: now,
       updatedAt: now,
       metadata: { checkoutUrl: init.checkoutUrl },
-    };
-    saveTx(record);
+    });
 
     return NextResponse.json({
       success: true,
