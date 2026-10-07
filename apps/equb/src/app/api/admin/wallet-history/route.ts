@@ -1,30 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/server/admin-auth';
-import { listWalletHistory } from '@/lib/server/wallets';
-import { listDeposits } from '@/lib/wallet/deposits';
 import { adminList } from '@/lib/server/admin-users';
+import { listDepositsAsync } from '@/lib/wallet/deposits';
+import { listWalletHistory } from '@/lib/server/wallets';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/**
- * Combined wallet history for admin.
- * DbUser fields: fullName, phone (no `name` property).
- */
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
-  const { searchParams } = new URL(req.url);
-  const userId = (searchParams.get('userId') || '').trim() || undefined;
-  const limit = Number(searchParams.get('limit') || 80);
+  const limit = Number(req.nextUrl.searchParams.get('limit') || 100);
+  const userId = req.nextUrl.searchParams.get('userId') || undefined;
 
   const users = await adminList().catch(
     () => [] as Awaited<ReturnType<typeof adminList>>,
   );
   const byId = new Map(users.map((u) => [u.id, u]));
 
-  const deposits = listDeposits(userId).map((d) => {
+  const deposits = (await listDepositsAsync(userId)).map((d) => {
     const u = byId.get(d.userId);
     return {
       kind: 'deposit' as const,

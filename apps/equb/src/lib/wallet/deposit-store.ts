@@ -1,11 +1,35 @@
 /**
  * Persist deposits so admin approve works across Vercel serverless instances.
- * Falls back to in-memory when Supabase is not configured or table missing.
  */
 
 import { createClient } from '@supabase/supabase-js';
 import { isDbConfigured } from '@/lib/server/db-users';
-import type { Deposit, DepositStatus } from '@/lib/wallet/deposits';
+
+export type StoredDepositStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'CONFIRMED'
+  | 'FAILED'
+  | 'EXPIRED'
+  | 'REVERSED'
+  | 'REVIEW_REQUIRED';
+
+export type StoredDeposit = {
+  id: string;
+  userId: string;
+  amount: number;
+  currency: 'ETB';
+  status: StoredDepositStatus;
+  merchantOrderId: string;
+  transactionNumber: string | null;
+  providerTransactionId: string | null;
+  checkoutUrl: string | null;
+  failureReason: string | null;
+  verificationAttempts: number;
+  createdAt: string;
+  confirmedAt: string | null;
+  adminNote?: string | null;
+};
 
 function sb() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -17,13 +41,13 @@ function sb() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function rowToDeposit(r: Record<string, unknown>): Deposit {
+function rowToDeposit(r: Record<string, unknown>): StoredDeposit {
   return {
     id: String(r.id),
     userId: String(r.user_id),
     amount: Number(r.amount),
     currency: 'ETB',
-    status: String(r.status) as DepositStatus,
+    status: String(r.status) as StoredDepositStatus,
     merchantOrderId: String(r.merchant_order_id || ''),
     transactionNumber: r.transaction_number
       ? String(r.transaction_number)
@@ -40,7 +64,7 @@ function rowToDeposit(r: Record<string, unknown>): Deposit {
   };
 }
 
-function depositToRow(d: Deposit) {
+function depositToRow(d: StoredDeposit) {
   return {
     id: d.id,
     user_id: d.userId,
@@ -59,7 +83,7 @@ function depositToRow(d: Deposit) {
   };
 }
 
-export async function dbSaveDeposit(d: Deposit): Promise<void> {
+export async function dbSaveDeposit(d: StoredDeposit): Promise<void> {
   if (!isDbConfigured()) return;
   try {
     await sb().from('wallet_deposits').upsert(depositToRow(d), { onConflict: 'id' });
@@ -68,7 +92,7 @@ export async function dbSaveDeposit(d: Deposit): Promise<void> {
   }
 }
 
-export async function dbGetDeposit(id: string): Promise<Deposit | null> {
+export async function dbGetDeposit(id: string): Promise<StoredDeposit | null> {
   if (!isDbConfigured()) return null;
   try {
     const { data, error } = await sb()
@@ -83,7 +107,7 @@ export async function dbGetDeposit(id: string): Promise<Deposit | null> {
   }
 }
 
-export async function dbListDeposits(userId?: string): Promise<Deposit[]> {
+export async function dbListDeposits(userId?: string): Promise<StoredDeposit[]> {
   if (!isDbConfigured()) return [];
   try {
     let q = sb()
@@ -107,9 +131,7 @@ export async function dbTxnUsed(txn: string): Promise<boolean> {
       .from('wallet_deposits')
       .select('id')
       .eq('status', 'CONFIRMED')
-      .or(
-        `transaction_number.eq.${txn},provider_transaction_id.eq.${txn}`,
-      )
+      .or(`transaction_number.eq.${txn},provider_transaction_id.eq.${txn}`)
       .limit(1);
     return Boolean(data && data.length > 0);
   } catch {

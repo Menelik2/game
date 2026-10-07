@@ -3,6 +3,12 @@ import { publicWalletConfig, verifyEtConfig } from '@/lib/verify-et/config';
 import { verifyTelebirrWithVerifyEt } from '@/lib/verify-et/service';
 import { dbAdjustBalance, dbGetUser, isDbConfigured } from '@/lib/server/db-users';
 import { applyDelta, ensureWallet, setBalance } from '@/lib/server/wallets';
+import {
+  dbSaveDeposit,
+  dbGetDeposit,
+  dbListDeposits,
+  dbTxnUsed,
+} from '@/lib/wallet/deposit-store';
 
 export type DepositStatus =
   | 'PENDING'
@@ -67,6 +73,23 @@ function walletOf(userId: string): Wallet {
   return w;
 }
 
+async function rememberDeposit(d: Deposit) {
+  g.__dep!.set(d.id, d);
+  await dbSaveDeposit(d);
+}
+
+async function findDeposit(id: string): Promise<Deposit | null> {
+  const mem = g.__dep!.get(id);
+  if (mem) return mem;
+  const db = await dbGetDeposit(id);
+  if (db) {
+    const d = db as Deposit;
+    g.__dep!.set(d.id, d);
+    return d;
+  }
+  return null;
+}
+
 function parseAmount(amount: unknown, min: number, max: number) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return null;
@@ -107,8 +130,13 @@ export async function createDeposit(input: {
     confirmedAt: null,
     adminNote: null,
   };
-  g.__dep!.set(id, deposit);
-  return { ok: true as const, deposit, checkoutUrl: null, config: publicWalletConfig() };
+  await rememberDeposit(deposit);
+  return {
+    ok: true as const,
+    deposit,
+    checkoutUrl: null,
+    config: publicWalletConfig(),
+  };
 }
 
 async function creditConfirmed(
@@ -116,7 +144,8 @@ async function creditConfirmed(
   providerTxn: string,
   amount: number,
 ) {
-  if (g.__usedTxn!.has(providerTxn) || d.status === 'CONFIRMED') {
+  const usedDb = await dbTxnUsed(providerTxn);
+  if (g.__usedTxn!.has(providerTxn) || usedDb || d.status === 'CONFIRMED') {
     const bal = await resolveBalance(d.userId);
     return {
       ok: false as const,
@@ -171,6 +200,7 @@ async function creditConfirmed(
   d.failureReason = null;
   g.__usedTxn!.add(providerTxn);
   if (d.transactionNumber) g.__usedTxn!.add(d.transactionNumber);
+  await rememberDeposit(d);
 
   return {
     ok: true as const,
@@ -182,13 +212,12 @@ async function creditConfirmed(
   };
 }
 
-/** Admin: manually confirm a pending/review deposit and credit wallet */
 export async function adminConfirmDeposit(input: {
   depositId: string;
   transactionNumber?: string;
   note?: string;
 }) {
-  const d = g.__dep!.get(input.depositId);
+  const d = await findDeposit(input.depositId);
   if (!d) {
     return { ok: false as const, message: 'Deposit not found' };
   }
@@ -212,12 +241,11 @@ export async function adminConfirmDeposit(input: {
   return creditConfirmed(d, txn, d.amount);
 }
 
-/** Admin: reject a deposit */
 export async function adminRejectDeposit(input: {
   depositId: string;
   reason?: string;
 }) {
-  const d = g.__dep!.get(input.depositId);
+  const d = await findDeposit(input.depositId);
   if (!d) {
     return { ok: false as const, message: 'Deposit not found' };
   }
@@ -230,6 +258,7 @@ export async function adminRejectDeposit(input: {
   }
   d.status = 'FAILED';
   d.failureReason = input.reason || 'Rejected by admin';
+  await rememberDeposit(d);
   return { ok: true as const, deposit: d };
 }
 
@@ -241,14 +270,27 @@ export function listDeposits(userId?: string) {
   return all.filter((d) => d.userId === userId);
 }
 
+/** Async list — merges memory + database for admin dashboard. */
+export async function listDepositsAsync(userId?: string): Promise<Deposit[]> {
+  const fromDb = await dbListDeposits(userId);
+  for (const d of fromDb) {
+    if (!g.__dep!.has(d.id)) g.__dep!.set(d.id, d as Deposit);
+  }
+  return listDeposits(userId);
+}
+
 export async function verifyDeposit(input: {
   depositId: string;
   userId: string;
   transactionNumber: string;
 }) {
-  const d = g.__dep!.get(input.depositId);
+  const d = await findDeposit(input.depositId);
   if (!d || d.userId !== input.userId) {
-    return { ok: false as const, status: 'FAILED' as const, message: 'Deposit not found' };
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      message: 'Deposit not found',
+    };
   }
   if (d.status === 'CONFIRMED') {
     const bal = await resolveBalance(d.userId);
@@ -260,112 +302,8 @@ export async function verifyDeposit(input: {
       balance: bal,
     };
   }
-  d.verificationAttempts += 1;
-  if (d.verificationAttempts > 8) {
-    d.status = 'REVIEW_REQUIRED';
-    return {
-      ok: false as const,
-      status: 'REVIEW_REQUIRED' as const,
-      message: 'Deposit under review — admin will confirm.',
-      deposit: d,
-    };
-  }
+
   const txn = input.transactionNumber.trim();
-  if (txn.length < 6) {
-    return {
-      ok: false as const,
-      status: 'FAILED' as const,
-      message: 'Enter the Telebirr transaction number.',
-    };
-  }
-  if (g.__usedTxn!.has(txn)) {
-    d.status = 'REVIEW_REQUIRED';
-    return {
-      ok: false as const,
-      status: 'REVIEW_REQUIRED' as const,
-      message: 'This transaction has already been used.',
-      deposit: d,
-    };
-  }
-
-  d.transactionNumber = txn;
-
-  const result = await verifyTelebirrWithVerifyEt({
-    transactionNumber: txn,
-    expectedAmount: d.amount,
-  });
-
-  if (!result.verified) {
-    // Missing API key / unavailable → queue for admin approval
-    if (result.status === 'UNAVAILABLE') {
-      d.status = 'REVIEW_REQUIRED';
-      d.failureReason =
-        'Verify.ET not configured — waiting for admin approval.';
-      return {
-        ok: false as const,
-        status: 'REVIEW_REQUIRED' as const,
-        message:
-          'Payment submitted for admin review. You will be credited after approval.',
-        deposit: d,
-      };
-    }
-    d.status =
-      result.status === 'REVIEW_REQUIRED'
-        ? 'REVIEW_REQUIRED'
-        : result.status === 'FAILED'
-          ? 'FAILED'
-          : 'PROCESSING';
-    d.failureReason = result.message;
-    return { ok: false as const, status: d.status, message: result.message, deposit: d };
-  }
-
-  return creditConfirmed(
-    d,
-    result.providerTransactionId || txn,
-    result.amount || d.amount,
-  );
-}
-
-export async function creditFromWebhook(input: {
-  merchantOrderId?: string;
-  transactionNumber?: string;
-  providerTransactionId: string;
-  amount: number;
-  currency: string;
-}) {
-  const d = [...g.__dep!.values()].find(
-    (x) =>
-      (input.merchantOrderId && x.merchantOrderId === input.merchantOrderId) ||
-      (input.transactionNumber && x.transactionNumber === input.transactionNumber),
-  );
-  if (!d) return { ok: false, message: 'Unknown order' };
-  if (d.status === 'CONFIRMED') return { ok: true, message: 'Already processed' };
-  if (input.currency !== 'ETB') return { ok: false, message: 'Currency mismatch' };
-  if (Math.round(input.amount * 100) !== Math.round(d.amount * 100)) {
-    d.status = 'REVIEW_REQUIRED';
-    d.failureReason = 'Amount mismatch';
-    return { ok: false, message: 'Amount mismatch' };
-  }
-  if (g.__usedTxn!.has(input.providerTransactionId)) {
-    return { ok: true, message: 'Duplicate transaction ignored' };
-  }
-  const credited = await creditConfirmed(d, input.providerTransactionId, input.amount);
-  return { ok: credited.ok, message: credited.message, balance: credited.balance };
-}
-
-/**
- * User flow: paste Telebirr transaction number → verify or queue for admin.
- */
-export async function claimByTransactionNumber(input: {
-  userId: string;
-  transactionNumber: string;
-  /** Optional amount when Verify.ET is offline (admin still confirms) */
-  amount?: number;
-}) {
-  const txn = String(input.transactionNumber || '').trim();
-  if (!input.userId) {
-    return { ok: false as const, status: 'FAILED' as const, message: 'Sign in first' };
-  }
   if (txn.length < 6) {
     return {
       ok: false as const,
@@ -373,59 +311,134 @@ export async function claimByTransactionNumber(input: {
       message: 'Enter a valid Telebirr transaction number.',
     };
   }
-  if (g.__usedTxn!.has(txn)) {
-    const bal = await resolveBalance(input.userId);
+
+  d.transactionNumber = txn;
+  d.verificationAttempts = (d.verificationAttempts || 0) + 1;
+  d.status = 'PROCESSING';
+  await rememberDeposit(d);
+
+  const result = await verifyTelebirrWithVerifyEt({
+    transactionNumber: txn,
+    expectedAmount: d.amount,
+  });
+
+  if (result.status === 'UNAVAILABLE' || result.status === 'PROCESSING') {
+    d.status = 'REVIEW_REQUIRED';
+    d.failureReason = result.message;
+    await rememberDeposit(d);
     return {
       ok: false as const,
-      status: 'CONFIRMED' as const,
-      message: 'This transaction has already been used.',
-      balance: bal,
+      status: 'REVIEW_REQUIRED' as const,
+      message: result.message,
+      deposit: d,
     };
   }
 
-  // Already queued for this user + txn?
-  const existing = [...g.__dep!.values()].find(
-    (d) =>
-      d.userId === input.userId &&
-      d.transactionNumber === txn &&
-      d.status !== 'FAILED',
+  if (result.verified && result.status === 'CONFIRMED') {
+    return creditConfirmed(
+      d,
+      result.providerTransactionId || txn,
+      Number(result.amount) > 0 ? Number(result.amount) : d.amount,
+    );
+  }
+
+  if (result.status === 'REVIEW_REQUIRED') {
+    d.status = 'REVIEW_REQUIRED';
+    d.failureReason = result.message;
+    await rememberDeposit(d);
+    return {
+      ok: false as const,
+      status: 'REVIEW_REQUIRED' as const,
+      message: result.message,
+      deposit: d,
+    };
+  }
+
+  d.status = 'FAILED';
+  d.failureReason = result.message;
+  await rememberDeposit(d);
+  return {
+    ok: false as const,
+    status: 'FAILED' as const,
+    message: result.message,
+    deposit: d,
+  };
+}
+
+export async function creditFromWebhook(input: {
+  depositId?: string;
+  transactionNumber?: string;
+  amount?: number;
+  providerTransactionId?: string;
+}) {
+  let d: Deposit | null = null;
+  if (input.depositId) d = await findDeposit(input.depositId);
+  if (!d && input.transactionNumber) {
+    const all = await listDepositsAsync();
+    d =
+      all.find(
+        (x) =>
+          x.transactionNumber === input.transactionNumber ||
+          x.providerTransactionId === input.transactionNumber,
+      ) || null;
+  }
+  if (!d) {
+    return { ok: false as const, message: 'Deposit not found for webhook' };
+  }
+  const txn =
+    input.providerTransactionId ||
+    input.transactionNumber ||
+    d.transactionNumber ||
+    d.id;
+  const amt =
+    input.amount && input.amount > 0 ? input.amount : d.amount;
+  return creditConfirmed(d, txn, amt);
+}
+
+export async function claimByTransactionNumber(input: {
+  userId: string;
+  transactionNumber: string;
+  amount?: number;
+}) {
+  const txn = input.transactionNumber.trim();
+  if (txn.length < 6) {
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      message: 'Enter a valid Telebirr transaction number.',
+    };
+  }
+
+  const existing = (await listDepositsAsync()).find(
+    (x) =>
+      (x.transactionNumber === txn || x.providerTransactionId === txn) &&
+      x.status === 'CONFIRMED',
   );
   if (existing) {
     return {
       ok: false as const,
-      status: existing.status,
-      message:
-        existing.status === 'CONFIRMED'
-          ? 'Already confirmed'
-          : 'Already submitted — waiting for admin approval.',
-      deposit: existing,
-      amount: existing.amount,
+      status: 'CONFIRMED' as const,
+      message: 'This transaction was already claimed.',
     };
   }
 
   const result = await verifyTelebirrWithVerifyEt({
     transactionNumber: txn,
-    expectedAmount: 0,
+    expectedAmount: Number(input.amount) || 0,
   });
 
-  const cfg = verifyEtConfig();
-
-  // Auto path when Verify.ET works
-  if (result.verified) {
-    const amount = Number(result.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+  if (result.verified && result.status === 'CONFIRMED') {
+    const amount =
+      Number(result.amount) > 0
+        ? Number(result.amount)
+        : Number(input.amount) > 0
+          ? Number(input.amount)
+          : 0;
+    if (!(amount > 0)) {
       return {
         ok: false as const,
         status: 'REVIEW_REQUIRED' as const,
-        message:
-          'Transaction verified but amount is missing. Contact admin with your transaction number.',
-      };
-    }
-    if (amount < cfg.minDeposit || amount > cfg.maxDeposit) {
-      return {
-        ok: false as const,
-        status: 'REVIEW_REQUIRED' as const,
-        message: `Amount ${amount} ETB is outside allowed range (${cfg.minDeposit}–${cfg.maxDeposit}).`,
+        message: 'Verified but amount missing — create a deposit order first.',
         amount,
       };
     }
@@ -448,7 +461,7 @@ export async function claimByTransactionNumber(input: {
       confirmedAt: null,
       adminNote: null,
     };
-    g.__dep!.set(id, deposit);
+    await rememberDeposit(deposit);
     const credited = await creditConfirmed(
       deposit,
       result.providerTransactionId || txn,
@@ -464,7 +477,6 @@ export async function claimByTransactionNumber(input: {
     };
   }
 
-  // Verify.ET missing / failed → queue for admin approval
   const claimedAmount = Number(input.amount);
   const amount =
     Number.isFinite(claimedAmount) && claimedAmount > 0
@@ -504,7 +516,7 @@ export async function claimByTransactionNumber(input: {
     confirmedAt: null,
     adminNote: null,
   };
-  g.__dep!.set(id, deposit);
+  await rememberDeposit(deposit);
 
   return {
     ok: false as const,
