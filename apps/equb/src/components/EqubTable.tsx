@@ -103,39 +103,47 @@ export function EqubTable({
   );
 
   return (
-    <div className="space-y-3 pb-20 sm:pb-4">
-      {/* Prize strip */}
-      <div className="flex items-center justify-between rounded-xl border border-gold-500/20 bg-gold-500/10 px-3 py-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-gold-400/70">
-            {am ? 'ሽልማት' : 'Prize pool'}
-          </p>
-          <p className="text-lg font-black text-gold-400">{birr(pot, am)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] text-white/40">{am ? 'ክፍያ / መቀመጫ' : 'Entry / seat'}</p>
-          <p className="text-sm font-semibold text-white/80">{birr(contribution, am)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] text-white/40">{am ? 'ተጫዋቾች' : 'Seats'}</p>
-          <p className="text-sm font-semibold text-equb-300">
-            {seatsTaken}/{groupSize}
-          </p>
+    <div className="space-y-3.5 pb-24 sm:pb-4">
+      {/* Prize hero */}
+      <div className="glass relative overflow-hidden rounded-2xl p-3.5">
+        <div className="pointer-events-none absolute -right-6 top-0 h-24 w-24 rounded-full bg-gold-500/15 blur-2xl" />
+        <div className="relative flex items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gold-400/70">
+              {am ? 'ሽልማት' : 'Prize pool'}
+            </p>
+            <p className="mt-0.5 bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-2xl font-black text-transparent">
+              {birr(pot, am)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-center">
+            <p className="text-[9px] uppercase text-white/40">{am ? 'ክፍያ' : 'Entry'}</p>
+            <p className="text-sm font-bold text-equb-300">{birr(contribution, am)}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-center">
+            <p className="text-[9px] uppercase text-white/40">{am ? 'መቀመጫ' : 'Seats'}</p>
+            <p className="text-sm font-bold text-white">
+              {seatsTaken}
+              <span className="text-white/40">/{groupSize}</span>
+            </p>
+          </div>
         </div>
       </div>
 
-      {status === 'open' && <EqubCountdown secondsLeft={clock} locale={locale} />}
+      {status === 'open' && (
+        <EqubCountdown secondsLeft={clock} locale={locale} total={60} />
+      )}
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_10rem_10rem]">
+      <div className="grid gap-3 lg:grid-cols-[1fr_10.5rem_10.5rem]">
         <div className="order-1">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-            <span className="font-semibold text-white/70">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <span className="font-semibold text-white/75">
               {am
                 ? `ቁጥር ይምረጡ · ከፍተኛ ${maxSelect}`
                 : `Pick numbers · max ${maxSelect}`}
             </span>
             {payoutHint != null && (
-              <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-gold-400">
+              <span className="rounded-full border border-gold-500/25 bg-gold-500/15 px-2.5 py-0.5 font-semibold text-gold-300">
                 ~{birr(payoutHint, am)}
               </span>
             )}
@@ -144,8 +152,7 @@ export function EqubTable({
           <div
             className={clsx(
               'grid gap-2',
-              groupSize <= 5 && 'grid-cols-5',
-              groupSize > 5 && groupSize <= 10 && 'grid-cols-5',
+              groupSize <= 10 && 'grid-cols-5',
               groupSize > 10 && 'grid-cols-5 sm:grid-cols-10',
             )}
           >
@@ -166,12 +173,12 @@ export function EqubTable({
                   onClick={() => onToggleSelect(n)}
                   className={clsx(
                     'relative flex aspect-square items-center justify-center rounded-xl text-sm font-black transition-all duration-150 active:scale-95',
-                    isWin && 'bg-gold-400 text-black ring-2 ring-gold-200 shadow-lg shadow-gold-400/40',
-                    isYours && !isWin && 'bg-equb-500 text-white ring-2 ring-equb-200 shadow-md shadow-equb-500/30',
-                    isTaken && !isYours && 'bg-white/5 text-white/25 line-through',
-                    locked && !isTaken && 'cursor-not-allowed bg-[#121816] text-white/20',
-                    canClick && 'bg-[#1a2420] text-white/90 hover:bg-white/15 hover:ring-1 hover:ring-equb-400/40',
-                    !canClick && !isYours && !isTaken && !isWin && 'bg-[#121816] text-white/35',
+                    isWin && 'tile-win text-black',
+                    isYours && !isWin && 'tile-selected text-white',
+                    isTaken && !isYours && 'tile-taken text-white/30 line-through',
+                    locked && !isTaken && 'cursor-not-allowed tile-taken text-white/20',
+                    canClick && 'tile text-white/90 hover:brightness-125',
+                    !canClick && !isYours && !isTaken && !isWin && 'tile text-white/35',
                   )}
                 >
                   {String(n).padStart(2, '0')}
@@ -180,14 +187,16 @@ export function EqubTable({
             })}
           </div>
 
-          {/* Desktop BET */}
           <div className="mt-3 hidden flex-wrap gap-2 sm:flex">
             <button
               type="button"
               disabled={!canBet || joining || selected.length === 0}
               onClick={onBet}
-              className="btn-gold flex-1 py-3 text-base disabled:opacity-40"
+              className="btn-gold relative flex-1 overflow-hidden py-3.5 text-base disabled:opacity-40"
             >
+              {selected.length > 0 && !joining && (
+                <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+              )}
               {joining
                 ? '...'
                 : selected.length === 0
@@ -217,13 +226,12 @@ export function EqubTable({
             )}
         </div>
 
-        {/* Players + Results side by side on mobile */}
-        <div className="order-2 grid grid-cols-2 gap-2 lg:contents">
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-2.5 lg:order-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+        <div className="order-2 grid grid-cols-2 gap-2.5 lg:contents">
+          <div className="glass rounded-2xl p-3 lg:order-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-white/45">
               {am ? 'ተጫዋቾች' : 'Players'}
             </p>
-            <ul className="mt-1.5 max-h-36 space-y-1 overflow-y-auto text-xs">
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
               {players.length === 0 && (
                 <li className="text-white/30">{am ? 'ገና የለም' : 'None yet'}</li>
               )}
@@ -231,12 +239,12 @@ export function EqubTable({
                 <li
                   key={pl.id}
                   className={clsx(
-                    'flex justify-between gap-1 rounded-lg px-1.5 py-1',
-                    pl.isYou && 'bg-equb-500/25',
-                    pl.status === 'won' && 'bg-gold-400/20',
+                    'flex justify-between gap-1 rounded-lg px-2 py-1.5',
+                    pl.isYou && 'bg-equb-500/25 ring-1 ring-equb-400/30',
+                    pl.status === 'won' && 'bg-gold-400/20 ring-1 ring-gold-400/30',
                   )}
                 >
-                  <span className="truncate">{pl.name}</span>
+                  <span className="truncate font-medium">{pl.name}</span>
                   <span className="shrink-0 font-mono text-white/55">
                     #{(pl.picks || [pl.pick]).map((x) => String(x).padStart(2, '0')).join(',')}
                   </span>
@@ -245,18 +253,18 @@ export function EqubTable({
             </ul>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-2.5 lg:order-3">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+          <div className="glass rounded-2xl p-3 lg:order-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-white/45">
               {am ? 'ውጤቶች' : 'Results'}
             </p>
-            <ul className="mt-1.5 max-h-36 space-y-1 overflow-y-auto text-xs">
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
               {results.length === 0 && (
                 <li className="text-white/30">{am ? 'ገና የለም' : 'None yet'}</li>
               )}
               {results.slice(0, 10).map((r, i) => (
-                <li key={r.id || i} className="flex justify-between gap-1">
-                  <span className="truncate">{r.winnerName}</span>
-                  <span className="shrink-0 font-mono text-gold-400/90">
+                <li key={r.id || i} className="flex justify-between gap-1 rounded-lg px-1 py-0.5">
+                  <span className="truncate text-white/80">{r.winnerName}</span>
+                  <span className="shrink-0 font-mono font-semibold text-gold-400">
                     #{String(r.winningNumber).padStart(2, '0')}
                   </span>
                 </li>
@@ -266,14 +274,17 @@ export function EqubTable({
         </div>
       </div>
 
-      {/* Sticky mobile BET bar */}
-      <div className="fixed inset-x-0 bottom-16 z-30 border-t border-white/10 bg-[#0c1210]/95 px-3 py-2.5 backdrop-blur sm:hidden">
+      {/* Sticky mobile BET */}
+      <div className="fixed inset-x-0 bottom-16 z-30 border-t border-white/10 bg-[#060c0a]/92 px-3 py-2.5 backdrop-blur-xl sm:hidden safe-bottom">
         <button
           type="button"
           disabled={!canBet || joining || selected.length === 0}
           onClick={onBet}
-          className="btn-gold w-full py-3.5 text-base font-black disabled:opacity-40"
+          className="btn-gold relative w-full overflow-hidden py-3.5 text-base font-black disabled:opacity-40"
         >
+          {selected.length > 0 && !joining && (
+            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          )}
           {joining
             ? '...'
             : selected.length === 0
