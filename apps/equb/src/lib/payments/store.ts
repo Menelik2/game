@@ -1,5 +1,7 @@
 import type { PaymentTransaction } from './types';
 
+export type { PaymentTransaction };
+
 const g = globalThis as unknown as {
   __payTx?: Map<string, PaymentTransaction>;
 };

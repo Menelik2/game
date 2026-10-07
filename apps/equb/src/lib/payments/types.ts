@@ -14,8 +14,11 @@ export type DepositStatus =
 
 export type PaymentDirection = 'deposit' | 'withdraw';
 
-/** In-memory / provider payment transaction record */
-export interface PaymentTransaction {
+/**
+ * In-memory / provider payment transaction record.
+ * Must stay exported — used by store.ts and payment API routes.
+ */
+export type PaymentTransaction = {
   id: string;
   userId: string;
   provider: PaymentProviderName;
@@ -27,6 +30,4 @@ export interface PaymentTransaction {
   createdAt: string;
   updatedAt: string;
   metadata?: Record<string, unknown>;
-}
-
-export type { PaymentTransaction as PaymentTx };
+};
