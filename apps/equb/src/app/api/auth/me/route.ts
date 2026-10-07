@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { dbGetUser, isDbConfigured } from '@/lib/server/db-users';
+import { getSessionUser } from '@/lib/server/session';
+import { withSecurityHeaders } from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
+/** Current user from signed session cookie (not from client-supplied id). */
 export async function GET(req: NextRequest) {
-  if (!isDbConfigured()) {
-    return NextResponse.json({ success: false, code: 'DB_NOT_CONFIGURED' }, { status: 503 });
-  }
-  const id = req.nextUrl.searchParams.get('id');
-  if (!id) {
-    return NextResponse.json({ success: false, message: 'id required' }, { status: 400 });
-  }
-  const user = await dbGetUser(id);
+  const user = await getSessionUser(req);
   if (!user) {
-    return NextResponse.json({ success: false, message: 'Not found' }, { status: 404 });
+    return withSecurityHeaders(
+      NextResponse.json(
+        { success: false, code: 'UNAUTHORIZED', message: 'Not signed in' },
+        { status: 401 },
+      ),
+    );
   }
-  return NextResponse.json({ success: true, data: user });
+  return withSecurityHeaders(
+    NextResponse.json({
+      success: true,
+      data: {
+        id: user.id,
+        fullName: user.fullName,
+        phone: user.phone,
+        balance: user.balance,
+        referralCode: user.referralCode,
+        role: user.role === 'admin' ? 'admin' : 'player',
+        banned: user.banned ?? false,
+      },
+    }),
+  );
 }

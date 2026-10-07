@@ -9,6 +9,7 @@ import {
   sanitizeUserText,
   withSecurityHeaders,
 } from '@/lib/server/security';
+import { attachSessionCookie } from '@/lib/server/session';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!originAllowed(req)) return withSecurityHeaders(forbiddenOrigin());
 
   const ip = clientIp(req);
-  const rl = rateLimit(`register:${ip}`, 5, 60_000); // 5 / minute / IP
+  const rl = rateLimit(`register:${ip}`, 5, 60_000);
   if (!rl.ok) {
     return withSecurityHeaders(
       NextResponse.json(
@@ -47,7 +48,6 @@ export async function POST(req: NextRequest) {
     const phoneRaw = String(body.phone || '').slice(0, 32);
     const password = String(body.password || '').slice(0, 128);
 
-    // Reject role escalation from client
     if (body.role === 'admin' || body.isAdmin) {
       return withSecurityHeaders(
         NextResponse.json(
@@ -89,7 +89,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Disallow weak passwords that are pure digits shorter than 8
     if (/^\d{1,7}$/.test(password)) {
       return withSecurityHeaders(
         NextResponse.json(
@@ -117,20 +116,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Never return password hash; force player role
-    const user = {
-      ...r.user,
-      role: 'player' as const,
-    };
-
-    return withSecurityHeaders(
-      NextResponse.json({
-        success: true,
-        data: user,
-        storage: r.storage,
-        database: isDbConfigured(),
-      }),
-    );
+    const user = { ...r.user, role: 'player' as const };
+    const res = NextResponse.json({
+      success: true,
+      data: user,
+      storage: r.storage,
+      database: isDbConfigured(),
+    });
+    attachSessionCookie(res, { id: user.id, role: 'player' });
+    return withSecurityHeaders(res);
   } catch (e: unknown) {
     console.error('[auth/register]', e instanceof Error ? e.message : e);
     return withSecurityHeaders(

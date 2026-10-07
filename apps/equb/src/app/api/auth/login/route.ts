@@ -8,15 +8,11 @@ import {
   forbiddenOrigin,
   withSecurityHeaders,
 } from '@/lib/server/security';
+import { attachSessionCookie } from '@/lib/server/session';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/**
- * Admin bootstrap (server-only env — never shipped to the browser):
- *   ADMIN_PHONE=+2519xxxxxxxx
- *   ADMIN_PASSWORD=your-secret
- */
 async function ensureAdminFromEnv() {
   const phoneRaw = process.env.ADMIN_PHONE || '';
   const password = process.env.ADMIN_PASSWORD || '';
@@ -26,7 +22,7 @@ async function ensureAdminFromEnv() {
   try {
     await dbEnsureAdmin(phone, hashPassword(password));
   } catch {
-    /* ignore seed errors */
+    /* ignore */
   }
 }
 
@@ -36,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (!originAllowed(req)) return withSecurityHeaders(forbiddenOrigin());
 
   const ip = clientIp(req);
-  const rl = rateLimit(`login:${ip}`, 12, 60_000); // 12 / minute / IP
+  const rl = rateLimit(`login:${ip}`, 12, 60_000);
   if (!rl.ok) {
     return withSecurityHeaders(
       NextResponse.json(
@@ -62,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     const phoneRaw = String(body.phone ?? body.username ?? '').slice(0, 32);
     const password = String(body.password ?? '').slice(0, 128);
-
     const phone = normalizePhone(phoneRaw);
     if (!phone || !password) {
       return withSecurityHeaders(
@@ -73,7 +68,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Per-phone limit (slows credential stuffing)
     const rlPhone = rateLimit(`login-phone:${phone}`, 8, 60_000);
     if (!rlPhone.ok) {
       return withSecurityHeaders(
@@ -91,12 +85,9 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureAdminFromEnv();
-
-    const passwordHash = hashPassword(password);
-    const r = await dbLogin({ phone, passwordHash });
+    const r = await dbLogin({ phone, passwordHash: hashPassword(password) });
 
     if (!r.ok) {
-      // Generic message — do not reveal whether phone exists
       return withSecurityHeaders(
         NextResponse.json(
           { success: false, message: 'Invalid phone or password' },
@@ -115,21 +106,20 @@ export async function POST(req: NextRequest) {
     }
 
     const role = r.user.role === 'admin' ? 'admin' : 'player';
-
-    return withSecurityHeaders(
-      NextResponse.json({
-        success: true,
-        data: {
-          id: r.user.id,
-          fullName: r.user.fullName,
-          phone: r.user.phone,
-          balance: r.user.balance,
-          referralCode: r.user.referralCode,
-          role,
-          banned: false,
-        },
-      }),
-    );
+    const res = NextResponse.json({
+      success: true,
+      data: {
+        id: r.user.id,
+        fullName: r.user.fullName,
+        phone: r.user.phone,
+        balance: r.user.balance,
+        referralCode: r.user.referralCode,
+        role,
+        banned: false,
+      },
+    });
+    attachSessionCookie(res, { id: r.user.id, role });
+    return withSecurityHeaders(res);
   } catch (e: unknown) {
     console.error('[auth/login]', e instanceof Error ? e.message : e);
     return withSecurityHeaders(

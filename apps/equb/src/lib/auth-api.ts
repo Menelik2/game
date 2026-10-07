@@ -13,6 +13,7 @@ async function post(path: string, body: object) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    credentials: 'include',
   });
   const json = await res.json().catch(() => ({}));
   return { res, json };
@@ -32,8 +33,11 @@ export async function apiRegister(input: {
       };
     }
     return { ok: true, user: json.data as ApiUser };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || 'Cannot reach register API' };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Cannot reach register API',
+    };
   }
 }
 
@@ -50,8 +54,22 @@ export async function apiLogin(input: {
       };
     }
     return { ok: true, user: json.data as ApiUser };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || 'Cannot reach login API' };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Cannot reach login API',
+    };
+  }
+}
+
+export async function apiLogout(): Promise<void> {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    });
+  } catch {
+    /* ignore */
   }
 }
 
@@ -76,14 +94,18 @@ export async function apiForgotPassword(input: {
       ok: true,
       message: json?.message || 'Password updated',
     };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || 'Cannot reach reset API' };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : 'Cannot reach reset API',
+    };
   }
 }
 
-export async function apiRefreshUser(id: string): Promise<ApiUser | null> {
+/** Refresh from session cookie — id arg ignored (kept for call-site compat). */
+export async function apiRefreshUser(_id?: string): Promise<ApiUser | null> {
   try {
-    const res = await fetch(`/api/auth/me?id=${encodeURIComponent(id)}`);
+    const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
     const json = await res.json();
     if (!res.ok || !json?.success) return null;
     return json.data as ApiUser;
@@ -94,7 +116,7 @@ export async function apiRefreshUser(id: string): Promise<ApiUser | null> {
 
 export async function apiListUsers(): Promise<ApiUser[] | null> {
   try {
-    const res = await fetch('/api/users');
+    const res = await fetch('/api/users', { credentials: 'include' });
     const json = await res.json();
     if (!res.ok || !json?.success) return null;
     return (json.data?.items || []) as ApiUser[];

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbGetUser, type DbUser } from '@/lib/server/db-users';
+import { getSessionUser } from '@/lib/server/session';
 
 const ADMIN_PHONE_DIGITS = new Set([
   '900000000',
@@ -19,7 +20,7 @@ export function isAdminRole(user: { role?: string; phone?: string } | null): boo
   return ADMIN_PHONE_DIGITS.has(d) || d.endsWith('900000000') || d.endsWith('918006053');
 }
 
-/** Extract caller id from headers (never trust body alone for auth). */
+/** @deprecated Prefer getSessionUser — header alone is forgeable */
 export function extractCallerId(req: NextRequest): string {
   return (
     req.headers.get('x-user-id') ||
@@ -32,12 +33,11 @@ export type AdminAuthOk = { ok: true; admin: DbUser };
 export type AdminAuthFail = { ok: false; response: NextResponse };
 
 /**
- * Server-side admin gate for all /api/admin/* mutations and reads.
- * Requires x-user-id of a user with role admin (or allowlisted admin phone).
+ * Server-side admin gate — requires signed session cookie of an admin user.
  */
 export async function requireAdmin(req: NextRequest): Promise<AdminAuthOk | AdminAuthFail> {
-  const userId = extractCallerId(req);
-  if (!userId) {
+  const user = await getSessionUser(req);
+  if (!user) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -46,17 +46,6 @@ export async function requireAdmin(req: NextRequest): Promise<AdminAuthOk | Admi
           code: 'UNAUTHORIZED',
           message: 'Admin authentication required (sign in first)',
         },
-        { status: 401 },
-      ),
-    };
-  }
-
-  const user = await dbGetUser(userId);
-  if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { success: false, code: 'UNAUTHORIZED', message: 'Unknown admin session' },
         { status: 401 },
       ),
     };
@@ -89,7 +78,6 @@ export async function requireAdmin(req: NextRequest): Promise<AdminAuthOk | Admi
   return { ok: true, admin: user };
 }
 
-/** Sanitize free-text admin notes / reasons (strip tags, limit length). */
 export function sanitizeText(raw: unknown, max = 500): string {
   return String(raw ?? '')
     .replace(/[<>]/g, '')
