@@ -1,4 +1,4 @@
-/** Session survives refresh (localStorage, not sessionStorage) */
+/** Client UI cache + clear server httpOnly session on logout */
 
 const ID_KEY = 'equb_session_user_id';
 const USER_KEY = 'equb_session_user_v1';
@@ -65,4 +65,11 @@ export function loadSessionUser(): SessionUser | null {
 
 export function clearSession() {
   saveSessionUser(null);
+  // Clear httpOnly server cookie
+  if (typeof window !== 'undefined') {
+    void fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => undefined);
+  }
 }
