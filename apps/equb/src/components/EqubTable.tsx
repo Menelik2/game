@@ -36,11 +36,12 @@ type Props = {
   selected: number[];
   yourPicks: number[];
   winningNumber?: number | null;
-  status: 'open' | 'drawing' | 'completed';
+  status: 'open' | 'drawing' | 'completed' | 'waiting';
   players: TablePlayer[];
   results?: TableResult[];
   secondsLeft?: number;
   roomId?: string;
+  gameId?: string;
   lastAdminFee?: number | null;
   lastWinnerPayout?: number | null;
   disabled?: boolean;
@@ -51,6 +52,7 @@ type Props = {
   canDraw?: boolean;
   locale?: string;
   maxSelect?: number;
+  minPlayers?: number;
   onToggleSelect: (n: number) => void;
   onBet: () => void;
   onFillBots?: () => void;
@@ -70,6 +72,8 @@ export function EqubTable({
   players,
   results = [],
   secondsLeft,
+  roomId,
+  gameId,
   lastAdminFee,
   lastWinnerPayout,
   disabled,
@@ -78,6 +82,7 @@ export function EqubTable({
   canBet,
   canDraw,
   maxSelect: maxSelectProp,
+  minPlayers = 2,
   onToggleSelect,
   onBet,
   onDraw,
@@ -101,13 +106,16 @@ export function EqubTable({
     (n, p) => n + (p.picks?.length || (p.pick ? 1 : 0)),
     0,
   );
+  const uniquePlayers = players.length;
+  const needMore = status === 'open' && uniquePlayers < minPlayers;
+  const displayId = (gameId || roomId || '').slice(-10);
 
   return (
     <div className="space-y-3.5 pb-24 sm:pb-4">
-      {/* Prize hero */}
+      {/* Prize + player count hero */}
       <div className="glass relative overflow-hidden rounded-2xl p-3.5">
         <div className="pointer-events-none absolute -right-6 top-0 h-24 w-24 rounded-full bg-gold-500/15 blur-2xl" />
-        <div className="relative flex items-center justify-between gap-2">
+        <div className="relative flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gold-400/70">
               {am ? 'ሽልማት' : 'Prize pool'}
@@ -115,22 +123,52 @@ export function EqubTable({
             <p className="mt-0.5 bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-2xl font-black text-transparent">
               {birr(pot, am)}
             </p>
+            {displayId && (
+              <p className="mt-0.5 font-mono text-[10px] text-white/30">
+                Game · {displayId}
+              </p>
+            )}
           </div>
           <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-center">
             <p className="text-[9px] uppercase text-white/40">{am ? 'ክፍያ' : 'Entry'}</p>
             <p className="text-sm font-bold text-equb-300">{birr(contribution, am)}</p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-center">
-            <p className="text-[9px] uppercase text-white/40">{am ? 'መቀመጫ' : 'Seats'}</p>
-            <p className="text-sm font-bold text-white">
-              {seatsTaken}
-              <span className="text-white/40">/{groupSize}</span>
+          <div className="rounded-xl border border-equb-500/30 bg-equb-500/10 px-3 py-2 text-center">
+            <p className="text-[9px] uppercase text-white/40">
+              {am ? 'ተጫዋቾች' : 'Players'}
+            </p>
+            <p className="text-sm font-black tabular-nums text-white">
+              {uniquePlayers}
+              <span className="text-white/40"> / {groupSize}</span>
+            </p>
+            <p className="text-[9px] text-white/35">
+              {am ? 'ተጫዋቾች' : 'players'}
             </p>
           </div>
         </div>
+
+        {needMore && (
+          <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-center text-[11px] text-amber-200/90">
+            {am
+              ? `ጨዋታ ለመጀመር ቢያንስ ${minPlayers} ተጫዋቾች ያስፈልጋሉ (${uniquePlayers}/${minPlayers})`
+              : `Need at least ${minPlayers} players to start (${uniquePlayers}/${minPlayers})`}
+          </p>
+        )}
+        {status === 'open' && uniquePlayers >= minPlayers && (
+          <p className="mt-2 text-center text-[11px] text-equb-300/90">
+            {am
+              ? 'በቂ ተጫዋቾች · ሰዓት ሲያልቅ ጨዋታ ይጀምራል'
+              : 'Enough players · game starts when timer ends'}
+          </p>
+        )}
+        {(status === 'drawing' || status === 'completed') && (
+          <p className="mt-2 text-center text-[11px] font-semibold text-gold-300">
+            {am ? 'መቀላቀል ተዘግቷል' : 'Joining closed'}
+          </p>
+        )}
       </div>
 
-      {status === 'open' && (
+      {(status === 'open' || status === 'waiting') && (
         <EqubCountdown secondsLeft={clock} locale={locale} total={60} />
       )}
 
@@ -190,20 +228,24 @@ export function EqubTable({
           <div className="mt-3 hidden flex-wrap gap-2 sm:flex">
             <button
               type="button"
-              disabled={!canBet || joining || selected.length === 0}
+              disabled={!canBet || joining || selected.length === 0 || status !== 'open'}
               onClick={onBet}
               className="btn-gold relative flex-1 overflow-hidden py-3.5 text-base disabled:opacity-40"
             >
-              {selected.length > 0 && !joining && (
+              {selected.length > 0 && !joining && status === 'open' && (
                 <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
               )}
               {joining
                 ? '...'
-                : selected.length === 0
+                : status !== 'open'
                   ? am
-                    ? 'ቁጥር ይምረጡ'
-                    : 'Select a number'
-                  : `BET · ${selected.length}/${maxSelect} · ${birr(contribution * selected.length, am)}`}
+                    ? 'መቀላቀል ተዘግቷል'
+                    : 'Joining closed'
+                  : selected.length === 0
+                    ? am
+                      ? 'ቁጥር ይምረጡ'
+                      : 'Select a number'
+                    : `BET · ${selected.length}/${maxSelect} · ${birr(contribution * selected.length, am)}`}
             </button>
             {canDraw && onDraw && (
               <button
@@ -229,7 +271,10 @@ export function EqubTable({
         <div className="order-2 grid grid-cols-2 gap-2.5 lg:contents">
           <div className="glass rounded-2xl p-3 lg:order-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-white/45">
-              {am ? 'ተጫዋቾች' : 'Players'}
+              {am ? 'ተጫዋቾች' : 'Players'}{' '}
+              <span className="tabular-nums text-equb-300">
+                {uniquePlayers}/{groupSize}
+              </span>
             </p>
             <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
               {players.length === 0 && (
@@ -278,20 +323,24 @@ export function EqubTable({
       <div className="fixed inset-x-0 bottom-16 z-30 border-t border-white/10 bg-[#060c0a]/92 px-3 py-2.5 backdrop-blur-xl sm:hidden safe-bottom">
         <button
           type="button"
-          disabled={!canBet || joining || selected.length === 0}
+          disabled={!canBet || joining || selected.length === 0 || status !== 'open'}
           onClick={onBet}
           className="btn-gold relative w-full overflow-hidden py-3.5 text-base font-black disabled:opacity-40"
         >
-          {selected.length > 0 && !joining && (
+          {selected.length > 0 && !joining && status === 'open' && (
             <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
           )}
           {joining
             ? '...'
-            : selected.length === 0
+            : status !== 'open'
               ? am
-                ? 'ቁጥር ይምረጡ · ከዚያ BET'
-                : 'Select number · then BET'
-              : `BET · ${birr(contribution * selected.length, am)}`}
+                ? 'መቀላቀል ተዘግቷል'
+                : 'Joining closed'
+              : selected.length === 0
+                ? am
+                  ? 'ቁጥር ይምረጡ · ከዚያ BET'
+                  : 'Select number · then BET'
+                : `BET · ${birr(contribution * selected.length, am)}`}
         </button>
       </div>
     </div>
