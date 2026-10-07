@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useEqubStore } from '@/lib/store';
+import { adminFetch } from '@/lib/admin-fetch';
 import {
   Smartphone,
   RefreshCw,
@@ -79,7 +80,7 @@ export default function AdminTelebirrPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/telebirr', { cache: 'no-store' });
+      const res = await adminFetch('/api/admin/telebirr');
       const json = await res.json();
       if (json?.success) setData(json.data);
       else flash('err', json?.message || 'Failed to load');
@@ -91,17 +92,17 @@ export default function AdminTelebirrPage() {
 
   useEffect(() => {
     void load();
+    const iv = window.setInterval(() => void load(), 20000);
+    return () => window.clearInterval(iv);
   }, [load]);
 
-  // No router.replace — AdminGuard handles access
   if (!me || !isAdmin(me)) return null;
 
   async function action(depositId: string, kind: 'confirm' | 'reject') {
     setBusyId(depositId);
     try {
-      const res = await fetch('/api/admin/telebirr', {
+      const res = await adminFetch('/api/admin/telebirr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: kind,
           depositId,
@@ -138,7 +139,9 @@ export default function AdminTelebirrPage() {
           <h2 className="flex items-center gap-2 text-xl font-bold">
             <Smartphone className="h-5 w-5 text-amber-400" /> Telebirr wallet
           </h2>
-          <p className="text-sm text-white/40">Merchant · deposit review · Verify.ET</p>
+          <p className="text-sm text-white/40">
+            Merchant · deposit review · Verify.ET · wallet history
+          </p>
         </div>
         <button
           type="button"
@@ -164,13 +167,17 @@ export default function AdminTelebirrPage() {
       )}
 
       <section className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-5">
-        <p className="text-[11px] font-bold uppercase text-amber-300/80">Payment method · Telebirr</p>
+        <p className="text-[11px] font-bold uppercase text-amber-300/80">
+          Payment method · Telebirr
+        </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-black/30 p-4">
             <p className="flex items-center gap-1.5 text-[10px] uppercase text-white/40">
               <Phone className="h-3 w-3" /> Send to
             </p>
-            <p className="mt-1 font-mono text-2xl font-black">{m?.phone || '0977832379'}</p>
+            <p className="mt-1 font-mono text-2xl font-black">
+              {m?.phone || '0977832379'}
+            </p>
             <button
               type="button"
               onClick={() => {
@@ -187,7 +194,9 @@ export default function AdminTelebirrPage() {
             <p className="flex items-center gap-1.5 text-[10px] uppercase text-white/40">
               <User className="h-3 w-3" /> Name
             </p>
-            <p className="mt-1 text-2xl font-black text-amber-200">{m?.name || 'Menelik'}</p>
+            <p className="mt-1 text-2xl font-black text-amber-200">
+              {m?.name || 'Menelik'}
+            </p>
           </div>
         </div>
       </section>
@@ -234,26 +243,37 @@ export default function AdminTelebirrPage() {
       </div>
 
       <section className="space-y-3">
-        <h3 className="text-sm font-bold text-orange-200">Pending ({pending.length})</h3>
+        <h3 className="text-sm font-bold text-orange-200">
+          Pending ({pending.length})
+        </h3>
         {pending.length === 0 && (
           <p className="rounded-xl border border-white/5 py-8 text-center text-sm text-white/35">
             No pending deposits
           </p>
         )}
         {pending.map((d) => (
-          <div key={d.id} className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4">
+          <div
+            key={d.id}
+            className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4"
+          >
             <p className="font-mono text-xl font-black text-gold-400">
               {Number(d.amount).toLocaleString()} ETB
             </p>
             <p className="text-[11px] text-white/40">
               {d.merchantOrderId} · {d.status}
+              {d.userId ? ` · user ${d.userId.slice(0, 8)}` : ''}
             </p>
+            {d.failureReason && (
+              <p className="mt-1 text-[10px] text-amber-200/70">{d.failureReason}</p>
+            )}
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input
                 type="text"
                 placeholder="Txn # (optional)"
                 value={txnDraft[d.id] || d.transactionNumber || ''}
-                onChange={(e) => setTxnDraft((p) => ({ ...p, [d.id]: e.target.value }))}
+                onChange={(e) =>
+                  setTxnDraft((p) => ({ ...p, [d.id]: e.target.value }))
+                }
                 className="flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm"
               />
               <button
@@ -278,15 +298,28 @@ export default function AdminTelebirrPage() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-bold text-white/50">Recent ({deposits.length})</h3>
+        <h3 className="text-sm font-bold text-white/50">
+          Recent history ({deposits.length})
+        </h3>
+        {deposits.length === 0 && (
+          <p className="py-6 text-center text-sm text-white/30">No history</p>
+        )}
         {deposits.map((d) => (
           <div
             key={d.id}
-            className="flex items-center justify-between border-b border-white/5 px-2 py-3"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-2 py-3"
           >
-            <span className="font-mono text-sm font-bold text-gold-400">
-              {Number(d.amount).toLocaleString()} ETB
-            </span>
+            <div>
+              <span className="font-mono text-sm font-bold text-gold-400">
+                {Number(d.amount).toLocaleString()} ETB
+              </span>
+              <p className="text-[10px] text-white/35">
+                {d.transactionNumber || d.merchantOrderId || d.id.slice(0, 8)}
+                {d.createdAt
+                  ? ` · ${new Date(d.createdAt).toLocaleString()}`
+                  : ''}
+              </p>
+            </div>
             <span className="text-[10px] uppercase text-white/40">{d.status}</span>
           </div>
         ))}
