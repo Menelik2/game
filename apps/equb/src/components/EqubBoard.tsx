@@ -12,7 +12,6 @@ type Props = {
   onSelect: (n: number) => void;
 };
 
-/** Fast-Keno-style number grid for Equb (1..groupSize). */
 export function EqubBoard({
   groupSize,
   taken,
@@ -89,16 +88,15 @@ export function EqubRulesCard({
           {String(groupSize).padStart(2, '0')}
         </li>
         <li>
-          · Pay <span className="text-equb-400">{contribution}</span> virtual Birr entry
+          · Pay <span className="text-equb-400">{contribution}</span> Birr entry
         </li>
         <li>
-          · When all <span className="text-white">{groupSize}</span> seats fill, computer draws once
+          · When seats fill or timer hits 0, computer draws once
         </li>
         <li>
-          · Matching number wins the full pot:{' '}
+          · Matching number wins:{' '}
           <span className="font-semibold text-gold-400">{prizePool.toLocaleString()}</span> Birr
         </li>
-        <li>· Draw uses CSPRNG (provable-style entropy + hash)</li>
       </ul>
     </div>
   );
@@ -139,31 +137,43 @@ export function EqubResultBanner({
   );
 }
 
-/** 60s countdown until next multiplayer draw */
-export function EqubCountdown({ secondsLeft }: { secondsLeft: number }) {
+/** Classic 60s MM:SS countdown */
+export function EqubCountdown({
+  secondsLeft,
+  locale = 'am',
+}: {
+  secondsLeft: number;
+  locale?: string;
+}) {
   const safe = Math.max(0, Math.floor(secondsLeft));
   const m = Math.floor(safe / 60);
   const s = safe % 60;
   const urgent = safe <= 10;
+  const am = locale === 'am';
   return (
     <div
-      className={
+      className={clsx(
+        'rounded-2xl border px-4 py-3.5 text-center shadow-lg',
         urgent
-          ? 'rounded-2xl border border-gold-500/40 bg-gold-500/15 px-4 py-3 text-center'
-          : 'rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center'
-      }
+          ? 'border-gold-500/50 bg-gradient-to-b from-gold-500/20 to-gold-500/5'
+          : 'border-white/10 bg-gradient-to-b from-white/[0.07] to-black/40',
+      )}
     >
-      <p className="text-[10px] uppercase tracking-widest text-white/40">Next random draw</p>
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+        {am ? 'ቀጣይ ዕጣ' : 'Next random draw'}
+      </p>
       <p
-        className={
-          'mt-1 font-mono text-3xl font-black tabular-nums ' +
-          (urgent ? 'text-gold-400' : 'text-white')
-        }
+        className={clsx(
+          'mt-1 font-mono text-4xl font-black tabular-nums tracking-tight sm:text-5xl',
+          urgent ? 'animate-pulse text-gold-400' : 'text-white',
+        )}
       >
         {String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
       </p>
-      <p className="mt-1 text-[11px] text-white/45">
-        Multiple players · every 60s one winning number is chosen
+      <p className="mt-1.5 text-[11px] text-white/45">
+        {am
+          ? 'በየ 60 ሰከንድ አንድ አሸናፊ ቁጥር ይመረጣል'
+          : 'Every 60s one winning number is chosen'}
       </p>
     </div>
   );
@@ -173,10 +183,10 @@ export function EqubSeatLegend() {
   return (
     <div className="flex flex-wrap gap-3 text-[10px] text-white/45">
       <span className="flex items-center gap-1">
-        <span className="inline-block h-3 w-3 rounded bg-surface-800" /> Free node
+        <span className="inline-block h-3 w-3 rounded bg-surface-800" /> Free
       </span>
       <span className="flex items-center gap-1">
-        <span className="inline-block h-3 w-3 rounded bg-equb-500" /> Your pick
+        <span className="inline-block h-3 w-3 rounded bg-equb-500" /> Yours
       </span>
       <span className="flex items-center gap-1">
         <span className="inline-block h-3 w-3 rounded bg-white/20" /> Taken

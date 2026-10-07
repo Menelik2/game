@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { EqubTable, type TablePlayer } from '@/components/EqubTable';
 import { maxPicksForGroup, validatePicks } from '@/lib/equb-math';
 import {
@@ -43,7 +41,7 @@ export default function RoomDetailPage() {
       }
     };
     void load();
-    const iv = setInterval(() => void load(), 3000);
+    const iv = setInterval(() => void load(), 2500);
     return () => {
       stop = true;
       clearInterval(iv);
@@ -74,20 +72,16 @@ export default function RoomDetailPage() {
   }));
 
   return (
-    <div className="space-y-2 pb-4">
-      <Link href="/rooms" className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/80">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        {locale === 'am' ? 'ተመለስ' : 'Back'}
-      </Link>
+    <div className="mx-auto max-w-lg space-y-2 pb-4 sm:max-w-2xl">
       {!room ? (
-        <p className="py-6 text-center text-sm text-white/50">
-          {err || (locale === 'am' ? 'ክፍል በመገናት ላይ ነው' : 'Opening room...')}
+        <p className="py-10 text-center text-sm text-white/50">
+          {err || (locale === 'am' ? 'ክፍል በመከፈት ላይ…' : 'Opening room…')}
         </p>
       ) : (
         <>
-          {room.status === 'completed' && room.winnerName && (
-            <p className="rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm font-semibold text-amber-200">
-              {locale === 'am' ? 'አሻኛ' : 'Winner'}: {room.winnerName} · #
+          {room.status === 'completed' && (room.winnerName || room.winnerId) && (
+            <p className="rounded-xl border border-gold-500/30 bg-gold-400/15 px-3 py-2.5 text-center text-sm font-semibold text-amber-200">
+              {locale === 'am' ? 'አሸናፊ' : 'Winner'}: {room.winnerName || room.winnerId} · #
               {String(room.winningNumber).padStart(2, '0')}
               {room.winnerPayout != null ? ` · +${room.winnerPayout}` : ''}
             </p>
@@ -102,20 +96,37 @@ export default function RoomDetailPage() {
             winningNumber={room.winningNumber}
             status={room.status}
             players={players}
-            results={(room as ServerRoom & { recent?: { winningNumber: number; winnerName: string; pot: number; id?: string }[] }).recent || []}
+            results={
+              (
+                room as ServerRoom & {
+                  recent?: {
+                    winningNumber: number;
+                    winnerName: string;
+                    pot: number;
+                    id?: string;
+                  }[];
+                }
+              ).recent || []
+            }
             secondsLeft={Number(room.secondsLeft ?? 60)}
             lastWinnerPayout={room.winnerPayout}
             lastAdminFee={room.adminFee}
             disabled={yours.length > 0 || room.status !== 'open' || joining}
             joining={joining}
-            canBet={room.status === 'open' && yours.length === 0 && picks.length > 0 && !joining}
+            canBet={
+              room.status === 'open' &&
+              yours.length === 0 &&
+              picks.length > 0 &&
+              !joining
+            }
             maxSelect={maxP}
             onToggleSelect={(n) => {
               if (yours.length || room.status !== 'open') return;
               if (taken.has(n)) return;
               setPicks((prev) => {
                 if (prev.includes(n)) return prev.filter((x) => x !== n);
-                if (prev.length >= maxP) return [...prev.slice(1), n].sort((a, b) => a - b);
+                if (prev.length >= maxP)
+                  return [...prev.slice(1), n].sort((a, b) => a - b);
                 return [...prev, n].sort((a, b) => a - b);
               });
             }}
@@ -131,9 +142,13 @@ export default function RoomDetailPage() {
               }
               setJoining(true);
               try {
-                const { room: joined, balance, fee } = await joinRoomWithBalance(templateId!, check.picks);
+                const { room: joined, balance, fee } = await joinRoomWithBalance(
+                  templateId!,
+                  check.picks,
+                );
                 setRoom(joined);
-                if (typeof balance === 'number') setSessionUser({ ...user, balance });
+                if (typeof balance === 'number')
+                  setSessionUser({ ...user, balance });
                 setPicks([]);
                 setMsg(
                   locale === 'am'
@@ -149,7 +164,11 @@ export default function RoomDetailPage() {
           />
         </>
       )}
-      {msg && <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">{msg}</p>}
+      {msg && (
+        <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
+          {msg}
+        </p>
+      )}
     </div>
   );
 }
