@@ -131,7 +131,6 @@ export async function dbRegister(input: {
     if (!error && data) {
       try {
         const user = mapUser(data as Record<string, unknown>);
-        // Real-money: never trust RPC seed balance
         if (Number(user.balance) !== 0) {
           await forceZeroBalance(user.id);
           user.balance = 0;
@@ -319,32 +318,70 @@ export async function dbSetBalance(
   }
 }
 
+/**
+ * Adjust balance by delta. Rejects debits that would go below zero.
+ * Returns new balance, or null if user not found.
+ * Throws Error with "Insufficient balance" when funds are too low.
+ */
 export async function dbAdjustBalance(
   id: string,
   delta: number,
   reason = 'adjust',
 ): Promise<number | null> {
+  const d = Math.round(Number(delta) * 100) / 100;
+  if (!Number.isFinite(d)) {
+    throw new Error('Invalid amount');
+  }
+
   const local = mem.get(id);
   if (local) {
-    local.balance = Math.max(0, local.balance + delta);
+    const next = Math.round((local.balance + d) * 100) / 100;
+    if (next < 0) {
+      throw new Error(
+        `Insufficient balance: need ${Math.abs(d)}, have ${local.balance}`,
+      );
+    }
+    local.balance = next;
   }
-  if (!isDbConfigured()) return local?.balance ?? null;
+
+  if (!isDbConfigured()) {
+    if (local) return local.balance;
+    return null;
+  }
+
+  // Prefer RPC when available
   try {
-    const { data } = await sb().rpc('app_adjust_balance', {
+    const { data, error } = await sb().rpc('app_adjust_balance', {
       p_id: id,
-      p_delta: delta,
+      p_delta: d,
       p_reason: reason,
     });
-    if (data && typeof data === 'object' && 'balance' in (data as object)) {
-      return Number((data as { balance: number }).balance);
+    if (!error && data && typeof data === 'object' && 'balance' in (data as object)) {
+      const bal = Number((data as { balance: number }).balance);
+      if (Number.isFinite(bal)) {
+        if (local) local.balance = bal;
+        return bal;
+      }
     }
   } catch {
-    /* */
+    /* fall through to manual path */
   }
+
   const u = await dbGetUser(id);
-  if (!u) return null;
-  const next = Math.max(0, u.balance + delta);
+  if (!u) {
+    if (local) return local.balance;
+    return null;
+  }
+
+  const next = Math.round((Number(u.balance) + d) * 100) / 100;
+  if (next < 0) {
+    throw new Error(
+      `Insufficient balance: need ${Math.abs(d)}, have ${u.balance}`,
+    );
+  }
+
   await dbSetBalance(id, next, reason);
+  if (local) local.balance = next;
   return next;
 }
 
@@ -396,10 +433,8 @@ export async function dbEnsureAdmin(phone: string, passwordHash: string) {
         role: 'admin',
       });
     } else {
-      // Keep password in sync with seed hash if still default admin phone
       const updates: Record<string, unknown> = { role: 'admin' };
       if (String(existing.data.password_hash) !== passwordHash) {
-        // only auto-repair known seed admin phones
         updates.password_hash = passwordHash;
       }
       await sb().from('app_users').update(updates).eq('id', existing.data.id);

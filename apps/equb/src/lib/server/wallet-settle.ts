@@ -44,25 +44,46 @@ export async function readBalance(userId: string): Promise<number | null> {
 }
 
 async function adjust(userId: string, delta: number, reason: string) {
+  const d = Math.round(Number(delta) * 100) / 100;
+
   if (isUuid(userId)) {
-    const r = await dbAdjustBalance(userId, delta, reason);
-    try {
-      applyDelta(userId, delta, reason);
-    } catch {
-      /* optional mirror for SSE */
+    // Ensure user exists before debit
+    const u = await dbGetUser(userId);
+    if (!u) {
+      throw new Error('Account not found — sign in again');
     }
-    if (typeof r !== 'number' || !Number.isFinite(r)) {
+    if (d < 0 && Number(u.balance) < Math.abs(d)) {
+      throw new Error(
+        `Insufficient balance: need ${Math.abs(d)}, have ${u.balance}. Deposit Telebirr first.`,
+      );
+    }
+    try {
+      const r = await dbAdjustBalance(userId, d, reason);
+      try {
+        applyDelta(userId, d, reason);
+      } catch {
+        /* optional mirror for SSE */
+      }
+      if (typeof r === 'number' && Number.isFinite(r)) return r;
+      // Re-read after adjust
+      const again = await dbGetUser(userId);
+      if (again) return Number(again.balance);
+      throw new Error('Balance update failed');
+    } catch (e: unknown) {
+      if (e instanceof Error) throw e;
       throw new Error('Balance update failed');
     }
-    return r;
   }
-  if (delta < 0) {
+
+  if (d < 0) {
     const w = ensureWallet(userId);
-    if (w.balance < Math.abs(delta)) {
-      throw new Error(`Insufficient balance: need ${Math.abs(delta)}, have ${w.balance}`);
+    if (w.balance < Math.abs(d)) {
+      throw new Error(
+        `Insufficient balance: need ${Math.abs(d)}, have ${w.balance}. Deposit Telebirr first.`,
+      );
     }
   }
-  return applyDelta(userId, delta, reason).balance;
+  return applyDelta(userId, d, reason).balance;
 }
 
 export async function settleJoinFee(input: {
@@ -129,12 +150,7 @@ export async function refundJoinFee(input: {
   const feeKey = `fee:${input.userId}:${input.roomId}`;
   if (!g.__feeKeys!.has(feeKey)) return;
   try {
-    await settleWinPayout({
-      userId: input.userId,
-      amount,
-      roomId: `refund-${input.roomId}`,
-      winningNumber: 0,
-    });
+    await adjust(input.userId, amount, `refund_join:${input.roomId}`);
   } finally {
     g.__feeKeys!.delete(feeKey);
   }
