@@ -1,14 +1,31 @@
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 
-/** Deterministic password hash (Node crypto — Vercel Node runtime) */
+/**
+ * Server-side password hash.
+ * Uses optional PASSWORD_PEPPER env for extra secret material.
+ * (Migrating to Argon2/bcrypt is recommended for a later release.)
+ */
 export function hashPassword(password: string): string {
+  const pepper = process.env.PASSWORD_PEPPER || 'equb-v1';
   return createHash('sha256')
-    .update(`equb-v1:${password}`, 'utf8')
+    .update(`${pepper}:${password}`, 'utf8')
     .digest('hex');
 }
 
 export async function hashPasswordAsync(password: string): Promise<string> {
   return hashPassword(password);
+}
+
+/** Constant-time compare of two hex hashes. */
+export function safeEqualHash(a: string, b: string): boolean {
+  try {
+    const ba = Buffer.from(a, 'hex');
+    const bb = Buffer.from(b, 'hex');
+    if (ba.length !== bb.length) return false;
+    return timingSafeEqual(ba, bb);
+  } catch {
+    return false;
+  }
 }
 
 export function normalizePhone(raw: string): string | null {

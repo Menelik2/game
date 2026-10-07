@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hashPassword, normalizePhone } from '@/lib/password';
 import { dbEnsureAdmin, dbLogin } from '@/lib/server/db-users';
+import { rateLimit, clientIp } from '@/lib/server/rate-limit';
+import {
+  assertBodySize,
+  originAllowed,
+  forbiddenOrigin,
+  withSecurityHeaders,
+} from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -9,8 +16,6 @@ export const runtime = 'nodejs';
  * Admin bootstrap (server-only env — never shipped to the browser):
  *   ADMIN_PHONE=+2519xxxxxxxx
  *   ADMIN_PASSWORD=your-secret
- * Password is hashed and stored in the database only.
- * Plaintext is never returned in API responses.
  */
 async function ensureAdminFromEnv() {
   const phoneRaw = process.env.ADMIN_PHONE || '';
@@ -26,6 +31,27 @@ async function ensureAdminFromEnv() {
 }
 
 export async function POST(req: NextRequest) {
+  const tooBig = assertBodySize(req);
+  if (tooBig) return withSecurityHeaders(tooBig);
+  if (!originAllowed(req)) return withSecurityHeaders(forbiddenOrigin());
+
+  const ip = clientIp(req);
+  const rl = rateLimit(`login:${ip}`, 12, 60_000); // 12 / minute / IP
+  if (!rl.ok) {
+    return withSecurityHeaders(
+      NextResponse.json(
+        {
+          success: false,
+          message: `Too many login attempts. Try again in ${rl.retryAfterSec}s.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rl.retryAfterSec) },
+        },
+      ),
+    );
+  }
+
   try {
     let body: Record<string, unknown> = {};
     try {
@@ -34,58 +60,83 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const phoneRaw = String(body.phone ?? body.username ?? '');
-    const password = String(body.password ?? '');
+    const phoneRaw = String(body.phone ?? body.username ?? '').slice(0, 32);
+    const password = String(body.password ?? '').slice(0, 128);
 
     const phone = normalizePhone(phoneRaw);
-    if (!phone) {
-      return NextResponse.json(
-        { success: false, message: 'Valid phone required (09xxxxxxxx)' },
-        { status: 400 },
+    if (!phone || !password) {
+      return withSecurityHeaders(
+        NextResponse.json(
+          { success: false, message: 'Invalid phone or password' },
+          { status: 401 },
+        ),
       );
     }
 
-    if (!password) {
-      return NextResponse.json(
-        { success: false, message: 'Password required' },
-        { status: 400 },
+    // Per-phone limit (slows credential stuffing)
+    const rlPhone = rateLimit(`login-phone:${phone}`, 8, 60_000);
+    if (!rlPhone.ok) {
+      return withSecurityHeaders(
+        NextResponse.json(
+          {
+            success: false,
+            message: `Too many attempts for this number. Wait ${rlPhone.retryAfterSec}s.`,
+          },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(rlPhone.retryAfterSec) },
+          },
+        ),
       );
     }
 
-    // Optional one-time seed from Vercel env into DB (hashed)
     await ensureAdminFromEnv();
 
     const passwordHash = hashPassword(password);
     const r = await dbLogin({ phone, passwordHash });
 
     if (!r.ok) {
-      return NextResponse.json(
-        { success: false, message: r.error || 'Invalid phone or password' },
-        { status: 401 },
+      // Generic message — do not reveal whether phone exists
+      return withSecurityHeaders(
+        NextResponse.json(
+          { success: false, message: 'Invalid phone or password' },
+          { status: 401 },
+        ),
       );
     }
 
-    // Role only from database — never trust client
+    if (r.user.banned) {
+      return withSecurityHeaders(
+        NextResponse.json(
+          { success: false, message: 'Account suspended. Contact support.' },
+          { status: 403 },
+        ),
+      );
+    }
+
     const role = r.user.role === 'admin' ? 'admin' : 'player';
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: r.user.id,
-        fullName: r.user.fullName,
-        phone: r.user.phone,
-        balance: r.user.balance,
-        referralCode: r.user.referralCode,
-        role,
-        banned: r.user.banned ?? false,
-      },
-    });
+    return withSecurityHeaders(
+      NextResponse.json({
+        success: true,
+        data: {
+          id: r.user.id,
+          fullName: r.user.fullName,
+          phone: r.user.phone,
+          balance: r.user.balance,
+          referralCode: r.user.referralCode,
+          role,
+          banned: false,
+        },
+      }),
+    );
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Login failed';
-    console.error('[auth/login]', message);
-    return NextResponse.json(
-      { success: false, message: `Login error: ${message}` },
-      { status: 500 },
+    console.error('[auth/login]', e instanceof Error ? e.message : e);
+    return withSecurityHeaders(
+      NextResponse.json(
+        { success: false, message: 'Login failed. Please try again.' },
+        { status: 500 },
+      ),
     );
   }
 }
