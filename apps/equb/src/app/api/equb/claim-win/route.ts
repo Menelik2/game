@@ -6,7 +6,7 @@ import { getRoom } from '@/lib/server/equb-rooms';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** Winner claims payout once (idempotent). Does not rotate the room. */
+/** Winner claims payout once. Server draw already credits; this must not pay twice. */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     let winnerId: string | null = null;
     let paidOut = false;
     let status = '';
+    let serverPayout = 0;
 
     if (sharedEnabled()) {
       const room = await peekShared(templateId);
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
       roomId = room.id;
       winnerId = room.winnerId;
       paidOut = Boolean(room.paidOut);
+      serverPayout = Number(room.winnerPayout || 0);
       if (room.status !== 'completed') {
         return NextResponse.json(
           { success: false, message: 'Round not completed yet' },
@@ -49,8 +51,7 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      const room =
-        getRoom(String(body.roomId || '')) || getRoom(templateId);
+      const room = getRoom(String(body.roomId || '')) || getRoom(templateId);
       if (!room) {
         return NextResponse.json({ success: false, message: 'Room not found' }, { status: 404 });
       }
@@ -81,9 +82,22 @@ export async function POST(req: NextRequest) {
     }
 
     const { winnerPayout } = computePayout(prizePool);
+    const amount = serverPayout > 0 ? serverPayout : winnerPayout;
+
+    if (paidOut) {
+      return NextResponse.json({
+        success: true,
+        credited: false,
+        alreadyPaid: true,
+        balance: await readBalance(userId),
+        amount,
+        status,
+      });
+    }
+
     const result = await settleWinPayout({
       userId,
-      amount: winnerPayout,
+      amount,
       roomId,
       winningNumber,
     });
@@ -91,14 +105,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       credited: result.credited,
-      alreadyPaid: paidOut && !result.credited,
+      alreadyPaid: !result.credited,
       balance: result.balance ?? (await readBalance(userId)),
-      amount: winnerPayout,
+      amount,
       status,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
-      { success: false, message: e?.message || 'Claim failed' },
+      { success: false, message: e instanceof Error ? e.message : 'Claim failed' },
       { status: 400 },
     );
   }

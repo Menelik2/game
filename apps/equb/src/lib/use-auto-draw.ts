@@ -4,11 +4,8 @@ import { useEffect, useRef } from 'react';
 import { useEqubStore } from '@/lib/store';
 
 /**
- * Every 60 seconds:
- * 1. Fill empty seats with bots (if anyone joined)
- * 2. Crypto draw → one winner
- * 3. Show result briefly
- * 4. Auto-reopen room + reset timer → new game
+ * Offline fallback: at 00:00 draw among real joined players only.
+ * One winner. No bots. Then reopen a 60s round.
  */
 export function useAutoCryptoDraw(opts: {
   roomId: string | undefined;
@@ -36,65 +33,39 @@ export function useAutoCryptoDraw(opts: {
         if (cancelled) return;
         const { reopenRoom, rooms } = useEqubStore.getState();
         const r = rooms.find((x) => x.id === roomId);
-        if (r && r.status !== 'open') {
-          reopenRoom(roomId);
-        }
+        if (r && r.status !== 'open') reopenRoom(roomId);
         lock.current = false;
         setTick(60);
       }, delayMs);
     };
 
-    const room = useEqubStore.getState().rooms.find((r) => r.id === roomId);
-
-    if (!room || room.status !== 'open') {
-      restart(1200);
-      return () => {
-        cancelled = true;
-      };
-    }
-
     (async () => {
       try {
-        const { fillSeats, runDraw, reopenRoom, rooms } = useEqubStore.getState();
-        let r = rooms.find((x) => x.id === roomId);
-        if (!r || r.status !== 'open') {
-          restart(1000);
-          return;
-        }
-
-        if (r.members.length === 0) {
+        const { runDraw, rooms } = useEqubStore.getState();
+        const r = rooms.find((x) => x.id === roomId);
+        const humans = (r?.members || []).filter(
+          (m) => !m.isBot && !String(m.id).startsWith('bot_'),
+        );
+        if (!r || r.status !== 'open' || humans.length === 0) {
           if (!cancelled) {
             setMsg(
               locale === 'am'
-                ? 'ማንም አልተቀላቀለም — አዲስ ዙር በ1 ደቂቃ'
-                : 'No players — new round in 1 minute',
+                ? 'ማንም አልተቀላቀለም — አዲስ ዙር'
+                : 'No players — new round',
             );
           }
-          restart(1000);
-          return;
-        }
-
-        if (r.members.length < r.groupSize) {
-          const res = fillSeats(roomId);
-          if (!cancelled) setMsg(res.message);
-          r = useEqubStore.getState().rooms.find((x) => x.id === roomId);
-        }
-
-        if (!r || r.members.length < r.groupSize) {
-          restart(1000);
+          restart(800);
           return;
         }
 
         if (!cancelled) setDrawing(true);
         const out = await runDraw(roomId);
         if (cancelled) return;
-
         setMsg(out.message);
         setDrawing(false);
-
         setTimeout(() => {
           if (cancelled) return;
-          reopenRoom(roomId);
+          useEqubStore.getState().reopenRoom(roomId);
           lock.current = false;
           setTick(60);
           setMsg(
@@ -102,7 +73,7 @@ export function useAutoCryptoDraw(opts: {
               ? 'አዲስ ዙር ተጀመረ — 60 ሰከንድ'
               : 'New round started — 60 seconds',
           );
-        }, 2800);
+        }, 4000);
       } catch {
         if (!cancelled) {
           setDrawing(false);
@@ -117,7 +88,6 @@ export function useAutoCryptoDraw(opts: {
   }, [tick, roomId, enabled, locale, setTick, setMsg, setDrawing]);
 }
 
-/** Continuous countdown 60 → 0 every second (demo mode) */
 export function useDemoCountdown(
   tick: number,
   setTick: (n: number | ((s: number) => number)) => void,
