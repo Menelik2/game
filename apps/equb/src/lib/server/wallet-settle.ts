@@ -3,8 +3,7 @@
  */
 import { dbAdjustBalance, dbGetUser, isDbConfigured } from './db-users';
 import { applyDelta, ensureWallet } from './wallets';
-
-const ADMIN_FEE_RATE = 0.15;
+import { splitPotWithRate, getPlatformFeeRate } from './prize-settings';
 
 const g = globalThis as unknown as {
   __paidKeys?: Set<string>;
@@ -14,10 +13,11 @@ if (!g.__paidKeys) g.__paidKeys = new Set();
 if (!g.__feeKeys) g.__feeKeys = new Set();
 
 export function computePayout(prizePool: number) {
-  const gross = Math.round(Number(prizePool) * 100) / 100;
-  const adminFee = Math.round(gross * ADMIN_FEE_RATE * 100) / 100;
-  const winnerPayout = Math.round((gross - adminFee) * 100) / 100;
-  return { gross, adminFee, winnerPayout };
+  const { grossPot, adminFee, winnerPayout, adminFeeRate } = splitPotWithRate(
+    prizePool,
+    getPlatformFeeRate(),
+  );
+  return { gross: grossPot, adminFee, winnerPayout, adminFeeRate };
 }
 
 function isUuid(id: string) {
@@ -47,7 +47,6 @@ async function adjust(userId: string, delta: number, reason: string) {
   const d = Math.round(Number(delta) * 100) / 100;
 
   if (isUuid(userId)) {
-    // Ensure user exists before debit
     const u = await dbGetUser(userId);
     if (!u) {
       throw new Error('Account not found — sign in again');
@@ -65,7 +64,6 @@ async function adjust(userId: string, delta: number, reason: string) {
         /* optional mirror for SSE */
       }
       if (typeof r === 'number' && Number.isFinite(r)) return r;
-      // Re-read after adjust
       const again = await dbGetUser(userId);
       if (again) return Number(again.balance);
       throw new Error('Balance update failed');
