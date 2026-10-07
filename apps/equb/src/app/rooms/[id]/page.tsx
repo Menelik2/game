@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { EqubTable, type TablePlayer } from '@/components/EqubTable';
 import { maxPicksForGroup, validatePicks } from '@/lib/equb-math';
 import {
@@ -72,20 +73,39 @@ export default function RoomDetailPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-lg space-y-2 pb-4 sm:max-w-2xl">
-      {!room ? (
-        <p className="py-10 text-center text-sm text-white/50">
-          {err || (locale === 'am' ? 'ክፍል በመከፈት ላይ…' : 'Opening room…')}
+    <div className="mx-auto max-w-3xl space-y-3 pb-28 sm:pb-8">
+      {err && (
+        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-xs text-red-200">
+          {err}
         </p>
-      ) : (
+      )}
+      {!room && !err && (
+        <p className="py-12 text-center text-sm text-white/40">
+          {locale === 'am' ? 'ክፍል በመጫን ላይ…' : 'Loading room…'}
+        </p>
+      )}
+      {room && (
         <>
-          {room.status === 'completed' && (room.winnerName || room.winnerId) && (
-            <p className="rounded-xl border border-gold-500/30 bg-gold-400/15 px-3 py-2.5 text-center text-sm font-semibold text-amber-200">
-              {locale === 'am' ? 'አሸናፊ' : 'Winner'}: {room.winnerName || room.winnerId} · #
-              {String(room.winningNumber).padStart(2, '0')}
-              {room.winnerPayout != null ? ` · +${room.winnerPayout}` : ''}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <div>
+              <p className="text-sm font-bold text-white">
+                {room.groupSize}{' '}
+                {locale === 'am' ? 'ተጫዋቾች' : 'players'} ·{' '}
+                <span className="text-gold-400">{room.prizePool} Birr</span>
+              </p>
+              <p className="text-[11px] text-white/45">
+                {locale === 'am'
+                  ? `ከፍተኛ ${maxP} ቁጥር · ክፍያ ${room.contribution} ብር / ቁጥር`
+                  : `Max ${maxP} picks · ${room.contribution} Birr / number`}
+              </p>
+            </div>
+            <Link
+              href="/rooms"
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70"
+            >
+              {locale === 'am' ? 'ተመለስ' : 'Back'}
+            </Link>
+          </div>
           <EqubTable
             groupSize={room.groupSize}
             prizePool={room.prizePool}
@@ -125,8 +145,15 @@ export default function RoomDetailPage() {
               if (taken.has(n)) return;
               setPicks((prev) => {
                 if (prev.includes(n)) return prev.filter((x) => x !== n);
-                if (prev.length >= maxP)
-                  return [...prev.slice(1), n].sort((a, b) => a - b);
+                if (prev.length >= maxP) {
+                  setMsg(
+                    locale === 'am'
+                      ? `ከፍተኛ ${maxP} ቁጥር ብቻ`
+                      : `Max ${maxP} number(s)`,
+                  );
+                  return prev;
+                }
+                setMsg('');
                 return [...prev, n].sort((a, b) => a - b);
               });
             }}
@@ -138,6 +165,17 @@ export default function RoomDetailPage() {
               const check = validatePicks(room.groupSize, picks, taken);
               if (!check.ok) {
                 setMsg(check.message);
+                return;
+              }
+              const feeNeed =
+                Math.round(Number(room.contribution) * check.picks.length * 100) /
+                100;
+              if (feeNeed > 0 && Number(user.balance || 0) < feeNeed) {
+                setMsg(
+                  locale === 'am'
+                    ? `በቂ ብር የለም (ያስፈልጋል ${feeNeed}) — ወደ ኪስ ይሂዱና ቴሌብር ያስገቡ`
+                    : `Need ${feeNeed} Birr — deposit Telebirr in Wallet first`,
+                );
                 return;
               }
               setJoining(true);
@@ -152,11 +190,12 @@ export default function RoomDetailPage() {
                 setPicks([]);
                 setMsg(
                   locale === 'am'
-                    ? `ተቀላቅለዋል · -${fee ?? room.contribution} ብር`
-                    : `Joined · -${fee ?? room.contribution} Birr`,
+                    ? `ተቀላቅለዋል · -${fee ?? feeNeed} ብር`
+                    : `Joined · -${fee ?? feeNeed} Birr`,
                 );
               } catch (e) {
-                setMsg(e instanceof Error ? e.message : 'Join failed');
+                const m = e instanceof Error ? e.message : 'Join failed';
+                setMsg(m);
               } finally {
                 setJoining(false);
               }
@@ -165,9 +204,17 @@ export default function RoomDetailPage() {
         </>
       )}
       {msg && (
-        <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
-          {msg}
-        </p>
+        <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center text-xs text-equb-300">
+          <p>{msg}</p>
+          {/insufficient|በቂ ብር|Need \d|deposit|ተሞላ|ኪስ/i.test(msg) && (
+            <Link
+              href="/wallet"
+              className="inline-block rounded-full bg-amber-400 px-4 py-1.5 text-[11px] font-bold text-black"
+            >
+              {locale === 'am' ? 'ወደ ኪስ · ቴሌብር አስገባ' : 'Open Wallet · Deposit'}
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );
