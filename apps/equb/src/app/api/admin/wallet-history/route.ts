@@ -8,9 +8,8 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * Combined wallet history for admin:
- * - Telebirr deposits (all statuses)
- * - Balance ledger events (bets, wins, admin set, deposits)
+ * Combined wallet history for admin.
+ * DbUser fields: fullName, phone (no `name` property).
  */
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
@@ -20,7 +19,9 @@ export async function GET(req: NextRequest) {
   const userId = (searchParams.get('userId') || '').trim() || undefined;
   const limit = Number(searchParams.get('limit') || 80);
 
-  const users = await adminList().catch(() => [] as Awaited<ReturnType<typeof adminList>>);
+  const users = await adminList().catch(
+    () => [] as Awaited<ReturnType<typeof adminList>>,
+  );
   const byId = new Map(users.map((u) => [u.id, u]));
 
   const deposits = listDeposits(userId).map((d) => {
