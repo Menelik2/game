@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { isDbConfigured } from './db-users';
 import { createClient } from '@supabase/supabase-js';
 import { computePayout, settleWinPayout } from './wallet-settle';
+import { recordGameProfit } from './profit-ledger';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
@@ -41,7 +42,6 @@ export type SharedRoom = {
 };
 
 function maxPicks(groupSize: number) {
-  // 5 → 1 pick; 10+ → max 2 picks
   const size = Math.floor(Number(groupSize) || 0);
   if (size <= 5) return 1;
   return 2;
@@ -204,6 +204,23 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   }
 
   room.status = 'completed';
+  try {
+    recordGameProfit({
+      roomId: room.id,
+      templateId: room.templateId,
+      groupSize: room.groupSize,
+      prizePool: room.prizePool,
+      adminFee,
+      winnerPayout,
+      winnerId: room.winnerId,
+      winnerName: room.winnerName,
+      winningNumber,
+      seatsTaken: seatsTaken(room),
+      completedAtMs: Date.now(),
+    });
+  } catch {
+    /* profit ledger is non-blocking */
+  }
   room.recent = [
     {
       id: room.id,
@@ -303,4 +320,8 @@ export async function joinShared(
   room.updatedAt = Date.now();
   await write(room);
   return withTimer(room);
+}
+
+export async function listSharedOpen(): Promise<SharedRoom[]> {
+  return [];
 }

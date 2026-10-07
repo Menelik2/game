@@ -12,6 +12,7 @@ import {
   Landmark,
   Radio,
   Smartphone,
+  TrendingUp,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AdminGuard } from '@/components/AdminGuard';
@@ -21,6 +22,7 @@ const links = [
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/telebirr', label: 'Telebirr', icon: Smartphone },
   { href: '/admin/deposits', label: 'Deposits', icon: Landmark },
+  { href: '/admin/profit', label: 'Profit', icon: TrendingUp },
   { href: '/admin/audit', label: 'Audit', icon: ScrollText },
   { href: '/admin/system', label: 'System', icon: Server },
 ];
