@@ -19,14 +19,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, message: 'Invalid signature' }, { status: 401 });
   }
 
-  let body: any = {};
+  let body: Record<string, unknown> = {};
   try {
-    body = JSON.parse(raw);
+    body = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ success: false, message: 'Invalid JSON' }, { status: 400 });
   }
 
-  const txRef = String(body?.tx_ref || body?.trx_ref || body?.data?.tx_ref || '');
+  const data = body.data as Record<string, unknown> | undefined;
+  const txRef = String(
+    body.tx_ref || body.trx_ref || data?.tx_ref || '',
+  );
   if (!txRef) {
     return NextResponse.json({ success: false, message: 'tx_ref missing' }, { status: 400 });
   }
@@ -43,20 +46,18 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (local.status === 'COMPLETED') {
+  if (local.status === 'CONFIRMED') {
     return NextResponse.json({ success: true, message: 'Already completed', id: local.id });
   }
 
   if (verified.status === 'success') {
-    updateTx(local.id, { status: 'COMPLETED' });
+    updateTx(local.id, { status: 'CONFIRMED' });
     if (isDbConfigured()) {
       try {
         await dbAdjustBalance(local.userId, local.amount, `deposit:${txRef}`);
-      } catch (e: any) {
-        return NextResponse.json(
-          { success: false, message: e?.message || 'Credit failed' },
-          { status: 500 },
-        );
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Credit failed';
+        return NextResponse.json({ success: false, message }, { status: 500 });
       }
     }
     return NextResponse.json({
@@ -84,8 +85,8 @@ export async function GET(req: NextRequest) {
   }
   const verified = await chapaVerify(txRef);
   const local = getTxByProviderRef(txRef);
-  if (local && verified.status === 'success' && local.status !== 'COMPLETED') {
-    updateTx(local.id, { status: 'COMPLETED' });
+  if (local && verified.status === 'success' && local.status !== 'CONFIRMED') {
+    updateTx(local.id, { status: 'CONFIRMED' });
     if (isDbConfigured()) {
       await dbAdjustBalance(local.userId, local.amount, `deposit:${txRef}`).catch(
         () => null,
