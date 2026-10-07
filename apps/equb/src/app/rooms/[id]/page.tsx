@@ -42,7 +42,7 @@ export default function RoomDetailPage() {
       }
     };
     void load();
-    const iv = setInterval(() => void load(), 2500);
+    const iv = setInterval(() => void load(), 2000);
     return () => {
       stop = true;
       clearInterval(iv);
@@ -58,6 +58,8 @@ export default function RoomDetailPage() {
     for (const n of list) taken.add(Number(n));
   }
   const maxP = room ? maxPicksForGroup(room.groupSize) : 1;
+  const playerCount = room?.playerCount ?? room?.members?.length ?? 0;
+  const minPlayers = room?.minPlayers ?? 2;
   const players: TablePlayer[] = (room?.members || []).map((m) => ({
     id: m.playerId,
     name: m.name,
@@ -89,14 +91,16 @@ export default function RoomDetailPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <div>
               <p className="text-sm font-bold text-white">
-                {room.groupSize}{' '}
-                {locale === 'am' ? 'ተጫዋቾች' : 'players'} ·{' '}
+                <span className="tabular-nums text-equb-300">
+                  {playerCount} / {room.groupSize}
+                </span>{' '}
+                {locale === 'am' ? 'ተጫዋቾች' : 'Players'} ·{' '}
                 <span className="text-gold-400">{room.prizePool} Birr</span>
               </p>
               <p className="text-[11px] text-white/45">
                 {locale === 'am'
-                  ? `ከፍተኛ ${maxP} ቁጥር · ክፍያ ${room.contribution} ብር / ቁጥር`
-                  : `Max ${maxP} picks · ${room.contribution} Birr / number`}
+                  ? `ከፍተኛ ${maxP} ቁጥር · ክፍያ ${room.contribution} ብር / ቁጥር · ዝቅተኛ ${minPlayers} ተጫዋቾች`
+                  : `Max ${maxP} picks · ${room.contribution} Birr / number · min ${minPlayers} players`}
               </p>
             </div>
             <Link
@@ -116,6 +120,9 @@ export default function RoomDetailPage() {
             winningNumber={room.winningNumber}
             status={room.status}
             players={players}
+            gameId={room.gameId || room.id}
+            roomId={room.id}
+            minPlayers={minPlayers}
             results={
               (
                 room as ServerRoom & {
@@ -131,17 +138,24 @@ export default function RoomDetailPage() {
             secondsLeft={Number(room.secondsLeft ?? 60)}
             lastWinnerPayout={room.winnerPayout}
             lastAdminFee={room.adminFee}
-            disabled={yours.length > 0 || room.status !== 'open' || joining}
+            disabled={
+              yours.length > 0 ||
+              room.status !== 'open' ||
+              joining ||
+              !!room.joiningClosed
+            }
             joining={joining}
             canBet={
               room.status === 'open' &&
+              !room.joiningClosed &&
               yours.length === 0 &&
               picks.length > 0 &&
               !joining
             }
             maxSelect={maxP}
             onToggleSelect={(n) => {
-              if (yours.length || room.status !== 'open') return;
+              if (yours.length || room.status !== 'open' || room.joiningClosed)
+                return;
               if (taken.has(n)) return;
               setPicks((prev) => {
                 if (prev.includes(n)) return prev.filter((x) => x !== n);
