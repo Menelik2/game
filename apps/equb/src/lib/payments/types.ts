@@ -15,8 +15,8 @@ export type DepositStatus =
 export type PaymentDirection = 'deposit' | 'withdraw';
 
 /**
- * In-memory / provider payment transaction record.
- * Must stay exported — used by store.ts and payment API routes.
+ * Provider payment transaction (Chapa / Telebirr / etc).
+ * Imported by store.ts and API routes.
  */
 export type PaymentTransaction = {
   id: string;
@@ -30,4 +30,12 @@ export type PaymentTransaction = {
   createdAt: string;
   updatedAt: string;
   metadata?: Record<string, unknown>;
+};
+
+// Explicit named re-exports for tooling that only sees export lists
+export type {
+  PaymentMode as EqubPaymentMode,
+  PaymentProviderName as EqubPaymentProvider,
+  DepositStatus as EqubDepositStatus,
+  PaymentTransaction as EqubPaymentTransaction,
 };

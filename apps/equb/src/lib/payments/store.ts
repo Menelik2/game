@@ -1,6 +1,6 @@
 import type { PaymentTransaction } from './types';
 
-export type { PaymentTransaction };
+export type { PaymentTransaction } from './types';
 
 const g = globalThis as unknown as {
   __payTx?: Map<string, PaymentTransaction>;
@@ -8,7 +8,7 @@ const g = globalThis as unknown as {
 if (!g.__payTx) g.__payTx = new Map();
 const byId = g.__payTx;
 
-export function saveTx(t: PaymentTransaction) {
+export function saveTx(t: PaymentTransaction): void {
   byId.set(t.id, t);
 }
 
@@ -16,7 +16,9 @@ export function getTx(id: string): PaymentTransaction | undefined {
   return byId.get(id);
 }
 
-export function getTxByProviderRef(ref: string): PaymentTransaction | undefined {
+export function getTxByProviderRef(
+  ref: string,
+): PaymentTransaction | undefined {
   for (const t of byId.values()) {
     if (t.providerRef === ref) return t;
   }
@@ -35,7 +37,11 @@ export function updateTx(
 ): PaymentTransaction | undefined {
   const cur = byId.get(id);
   if (!cur) return undefined;
-  const next = { ...cur, ...patch, updatedAt: new Date().toISOString() };
+  const next: PaymentTransaction = {
+    ...cur,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
   byId.set(id, next);
   return next;
 }

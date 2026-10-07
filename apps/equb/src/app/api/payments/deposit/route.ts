@@ -4,6 +4,7 @@ import { isRealMoneyLive, paymentPublicConfig } from '@/lib/payments/config';
 import { chapaInitialize } from '@/lib/payments/chapa';
 import { saveTx } from '@/lib/payments/store';
 import { isDbConfigured, dbGetUser } from '@/lib/server/db-users';
+import type { PaymentTransaction } from '@/lib/payments/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,12 +53,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Telebirr: claim-by-txn on Wallet page (no Chapa redirect)
   if (cfg.provider === 'telebirr') {
     return NextResponse.json({
       success: true,
       data: {
-        provider: 'telebirr',
+        provider: 'telebirr' as const,
         status: 'USE_TXN_CLAIM',
         message:
           'Send Telebirr to merchant, then claim with transaction number on Wallet page.',
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     'http://localhost:3000';
   const txRef = `equb_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const id = randomUUID();
+  const now = new Date().toISOString();
 
   try {
     const init = await chapaInitialize({
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
       returnUrl: returnUrl || `${origin}/wallet?deposit=return`,
     });
 
-    saveTx({
+    const record: PaymentTransaction = {
       id,
       userId,
       provider: 'chapa',
@@ -96,10 +97,11 @@ export async function POST(req: NextRequest) {
       currency: cfg.currency,
       status: 'PENDING',
       direction: 'deposit',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       metadata: { checkoutUrl: init.checkoutUrl },
-    });
+    };
+    saveTx(record);
 
     return NextResponse.json({
       success: true,
