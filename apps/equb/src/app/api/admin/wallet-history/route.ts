@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
       kind: 'deposit' as const,
       id: d.id,
       userId: d.userId,
-      userName: u?.fullName || u?.name || null,
-      userPhone: u?.phone || null,
+      userName: u?.fullName ?? null,
+      userPhone: u?.phone ?? null,
       amount: d.amount,
       delta: d.status === 'CONFIRMED' ? d.amount : 0,
       status: d.status,
@@ -51,8 +51,8 @@ export async function GET(req: NextRequest) {
       kind: 'ledger' as const,
       id: e.id,
       userId: e.playerId,
-      userName: u?.fullName || u?.name || null,
-      userPhone: u?.phone || null,
+      userName: u?.fullName ?? null,
+      userPhone: u?.phone ?? null,
       amount: Math.abs(e.delta),
       delta: e.delta,
       balance: e.balance,
@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const merged = [...deposits, ...ledger].sort((a, b) => b.at - a.at).slice(0, Math.min(Math.max(limit, 1), 200));
+  const merged = [...deposits, ...ledger]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, Math.min(Math.max(limit, 1), 200));
 
   const confirmedDeps = deposits.filter((d) => d.status === 'CONFIRMED');
   const pendingDeps = deposits.filter(
