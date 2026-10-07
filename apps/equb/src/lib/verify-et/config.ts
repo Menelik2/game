@@ -1,4 +1,7 @@
-/** Verify.ET — https://verify.et/verify (server-side only) */
+/**
+ * Verify.ET config — https://verify.et/docs/api
+ * Server-side only. Never expose apiKey to the client.
+ */
 
 function firstEnv(...keys: string[]): string {
   for (const k of keys) {
@@ -9,16 +12,19 @@ function firstEnv(...keys: string[]): string {
 }
 
 export function verifyEtConfig() {
-  // Accept common name variants users may type in Vercel
+  // Keys look like VERIFY_BANK_ET_…
   const apiKey = firstEnv(
     'VERIFY_ET_API_KEY',
     'VERIFY_BANK_ET_API_KEY',
     'VERIFY_ET_KEY',
     'VERIFYET_API_KEY',
-    'VERIFY_API_KEY',
   );
   const baseUrl = firstEnv('VERIFY_ET_BASE_URL') || 'https://verify.et';
-  const webhookSecret = firstEnv('VERIFY_ET_WEBHOOK_SECRET', 'VERIFY_ET_WHSEC');
+  // Dashboard webhook secret (whsec_…)
+  const webhookSecret = firstEnv(
+    'VERIFY_ET_WEBHOOK_SECRET',
+    'VERIFY_ET_WHSEC',
+  );
   const settlementAccount =
     firstEnv('TELEBIRR_MERCHANT_PHONE', 'WALLET_MERCHANT_PHONE') || '0977832379';
   const merchantName =
@@ -30,8 +36,9 @@ export function verifyEtConfig() {
     webhookSecret,
     settlementAccount,
     merchantName,
-    configured: apiKey.length > 8,
-    keyHint: apiKey ? `${apiKey.slice(0, 8)}…(${apiKey.length} chars)` : null,
+    // Official keys are long; require meaningful length
+    configured: apiKey.length >= 16,
+    keyHint: apiKey ? `${apiKey.slice(0, 12)}…(${apiKey.length} chars)` : null,
     minDeposit: Number(process.env.WALLET_MIN_DEPOSIT || 10),
     maxDeposit: Number(process.env.WALLET_MAX_DEPOSIT || 50000),
   };
@@ -44,9 +51,10 @@ export function publicWalletConfig() {
     merchantPhone: c.settlementAccount,
     checkoutAvailable: false,
     instruction:
-      'Send Telebirr to the number above, then paste the transaction number. We verify it with Verify.ET before crediting your wallet.',
+      'Send Telebirr to the number above, then paste the transaction number. We verify it with Verify.ET (https://verify.et/docs/api) before crediting your wallet.',
     environment: c.configured ? 'verify.et' : 'manual-review',
     verifier: 'verify.et',
     verifyConfigured: c.configured,
+    docsUrl: 'https://verify.et/docs/api',
   };
 }

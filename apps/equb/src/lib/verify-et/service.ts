@@ -1,4 +1,15 @@
-import { randomUUID } from 'crypto';
+/**
+ * Verify.ET client — https://verify.et/docs/api
+ *
+ * Base: https://verify.et
+ * Auth: x-api-key header
+ * Telebirr body:
+ *   { bank: "telebirr", transactionNumber, settlementAccount? }
+ * Optional waitMs query → 200 when done, 202 + statusUrl when queued
+ * Poll: GET /api/verify/:requestId
+ */
+
+import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
 import { verifyEtConfig } from './config';
 
 export type VerifyEtResult = {
@@ -12,66 +23,191 @@ export type VerifyEtResult = {
   senderName?: string;
   requestId?: string;
   settlementMatched?: boolean;
+  bank?: string;
 };
 
-function backendBase(): string {
-  return (
-    process.env.VERIFY_ET_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    ''
-  ).replace(/\/$/, '');
+type VerifyItem = {
+  bank?: string;
+  status?: string;
+  verified?: boolean;
+  amount?: number | string;
+  currency?: string;
+  senderName?: string;
+  receiverName?: string;
+  receiverAccount?: string;
+  referenceNumber?: string;
+  transactionNumber?: string;
+  receiptNumber?: string;
+  timestamp?: string;
+  processingStatus?: string;
+  settlementAccountMatch?: {
+    matched?: boolean;
+    ambiguous?: boolean;
+    reason?: string;
+  };
+};
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Prefer local key; otherwise call backend where VERIFY_ET_API_KEY is set. */
-async function verifyViaBackend(input: {
-  transactionNumber: string;
-  expectedAmount: number;
-}): Promise<VerifyEtResult> {
-  const base = backendBase();
-  if (!base) {
+function parseItem(json: Record<string, unknown>): VerifyItem | null {
+  const data = json?.data;
+  if (Array.isArray(data) && data[0] && typeof data[0] === 'object') {
+    return data[0] as VerifyItem;
+  }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    return data as VerifyItem;
+  }
+  const verification = json?.verification;
+  if (verification && typeof verification === 'object') {
+    return verification as VerifyItem;
+  }
+  return null;
+}
+
+function mapCompleted(item: VerifyItem, expectedAmount: number): VerifyEtResult {
+  const requestId = undefined;
+  const verified = Boolean(
+    item.verified === true || item.status === 'success',
+  );
+  const amount = Number(item.amount);
+  const currency = String(item.currency || 'ETB').toUpperCase();
+  const match = item.settlementAccountMatch;
+  const settlementMatched =
+    match == null
+      ? true
+      : Boolean(match.matched) && !Boolean(match.ambiguous);
+
+  if (!verified) {
     return {
       verified: false,
-      status: 'UNAVAILABLE',
-      message: 'Verify.ET is not configured (set VERIFY_ET_API_KEY on Vercel).',
+      status: 'FAILED',
+      message: 'Transaction could not be verified with Verify.ET.',
+      amount: Number.isFinite(amount) ? amount : undefined,
+      settlementMatched,
+      bank: item.bank,
     };
   }
-  try {
-    const res = await fetch(`${base}/api/verify-et/telebirr`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        transactionNumber: input.transactionNumber,
-        expectedAmount: input.expectedAmount,
-      }),
-    });
-    const json = await res.json().catch(() => ({}));
-    return {
-      verified: Boolean(json.verified || json.success),
-      status:
-        (json.status as VerifyEtResult['status']) ||
-        (res.ok ? 'CONFIRMED' : 'FAILED'),
-      message: String(json.message || 'Backend verify response'),
-      amount: json.amount != null ? Number(json.amount) : undefined,
-      currency: json.currency,
-      providerTransactionId: json.providerTransactionId,
-      requestId: json.requestId,
-    };
-  } catch (e: unknown) {
+
+  if (currency !== 'ETB') {
     return {
       verified: false,
-      status: 'UNAVAILABLE',
+      status: 'REVIEW_REQUIRED',
+      message: 'Currency is not ETB.',
+      bank: item.bank,
+    };
+  }
+
+  if (
+    expectedAmount > 0 &&
+    Number.isFinite(amount) &&
+    Math.round(amount * 100) !== Math.round(expectedAmount * 100)
+  ) {
+    return {
+      verified: false,
+      status: 'REVIEW_REQUIRED',
+      message: `Amount mismatch: paid ${amount} ETB, expected ${expectedAmount} ETB.`,
+      amount,
+      bank: item.bank,
+    };
+  }
+
+  if (match && !settlementMatched) {
+    return {
+      verified: false,
+      status: 'REVIEW_REQUIRED',
       message:
-        e instanceof Error
-          ? e.message
-          : 'Could not reach backend Verify.ET proxy.',
+        match.reason === 'no_registered_accounts'
+          ? 'Settlement account not matched. Register merchant phone on Verify.ET or set TELEBIRR_MERCHANT_PHONE.'
+          : 'Payment was not sent to the merchant Telebirr number. Admin review required.',
+      amount: Number.isFinite(amount) ? amount : expectedAmount || undefined,
+      settlementMatched: false,
+      bank: item.bank,
     };
   }
+
+  return {
+    verified: true,
+    status: 'CONFIRMED',
+    message: 'Transaction verified with Verify.ET.',
+    amount: Number.isFinite(amount)
+      ? amount
+      : expectedAmount > 0
+        ? expectedAmount
+        : undefined,
+    currency: 'ETB',
+    providerTransactionId: String(
+      item.referenceNumber ||
+        item.transactionNumber ||
+        item.receiptNumber ||
+        '',
+    ),
+    receiverName: item.receiverName,
+    senderName: item.senderName,
+    settlementMatched: true,
+    bank: item.bank || 'telebirr',
+    requestId,
+  };
+}
+
+async function pollStatus(
+  baseUrl: string,
+  apiKey: string,
+  requestId: string,
+  expectedAmount: number,
+  attempts = 6,
+): Promise<VerifyEtResult> {
+  for (let i = 0; i < attempts; i++) {
+    await sleep(1500);
+    try {
+      const res = await fetch(`${baseUrl}/api/verify/${requestId}`, {
+        headers: { 'x-api-key': apiKey },
+        cache: 'no-store',
+      });
+      const json = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const item = parseItem(json);
+      const processing =
+        (item?.processingStatus ||
+          (json.verification as VerifyItem | undefined)?.processingStatus) ||
+        '';
+
+      if (
+        processing === 'completed' ||
+        item?.verified === true ||
+        item?.status === 'success' ||
+        item?.status === 'failed'
+      ) {
+        if (!item) {
+          return {
+            verified: false,
+            status: 'FAILED',
+            message: 'Empty Verify.ET status response.',
+            requestId,
+          };
+        }
+        const mapped = mapCompleted(item, expectedAmount);
+        mapped.requestId = requestId;
+        return mapped;
+      }
+    } catch {
+      /* retry */
+    }
+  }
+  return {
+    verified: false,
+    status: 'PROCESSING',
+    message: 'Verification still running. Try again in a few seconds.',
+    requestId,
+  };
 }
 
 /**
- * Submit Telebirr receipt check to Verify.ET.
- * Docs: https://verify.et/docs/api — POST /api/verify
- * expectedAmount: pass 0 to accept whatever amount the API returns.
+ * Submit Telebirr receipt to Verify.ET (official contract).
+ * Docs: https://verify.et/docs/api
  */
 export async function verifyTelebirrWithVerifyEt(input: {
   transactionNumber: string;
@@ -88,150 +224,109 @@ export async function verifyTelebirrWithVerifyEt(input: {
   }
 
   if (!cfg.configured) {
-    return verifyViaBackend(input);
+    return {
+      verified: false,
+      status: 'UNAVAILABLE',
+      message:
+        'VERIFY_ET_API_KEY is not set. Deposits stay in admin review until the key is configured on Vercel.',
+    };
   }
 
-  const body = {
-    bank: 'telebirr' as const,
+  // Official Telebirr body + settlement account matching
+  const body: Record<string, string> = {
+    bank: 'telebirr',
     transactionNumber: txn,
-    settlementAccount: cfg.settlementAccount,
   };
+  if (cfg.settlementAccount) {
+    body.settlementAccount = cfg.settlementAccount;
+  }
+
+  const idempotencyKey = `equb-telebirr-${txn}-${Math.round(input.expectedAmount * 100)}`.slice(
+    0,
+    255,
+  );
 
   try {
+    // waitMs: API waits briefly; returns 200 if done, else 202 + statusUrl
     const res = await fetch(`${cfg.baseUrl}/api/verify?waitMs=8000`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': cfg.apiKey,
-        'Idempotency-Key': `equb-${txn}-${Math.round(input.expectedAmount * 100)}`,
+        'Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify(body),
     });
 
-    const json = await res.json().catch(() => ({}));
-    const item = Array.isArray(json?.data)
-      ? json.data[0]
-      : json?.data || json?.verification || json;
-    const requestId = json?.requestId || item?.requestId;
+    const json = (await res.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const requestId = String(
+      json.requestId ||
+        (json.verification as VerifyItem | undefined)?.requestId ||
+        '',
+    );
+    const item = parseItem(json);
 
+    // 202 Queued or still pending
     if (
       res.status === 202 ||
       item?.processingStatus === 'queued' ||
+      item?.processingStatus === 'running' ||
       item?.status === 'pending'
     ) {
+      if (requestId) {
+        return pollStatus(
+          cfg.baseUrl,
+          cfg.apiKey,
+          requestId,
+          input.expectedAmount,
+        );
+      }
       return {
         verified: false,
         status: 'PROCESSING',
         message: 'Verification is in progress. Wait a few seconds and try again.',
-        requestId,
+        requestId: requestId || undefined,
       };
     }
 
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
-        const viaBackend = await verifyViaBackend(input);
-        if (viaBackend.status !== 'UNAVAILABLE') return viaBackend;
-      }
+      const err = json.error as { code?: string; message?: string } | undefined;
       const msg =
-        json?.message ||
-        json?.error?.message ||
-        (res.status === 401 || res.status === 403
-          ? 'Verify.ET rejected the API key.'
-          : `Verify.ET error (${res.status})`);
+        (typeof json.message === 'string' && json.message) ||
+        err?.message ||
+        (res.status === 401
+          ? 'Invalid Verify.ET API key (401).'
+          : res.status === 403
+            ? 'Permission denied: verification:write required (403).'
+            : res.status === 402
+              ? 'Verify.ET credits exhausted (402).'
+              : res.status === 429
+                ? 'Verify.ET rate limit — retry later (429).'
+                : `Verify.ET error (${res.status})`);
       return {
         verified: false,
-        status: 'FAILED',
+        status: res.status === 422 ? 'FAILED' : 'FAILED',
         message: String(msg),
-        requestId,
+        requestId: requestId || undefined,
       };
     }
 
-    const verified = Boolean(
-      item?.verified === true ||
-        item?.status === 'success' ||
-        (json?.success === true &&
-          item?.verified !== false &&
-          item?.status !== 'failed'),
-    );
-    const amount = Number(
-      item?.amount ?? item?.settledAmount ?? item?.paidAmount,
-    );
-    const currency = String(item?.currency || 'ETB').toUpperCase();
-    const settlement = item?.settlementAccountMatch;
-    const settlementMatched =
-      settlement == null
-        ? true
-        : Boolean(settlement.matched) && !Boolean(settlement.ambiguous);
-
-    if (!verified) {
+    if (!item) {
       return {
         verified: false,
         status: 'FAILED',
-        message:
-          json?.message || item?.reason || 'Transaction could not be verified.',
-        amount: Number.isFinite(amount) ? amount : undefined,
-        requestId,
-        settlementMatched,
+        message: 'Empty Verify.ET response.',
+        requestId: requestId || undefined,
       };
     }
 
-    if (currency !== 'ETB') {
-      return {
-        verified: false,
-        status: 'REVIEW_REQUIRED',
-        message: 'Currency is not ETB.',
-        requestId,
-      };
-    }
-
-    // Only enforce amount when caller expected a specific amount
-    if (
-      input.expectedAmount > 0 &&
-      Number.isFinite(amount) &&
-      Math.round(amount * 100) !== Math.round(input.expectedAmount * 100)
-    ) {
-      return {
-        verified: false,
-        status: 'REVIEW_REQUIRED',
-        message: `Amount mismatch: paid ${amount} ETB, expected ${input.expectedAmount} ETB.`,
-        amount,
-        requestId,
-      };
-    }
-
-    if (settlement && !settlementMatched) {
-      return {
-        verified: false,
-        status: 'REVIEW_REQUIRED',
-        message:
-          'Payment was not sent to the merchant Telebirr number. Admin review required.',
-        amount: Number.isFinite(amount) ? amount : input.expectedAmount || undefined,
-        requestId,
-        settlementMatched: false,
-      };
-    }
-
-    return {
-      verified: true,
-      status: 'CONFIRMED',
-      message: 'Transaction verified with Verify.ET.',
-      amount: Number.isFinite(amount)
-        ? amount
-        : input.expectedAmount > 0
-          ? input.expectedAmount
-          : undefined,
-      currency: 'ETB',
-      providerTransactionId: String(
-        item?.referenceNumber || item?.transactionNumber || txn,
-      ),
-      receiverName: item?.receiverName,
-      senderName: item?.senderName,
-      requestId,
-      settlementMatched: true,
-    };
+    const mapped = mapCompleted(item, input.expectedAmount);
+    mapped.requestId = requestId || mapped.requestId;
+    return mapped;
   } catch (e: unknown) {
-    const viaBackend = await verifyViaBackend(input);
-    if (viaBackend.status !== 'UNAVAILABLE') return viaBackend;
     return {
       verified: false,
       status: 'UNAVAILABLE',
@@ -240,6 +335,43 @@ export async function verifyTelebirrWithVerifyEt(input: {
           ? e.message
           : 'Could not reach Verify.ET. Try again shortly.',
     };
+  }
+}
+
+/** Validate dashboard webhook signature: X-Webhook-Signature: sha256=<hex> */
+export function verifyWebhookSignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  secret: string,
+  timestamp?: string | null,
+): boolean {
+  if (!secret) return true; // not configured → accept (dev)
+  if (!signatureHeader) return false;
+  try {
+    // Header may list one or two sha256= values during secret rotation
+    const candidates = signatureHeader
+      .split(/[\s,]+/)
+      .map((p) => p.replace(/^sha256=/i, '').trim())
+      .filter(Boolean);
+
+    // Docs: sign timestamp + period + raw body with HMAC-SHA256
+    const payloads = timestamp
+      ? [`${timestamp}.${rawBody}`, rawBody]
+      : [rawBody];
+
+    for (const payload of payloads) {
+      const expected = createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
+      const a = Buffer.from(expected);
+      for (const c of candidates) {
+        const b = Buffer.from(c);
+        if (a.length === b.length && timingSafeEqual(a, b)) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 

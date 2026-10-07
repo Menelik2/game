@@ -1,54 +1,42 @@
+/**
+ * Verify.ET webhook — https://verify.et/docs/api#webhooks
+ *
+ * Register in dashboard: https://your-domain/api/payments/verify-et/webhook
+ * Secret: VERIFY_ET_WEBHOOK_SECRET (whsec_…)
+ * Header: X-Webhook-Signature: sha256=<hex>
+ * Test pings: X-Webhook-Test: true → reply 204
+ * Event: verification.completed
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, timingSafeEqual } from 'crypto';
 import { creditFromWebhook } from '@/lib/wallet/deposits';
 import { verifyEtConfig } from '@/lib/verify-et/config';
+import { verifyWebhookSignature } from '@/lib/verify-et/service';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-function validSignature(
-  raw: string,
-  signatureHeader: string | null,
-  secret: string,
-): boolean {
-  if (!secret || !signatureHeader) return !secret;
-  try {
-    const parts = signatureHeader.split(',');
-    let ts = '';
-    let sig = signatureHeader;
-    for (const p of parts) {
-      const [k, v] = p.trim().split('=');
-      if (k === 't') ts = v || '';
-      if (k === 'v1' || k === 'sig') sig = v || sig;
-    }
-    const payload = ts ? `${ts}.${raw}` : raw;
-    const expected = createHmac('sha256', secret).update(payload).digest('hex');
-    const a = Buffer.from(expected);
-    const b = Buffer.from(sig.replace(/^sha256=/i, ''));
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const cfg = verifyEtConfig();
-  const test = req.headers.get('x-webhook-test') === 'true';
-  if (test) return new NextResponse(null, { status: 204 });
+
+  // Dashboard “Send test” — must return 2xx to activate endpoint
+  if (req.headers.get('x-webhook-test') === 'true') {
+    return new NextResponse(null, { status: 204 });
+  }
 
   if (cfg.webhookSecret) {
-    const ok = validSignature(
+    const ok = verifyWebhookSignature(
       raw,
-      req.headers.get('x-verify-signature') ||
-        req.headers.get('x-signature') ||
-        req.headers.get('signature'),
+      req.headers.get('x-webhook-signature') ||
+        req.headers.get('X-Webhook-Signature'),
       cfg.webhookSecret,
+      req.headers.get('x-webhook-timestamp') ||
+        req.headers.get('X-Webhook-Timestamp'),
     );
     if (!ok) {
       return NextResponse.json(
-        { success: false, message: 'Invalid signature' },
+        { success: false, message: 'Invalid webhook signature' },
         { status: 401 },
       );
     }
@@ -64,27 +52,49 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const data = body?.data;
-  const item = (
-    Array.isArray(data)
-      ? data[0]
-      : data || body?.verification || body
-  ) as Record<string, unknown> | undefined;
+  const event = String(body.event || '');
+  // webhook.test or non-completed events → ack only
+  if (event === 'webhook.test') {
+    return new NextResponse(null, { status: 204 });
+  }
 
-  if (!item?.verified && item?.status !== 'success') {
+  const data = (body.data || {}) as Record<string, unknown>;
+  const verified =
+    data.verified === true ||
+    data.status === 'success' ||
+    event === 'verification.succeeded';
+
+  if (!verified) {
+    // verification.failed / not_found — acknowledge, no credit
+    return new NextResponse(null, { status: 204 });
+  }
+
+  const amount = Number(data.amount);
+  const txn = String(
+    data.transactionNumber ||
+      data.referenceNumber ||
+      data.receiptNumber ||
+      '',
+  );
+  const providerId = String(
+    data.referenceNumber || data.transactionNumber || body.requestId || txn,
+  );
+
+  if (!txn && !providerId) {
     return new NextResponse(null, { status: 204 });
   }
 
   const result = await creditFromWebhook({
-    transactionNumber: String(
-      item.transactionNumber || item.referenceNumber || '',
-    ),
-    providerTransactionId: String(
-      item.referenceNumber || item.transactionNumber || item.id || '',
-    ),
-    amount: Number(item.amount || 0),
-    currency: String(item.currency || 'ETB'),
+    transactionNumber: txn || undefined,
+    providerTransactionId: providerId,
+    amount: Number.isFinite(amount) ? amount : 0,
+    currency: String(data.currency || 'ETB'),
   });
 
-  return NextResponse.json({ success: result.ok, message: result.message });
+  // Docs: Any 2xx. Prefer 204 after accept.
+  if (result.ok) return new NextResponse(null, { status: 204 });
+  return NextResponse.json(
+    { success: false, message: result.message },
+    { status: 200 },
+  );
 }
