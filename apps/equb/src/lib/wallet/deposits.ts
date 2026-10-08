@@ -327,15 +327,12 @@ export async function verifyDeposit(input: {
     expectedAmount: d.amount,
   });
 
-  if (result.ok || (result as { verified?: boolean }).verified) {
-    const amt =
-      Number((result as { amount?: number }).amount) > 0
-        ? Number((result as { amount?: number }).amount)
-        : d.amount;
+  if (result.verified) {
+    const amt = result.amount && result.amount > 0 ? result.amount : d.amount;
     return creditConfirmed(d, txn, amt);
   }
 
-  const msg = (result as { message?: string }).message || 'Verification failed';
+  const msg = result.message || 'Verification failed';
   d.status = 'FAILED';
   d.failureReason = msg;
   await rememberDeposit(d);
@@ -467,17 +464,17 @@ export async function claimByTransactionNumber(input: {
     expectedAmount: input.amount && input.amount > 0 ? input.amount : 0,
   });
 
-  if (!result.ok && !(result as { verified?: boolean }).verified) {
+  if (!result.verified) {
     return {
       ok: false as const,
       status: 'FAILED' as const,
-      message: (result as { message?: string }).message || 'Verification failed',
+      message: result.message || 'Verification failed',
     };
   }
 
   const amount =
-    Number((result as { amount?: number }).amount) > 0
-      ? Number((result as { amount?: number }).amount)
+    result.amount && result.amount > 0
+      ? result.amount
       : input.amount && input.amount > 0
         ? input.amount
         : 0;
