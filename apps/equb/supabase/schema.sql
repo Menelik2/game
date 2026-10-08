@@ -1,5 +1,5 @@
--- Fast Equb — run once in Supabase SQL Editor
--- Dashboard → SQL → New query → paste → Run
+-- Fast Equb full schema — run once in Supabase SQL Editor
+-- Supports 500+ registered users with shared multiplayer rooms
 
 create extension if not exists "pgcrypto";
 
@@ -19,7 +19,7 @@ create table if not exists public.app_users (
 create index if not exists app_users_phone_idx on public.app_users (phone);
 create index if not exists app_users_role_idx on public.app_users (role);
 
--- Deposits (Telebirr / admin review) — survives serverless restarts
+-- Telebirr deposits
 create table if not exists public.wallet_deposits (
   id uuid primary key,
   user_id uuid not null references public.app_users(id) on delete cascade,
@@ -46,6 +46,43 @@ drop policy if exists "service all wallet_deposits" on public.wallet_deposits;
 create policy "service all wallet_deposits"
   on public.wallet_deposits for all using (true) with check (true);
 
+-- Shared multiplayer (all users see same room state)
+create table if not exists public.equb_live_rooms (
+  template_id text primary key,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists equb_live_rooms_updated_idx
+  on public.equb_live_rooms (updated_at desc);
+
+alter table public.equb_live_rooms enable row level security;
+drop policy if exists "service all equb_live_rooms" on public.equb_live_rooms;
+create policy "service all equb_live_rooms"
+  on public.equb_live_rooms for all using (true) with check (true);
+
+create table if not exists public.equb_round_history (
+  id text primary key,
+  template_id text not null,
+  group_size int not null,
+  prize_pool numeric(14, 2) not null,
+  winning_number int,
+  winner_id uuid,
+  winner_name text,
+  player_count int not null default 0,
+  admin_fee numeric(14, 2) default 0,
+  winner_payout numeric(14, 2) default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists equb_round_history_template_idx on public.equb_round_history (template_id);
+create index if not exists equb_round_history_created_idx on public.equb_round_history (created_at desc);
+
+alter table public.equb_round_history enable row level security;
+drop policy if exists "service all equb_round_history" on public.equb_round_history;
+create policy "service all equb_round_history"
+  on public.equb_round_history for all using (true) with check (true);
+
 create or replace function public.app_register(
   p_full_name text,
   p_phone text,
@@ -56,9 +93,8 @@ language plpgsql
 security definer
 as $$
 declare
-  v_id uuid;
-  v_code text;
   v_row public.app_users%rowtype;
+  v_code text;
 begin
   if exists (select 1 from public.app_users where phone = p_phone) then
     raise exception 'phone_exists';
@@ -113,10 +149,6 @@ end;
 $$;
 
 alter table public.app_users enable row level security;
-
 drop policy if exists "service all app_users" on public.app_users;
 create policy "service all app_users"
-  on public.app_users
-  for all
-  using (true)
-  with check (true);
+  on public.app_users for all using (true) with check (true);

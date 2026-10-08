@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isDbConfigured } from '@/lib/server/db-users';
+import { sharedEnabled } from '@/lib/server/shared-rooms';
 import { isRealMoneyLive, paymentPublicConfig } from '@/lib/payments/config';
 
 export const dynamic = 'force-dynamic';
@@ -15,10 +16,12 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     database,
     storage: database ? 'supabase' : 'memory',
+    multiplayer: sharedEnabled() ? 'shared-db' : 'memory',
     demoMode: false,
     realMoneyEnabled: payments.mode === 'real_money',
     realMoneyLive: isRealMoneyLive(),
     paymentProvider: payments.provider,
     payments,
+    systemStatus: '/api/system/status',
   });
 }
