@@ -33,25 +33,32 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       );
     }
-    const origin = req.nextUrl.origin;
-    const created = await createDeposit({
-      userId,
-      amount: body.amount,
-      origin,
-    });
-    if (!created.ok) {
+
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
-        { success: false, message: created.message },
+        { success: false, message: 'Valid amount required' },
         { status: 400 },
       );
     }
+
+    const deposit = await createDeposit({
+      userId,
+      amount,
+      merchantOrderId: body.merchantOrderId
+        ? String(body.merchantOrderId)
+        : undefined,
+    });
+
     const wallet = await walletOfAsync(userId);
     return NextResponse.json({
       success: true,
-      deposit: created.deposit,
-      checkoutUrl: created.checkoutUrl,
+      deposit,
+      checkoutUrl: deposit.checkoutUrl,
       wallet,
       config: publicWalletConfig(),
+      message:
+        'Deposit created. Complete payment with Telebirr, then claim with transaction number.',
     });
   } catch (e: unknown) {
     return NextResponse.json(
