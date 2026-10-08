@@ -53,6 +53,7 @@ export default function RoomsPage() {
   );
   const totalFee = Math.round(contribution * picks.length * 100) / 100;
   const templateId = roomId(groupSize, prize);
+  const canOpen = picks.length > 0 && !busy;
 
   const refreshLive = useCallback(async () => {
     if (!multiplayer) return;
@@ -190,28 +191,31 @@ export default function RoomsPage() {
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="animate-fade-up flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-black tracking-tight sm:text-2xl">
-            {t.rooms.title}
-          </h1>
-          <p className="text-xs text-white/45">{t.rooms.subtitle}</p>
+          <h1 className="keno-title text-xl sm:text-2xl">{t.rooms.title}</h1>
+          <p className="mt-1 text-xs text-white/45">{t.rooms.subtitle}</p>
         </div>
         <LanguageSwitcher />
       </div>
 
       {multiplayer && liveOk && liveOpen.length > 0 && (
-        <section className="glass rounded-2xl p-4">
-          <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-equb-300">
+        <section className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4">
+          <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-equb-500/20 blur-2xl" />
+          <p className="relative mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-equb-300">
             <Radio className="h-3.5 w-3.5 animate-pulse" />
             {locale === 'am' ? 'ክፍት ክፍሎች' : 'Open rooms'}
+            <span className="ml-auto rounded-full bg-equb-500/25 px-2 py-0.5 text-[10px] text-equb-200">
+              LIVE
+            </span>
           </p>
-          <div className="space-y-2">
-            {liveOpen.slice(0, 8).map((r) => (
+          <div className="relative space-y-2">
+            {liveOpen.slice(0, 8).map((r, i) => (
               <Link
                 key={r.id}
                 href={`/rooms/${encodeURIComponent(r.templateId || r.id)}`}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 transition hover:border-equb-500/40"
+                style={{ animationDelay: `${i * 60}ms` }}
+                className="animate-fade-up flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 transition duration-200 hover:scale-[1.02] hover:border-equb-500/50 hover:bg-equb-500/10 active:scale-[0.98]"
               >
                 <div>
                   <p className="text-sm font-bold">
@@ -234,41 +238,53 @@ export default function RoomsPage() {
       )}
 
       <div className="space-y-4">
-        <PickRuleCard groupSize={groupSize} locale={locale} />
+        <div className="animate-fade-up" style={{ animationDelay: '40ms' }}>
+          <PickRuleCard groupSize={groupSize} locale={locale} />
+        </div>
 
-        <section className="glass rounded-2xl p-4 sm:p-5">
+        <section
+          className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
+          style={{ animationDelay: '80ms' }}
+        >
+          <div className="pointer-events-none absolute -left-8 top-0 h-20 w-20 rounded-full bg-equb-500/10 blur-2xl" />
           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
             1 · {locale === 'am' ? 'የቡድን መጠን' : 'Group size'}
           </p>
-          <p className="mb-2 text-[11px] text-white/40">
+          <p className="mb-3 text-[11px] text-white/40">
             {locale === 'am'
               ? 'ክፍል የሚቀላቀሉ ተጫዋቾች ብዛት'
               : 'How many players can join this room'}
           </p>
           <div className="flex flex-wrap gap-2">
-            {GROUP_SIZES.map((g) => (
+            {GROUP_SIZES.map((g, i) => (
               <button
                 key={g}
                 type="button"
                 onClick={() => setGroupSize(g)}
+                style={{ animationDelay: `${i * 25}ms` }}
                 className={clsx(
-                  'flex min-w-[2.75rem] items-center justify-center rounded-xl px-3 py-2.5 transition active:scale-95',
-                  groupSize === g ? 'chip-active ring-1 ring-equb-500/40' : 'chip',
+                  'flex min-h-[2.75rem] min-w-[2.75rem] items-center justify-center rounded-xl px-3 py-2.5 text-sm font-bold transition duration-200 active:scale-95',
+                  groupSize === g
+                    ? 'chip-active scale-105 shadow-lg shadow-equb-500/25 ring-1 ring-equb-400/50'
+                    : 'chip hover:scale-105 hover:border-white/20',
                 )}
               >
-                <span className="text-sm font-bold">{g}</span>
+                {g}
               </button>
             ))}
           </div>
           <PickRuleHint groupSize={groupSize} locale={locale} />
         </section>
 
-        <section className="glass rounded-2xl p-4 sm:p-5">
-          <div className="mb-2 flex items-center justify-between">
+        <section
+          className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
+          style={{ animationDelay: '120ms' }}
+        >
+          <div className="mb-3 flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-wider text-white/50">
               2 · {locale === 'am' ? 'ቁጥሮችዎ' : 'Your numbers'}
             </p>
-            <span className="rounded-full bg-equb-500/20 px-2.5 py-1 text-[11px] font-bold text-equb-300">
+            <span className="rounded-full bg-equb-500/20 px-2.5 py-1 text-[11px] font-bold text-equb-300 tabular-nums">
               {picks.length}/{maxPicks}{' '}
               {locale === 'am' ? 'ቁጥር' : 'picks'}
             </span>
@@ -279,7 +295,7 @@ export default function RoomsPage() {
               gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
             }}
           >
-            {Array.from({ length: groupSize }, (_, i) => i + 1).map((n) => {
+            {Array.from({ length: groupSize }, (_, i) => i + 1).map((n, idx) => {
               const on = picks.includes(n);
               const locked = !on && picks.length >= maxPicks;
               return (
@@ -288,8 +304,9 @@ export default function RoomsPage() {
                   type="button"
                   disabled={locked}
                   onClick={() => togglePick(n)}
+                  style={{ animationDelay: `${idx * 12}ms` }}
                   className={clsx(
-                    'aspect-square rounded-xl text-sm font-black transition active:scale-95',
+                    'aspect-square rounded-xl text-sm font-black',
                     on && 'tile-selected text-white',
                     !on && !locked && 'tile text-white/80',
                     locked && 'cursor-not-allowed tile-taken text-white/25',
@@ -302,8 +319,11 @@ export default function RoomsPage() {
           </div>
         </section>
 
-        <section className="glass rounded-2xl p-4 sm:p-5">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
+        <section
+          className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
+          style={{ animationDelay: '160ms' }}
+        >
+          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-white/50">
             3 · {locale === 'am' ? 'ሽልማት' : 'Prize'}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -313,28 +333,30 @@ export default function RoomsPage() {
                 type="button"
                 onClick={() => setPrize(p)}
                 className={clsx(
-                  'rounded-xl px-3 py-2 text-sm font-bold transition',
-                  prize === p ? 'chip-active' : 'chip',
+                  'rounded-xl px-3.5 py-2.5 text-sm font-bold transition duration-200 active:scale-95',
+                  prize === p
+                    ? 'chip-active scale-105 shadow-md shadow-gold-500/20 ring-1 ring-gold-400/40'
+                    : 'chip hover:scale-105',
                 )}
               >
                 {formatBirrCompact(p, locale)}
               </button>
             ))}
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="rounded-xl bg-black/30 p-2">
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-xl border border-white/5 bg-black/35 p-2.5 transition hover:border-equb-500/30">
               <p className="text-white/40">{locale === 'am' ? 'ቡድን' : 'Group'}</p>
-              <p className="mt-0.5 font-mono text-sm font-bold">{groupSize}</p>
+              <p className="mt-0.5 font-mono text-sm font-black tabular-nums">{groupSize}</p>
             </div>
-            <div className="rounded-xl bg-black/30 p-2">
+            <div className="rounded-xl border border-white/5 bg-black/35 p-2.5 transition hover:border-equb-500/30">
               <p className="text-white/40">{locale === 'am' ? 'አስተዋጽዖ' : 'Fee'}</p>
-              <p className="mt-0.5 font-mono text-sm font-bold">
+              <p className="mt-0.5 font-mono text-sm font-black tabular-nums">
                 {formatBirrCompact(contribution, locale)}
               </p>
             </div>
-            <div className="rounded-xl bg-black/30 p-2">
-              <p className="text-white/40">{locale === 'am' ? 'ድምር' : 'Total'}</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-gold-300">
+            <div className="rounded-xl border border-gold-500/20 bg-gold-500/10 p-2.5">
+              <p className="text-gold-400/70">{locale === 'am' ? 'ድምር' : 'Total'}</p>
+              <p className="mt-0.5 font-mono text-sm font-black tabular-nums text-gold-300">
                 {formatBirrCompact(totalFee, locale)}
               </p>
             </div>
@@ -342,17 +364,20 @@ export default function RoomsPage() {
         </section>
 
         {err && (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-sm text-red-200">
+          <p className="animate-fade-up rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-sm text-red-200">
             {err}
           </p>
         )}
 
         <button
           type="button"
-          disabled={busy || picks.length === 0}
+          disabled={!canOpen}
           onClick={() => void handleOpenRoom()}
-          className="btn-gold flex w-full items-center justify-center gap-2 py-3.5 text-base disabled:opacity-40"
+          className="btn-gold relative flex w-full items-center justify-center gap-2 overflow-hidden py-3.5 text-base disabled:opacity-40"
         >
+          {canOpen && (
+            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          )}
           {busy
             ? '...'
             : locale === 'am'
@@ -362,7 +387,7 @@ export default function RoomsPage() {
         </button>
 
         {rooms.filter((r) => r.members.length > 0).length > 0 && (
-          <section className="space-y-2">
+          <section className="animate-fade-up space-y-2">
             <p className="text-xs font-bold uppercase tracking-wider text-white/40">
               {locale === 'am' ? 'የአካባቢ ክፍሎች' : 'Local rooms'}
             </p>
@@ -372,15 +397,12 @@ export default function RoomsPage() {
                 <Link
                   key={r.id}
                   href={`/rooms/${encodeURIComponent(r.id)}`}
-                  className="flex items-center justify-between rounded-xl border border-white/10 bg-black/25 px-3 py-2"
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 transition hover:border-equb-500/40 hover:bg-equb-500/10 active:scale-[0.98]"
                 >
-                  <span className="text-sm">
+                  <span className="text-sm font-semibold">
                     {r.groupSize} · {formatBirrCompact(r.prizePool, locale)}
                   </span>
-                  <SeatRing
-                    total={r.groupSize}
-                    filledCount={r.members.length}
-                  />
+                  <SeatRing total={r.groupSize} filledCount={r.members.length} />
                 </Link>
               ))}
           </section>

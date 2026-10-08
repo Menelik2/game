@@ -52,13 +52,18 @@ html[lang='am'] body {
 
 .chip {
   @apply rounded-xl border border-white/10 bg-white/5 text-white/80;
+  transition:
+    transform 0.18s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .chip-active {
   @apply rounded-xl border border-equb-500/50 bg-equb-500/25 text-equb-100;
+  animation: tile-pop 0.35s ease-out;
 }
 
-/* Number tiles — classic casino feel */
 .tile {
   @apply border border-white/10 bg-white/5;
   transition:
@@ -89,7 +94,6 @@ html[lang='am'] body {
   animation: win-flash 0.9s ease-in-out infinite;
 }
 
-/* Classic animations */
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -167,7 +171,20 @@ html[lang='am'] body {
   animation: digit-tick 0.25s ease-out;
 }
 
-/* Old-style timer card */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s ease-out both;
+}
+
 .timer-classic {
   background:
     radial-gradient(ellipse 80% 60% at 50% 0%, rgba(16, 185, 129, 0.18), transparent 55%),
