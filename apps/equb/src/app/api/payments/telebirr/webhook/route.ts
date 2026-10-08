@@ -53,15 +53,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, ignored: true });
   }
 
+  // Use only fields accepted by creditFromWebhook input type:
+  // depositId | transactionNumber | amount | providerTransactionId
+  const orderId = String(
+    payload.merchOrderId || payload.merchantOrderId || '',
+  );
+  const txnId = String(
+    payload.transId || payload.transactionNumber || '',
+  );
+  const amountNum = Number(payload.totalAmount || payload.amount);
+
   const credited = await creditFromWebhook({
-    merchantOrderId: String(
-      payload.merchOrderId || payload.merchantOrderId || '',
-    ),
-    providerTransactionId: String(
-      payload.transId || payload.transactionNumber || '',
-    ),
-    amount: Number(payload.totalAmount || payload.amount),
-    currency: String(payload.currency || 'ETB'),
+    depositId: orderId || undefined,
+    transactionNumber: txnId || undefined,
+    providerTransactionId: txnId || undefined,
+    amount: Number.isFinite(amountNum) ? amountNum : undefined,
   });
 
   const ok = Boolean(credited?.ok);
