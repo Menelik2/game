@@ -78,7 +78,7 @@ async function rememberDeposit(d: Deposit) {
   await dbSaveDeposit(d);
 }
 
-export async function findDeposit(id: string): Promise<Deposit | null> {
+async function findDeposit(id: string): Promise<Deposit | null> {
   const mem = g.__dep!.get(id);
   if (mem) return mem;
   try {
@@ -91,24 +91,6 @@ export async function findDeposit(id: string): Promise<Deposit | null> {
     /* */
   }
   return null;
-}
-
-export function listDeposits(userId?: string): Deposit[] {
-  const all = [...g.__dep!.values()];
-  if (!userId) return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return all
-    .filter((d) => d.userId === userId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function listDepositsAsync(userId?: string): Promise<Deposit[]> {
-  try {
-    const fromDb = await dbListDeposits(userId);
-    for (const d of fromDb) g.__dep!.set(d.id, d);
-  } catch {
-    /* */
-  }
-  return listDeposits(userId);
 }
 
 async function isTxnUsed(txn: string): Promise<boolean> {
@@ -129,24 +111,14 @@ async function creditConfirmed(
   d: Deposit,
   txn: string,
   amount: number,
-): Promise<{
-  ok: true;
-  status: 'CONFIRMED';
-  message: string;
-  deposit: Deposit;
-  balance?: number;
-} | {
-  ok: false;
-  status: DepositStatus;
-  message: string;
-  deposit?: Deposit;
-}> {
+) {
   if (d.status === 'CONFIRMED') {
     return {
-      ok: true,
-      status: 'CONFIRMED',
+      ok: true as const,
+      status: 'CONFIRMED' as const,
       message: 'Already confirmed',
       deposit: d,
+      balance: await resolveBalance(d.userId),
     };
   }
 
@@ -155,8 +127,8 @@ async function creditConfirmed(
     d.failureReason = 'Transaction already used';
     await rememberDeposit(d);
     return {
-      ok: false,
-      status: 'FAILED',
+      ok: false as const,
+      status: 'FAILED' as const,
       message: 'This Telebirr transaction was already credited',
       deposit: d,
     };
@@ -165,8 +137,8 @@ async function creditConfirmed(
   const creditAmt = amount > 0 ? amount : d.amount;
   if (!(creditAmt > 0)) {
     return {
-      ok: false,
-      status: 'FAILED',
+      ok: false as const,
+      status: 'FAILED' as const,
       message: 'Invalid amount',
       deposit: d,
     };
@@ -183,7 +155,7 @@ async function creditConfirmed(
     d.status = 'FAILED';
     d.failureReason = message;
     await rememberDeposit(d);
-    return { ok: false, status: 'FAILED', message, deposit: d };
+    return { ok: false as const, status: 'FAILED' as const, message, deposit: d };
   }
 
   d.status = 'CONFIRMED';
@@ -195,17 +167,16 @@ async function creditConfirmed(
   await rememberDeposit(d);
   await markTxnUsed(txn);
 
-  const balance = await resolveBalance(d.userId);
   return {
-    ok: true,
-    status: 'CONFIRMED',
+    ok: true as const,
+    status: 'CONFIRMED' as const,
     message: 'Deposit confirmed',
     deposit: d,
-    balance,
+    balance: await resolveBalance(d.userId),
   };
 }
 
-export async function createPendingDeposit(input: {
+export async function createDeposit(input: {
   userId: string;
   amount: number;
   merchantOrderId?: string;
@@ -230,7 +201,74 @@ export async function createPendingDeposit(input: {
   return d;
 }
 
-export async function verifyDepositById(input: {
+export async function adminConfirmDeposit(input: {
+  depositId: string;
+  transactionNumber?: string;
+  note?: string;
+}) {
+  const d = await findDeposit(input.depositId);
+  if (!d) {
+    return { ok: false as const, message: 'Deposit not found' };
+  }
+  if (d.status === 'CONFIRMED') {
+    return {
+      ok: true as const,
+      message: 'Already confirmed',
+      deposit: d,
+      balance: await resolveBalance(d.userId),
+    };
+  }
+  const txn =
+    input.transactionNumber ||
+    d.transactionNumber ||
+    d.providerTransactionId ||
+    d.merchantOrderId;
+  if (input.note) d.adminNote = input.note;
+  await rememberDeposit(d);
+  return creditConfirmed(d, txn, d.amount);
+}
+
+export async function adminRejectDeposit(input: {
+  depositId: string;
+  reason?: string;
+}) {
+  const d = await findDeposit(input.depositId);
+  if (!d) {
+    return { ok: false as const, message: 'Deposit not found' };
+  }
+  if (d.status === 'CONFIRMED') {
+    return {
+      ok: false as const,
+      message: 'Cannot reject a confirmed deposit',
+      deposit: d,
+    };
+  }
+  d.status = 'FAILED';
+  d.failureReason = input.reason || 'Rejected by admin';
+  d.adminNote = input.reason || d.adminNote;
+  await rememberDeposit(d);
+  return { ok: true as const, message: 'Rejected', deposit: d };
+}
+
+export function listDeposits(userId?: string): Deposit[] {
+  const all = [...g.__dep!.values()];
+  if (!userId) return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return all
+    .filter((d) => d.userId === userId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listDepositsAsync(userId?: string): Promise<Deposit[]> {
+  try {
+    const fromDb = await dbListDeposits(userId);
+    for (const d of fromDb) g.__dep!.set(d.id, d);
+  } catch {
+    /* */
+  }
+  return listDeposits(userId);
+}
+
+export async function verifyDeposit(input: {
   depositId: string;
   transactionNumber?: string;
 }) {
@@ -268,6 +306,9 @@ export async function verifyDepositById(input: {
 
   const cfg = verifyEtConfig();
   if (!cfg.apiKey && !publicWalletConfig().telebirrMerchantPhone) {
+    d.status = 'REVIEW_REQUIRED';
+    d.failureReason = 'Payment verification not configured';
+    await rememberDeposit(d);
     return {
       ok: false as const,
       status: 'REVIEW_REQUIRED' as const,
@@ -281,36 +322,50 @@ export async function verifyDepositById(input: {
     expectedAmount: d.amount,
   });
 
-  if (result.ok) {
-    const amt = result.amount && result.amount > 0 ? result.amount : d.amount;
+  if (result.ok || (result as { verified?: boolean }).verified) {
+    const amt =
+      Number((result as { amount?: number }).amount) > 0
+        ? Number((result as { amount?: number }).amount)
+        : d.amount;
     return creditConfirmed(d, txn, amt);
   }
 
+  const msg = (result as { message?: string }).message || 'Verification failed';
   d.status = 'FAILED';
-  d.failureReason = result.message;
+  d.failureReason = msg;
   await rememberDeposit(d);
   return {
     ok: false as const,
     status: 'FAILED' as const,
-    message: result.message,
+    message: msg,
     deposit: d,
   };
 }
 
-/** Webhook / provider callback credit path */
 export type CreditFromWebhookInput = {
   depositId?: string;
   merchantOrderId?: string;
   transactionNumber?: string;
   amount?: number;
   providerTransactionId?: string;
-  /** Accepted for callers; only ETB is credited */
   currency?: string;
 };
 
 export async function creditFromWebhook(input: CreditFromWebhookInput) {
   let d: Deposit | null = null;
-  if (input.depositId) d = await findDeposit(input.depositId);
+  if (input.depositId) {
+    d = await findDeposit(input.depositId);
+    if (!d) {
+      const orderId = input.depositId.trim();
+      if (orderId) {
+        const all = await listDepositsAsync();
+        d =
+          all.find(
+            (x) => x.merchantOrderId === orderId || x.id === orderId,
+          ) || null;
+      }
+    }
+  }
 
   if (!d && input.merchantOrderId) {
     const orderId = input.merchantOrderId.trim();
@@ -354,7 +409,7 @@ export async function creditFromWebhook(input: CreditFromWebhookInput) {
     d.merchantOrderId ||
     d.id;
   const amt = input.amount && input.amount > 0 ? input.amount : d.amount;
-  return creditConfirmed(d, txn, amt);
+  return creditConfirmed(d, String(txn), amt);
 }
 
 export async function claimByTransactionNumber(input: {
@@ -407,17 +462,17 @@ export async function claimByTransactionNumber(input: {
     expectedAmount: input.amount && input.amount > 0 ? input.amount : 0,
   });
 
-  if (!result.ok) {
+  if (!result.ok && !(result as { verified?: boolean }).verified) {
     return {
       ok: false as const,
       status: 'FAILED' as const,
-      message: result.message || 'Verification failed',
+      message: (result as { message?: string }).message || 'Verification failed',
     };
   }
 
   const amount =
-    result.amount && result.amount > 0
-      ? result.amount
+    Number((result as { amount?: number }).amount) > 0
+      ? Number((result as { amount?: number }).amount)
       : input.amount && input.amount > 0
         ? input.amount
         : 0;
@@ -430,7 +485,7 @@ export async function claimByTransactionNumber(input: {
     };
   }
 
-  const d = await createPendingDeposit({
+  const d = await createDeposit({
     userId: input.userId,
     amount,
     merchantOrderId: `claim_${txn.slice(0, 12)}`,
@@ -442,51 +497,4 @@ export async function claimByTransactionNumber(input: {
   return creditConfirmed(d, txn, amount);
 }
 
-export async function adminConfirmDeposit(input: {
-  depositId: string;
-  transactionNumber?: string;
-  note?: string;
-}) {
-  const d = await findDeposit(input.depositId);
-  if (!d) {
-    return { ok: false as const, message: 'Deposit not found' };
-  }
-  if (d.status === 'CONFIRMED') {
-    return {
-      ok: true as const,
-      message: 'Already confirmed',
-      deposit: d,
-      balance: await resolveBalance(d.userId),
-    };
-  }
-  const txn =
-    input.transactionNumber ||
-    d.transactionNumber ||
-    d.providerTransactionId ||
-    d.merchantOrderId;
-  if (input.note) d.adminNote = input.note;
-  await rememberDeposit(d);
-  return creditConfirmed(d, txn, d.amount);
-}
-
-export async function adminRejectDeposit(input: {
-  depositId: string;
-  reason?: string;
-}) {
-  const d = await findDeposit(input.depositId);
-  if (!d) {
-    return { ok: false as const, message: 'Deposit not found' };
-  }
-  if (d.status === 'CONFIRMED') {
-    return {
-      ok: false as const,
-      message: 'Cannot reject a confirmed deposit',
-      deposit: d,
-    };
-  }
-  d.status = 'FAILED';
-  d.failureReason = input.reason || 'Rejected by admin';
-  d.adminNote = input.reason || d.adminNote;
-  await rememberDeposit(d);
-  return { ok: true as const, message: 'Rejected', deposit: d };
-}
+export { publicWalletConfig };
