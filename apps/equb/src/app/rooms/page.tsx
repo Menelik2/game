@@ -24,6 +24,7 @@ import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SeatRing } from '@/components/SeatNodes';
 import { PickRuleCard, PickRuleHint } from '@/components/PickRule';
+import { NumberPickBoard } from '@/components/NumberPickBoard';
 import clsx from 'clsx';
 import { ChevronRight, Radio } from 'lucide-react';
 
@@ -227,10 +228,7 @@ export default function RoomsPage() {
                     {locale === 'am' ? 'ተጫዋቾች' : 'players'}
                   </p>
                 </div>
-                <SeatRing
-                  total={r.groupSize}
-                  filledCount={r.members?.length || 0}
-                />
+                <SeatRing total={r.groupSize} filledCount={r.members?.length || 0} size="sm" />
               </Link>
             ))}
           </div>
@@ -276,48 +274,19 @@ export default function RoomsPage() {
           <PickRuleHint groupSize={groupSize} locale={locale} />
         </section>
 
-        <section
-          className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
-          style={{ animationDelay: '120ms' }}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-white/50">
-              2 · {locale === 'am' ? 'ቁጥሮችዎ' : 'Your numbers'}
-            </p>
-            <span className="rounded-full bg-equb-500/20 px-2.5 py-1 text-[11px] font-bold text-equb-300 tabular-nums">
-              {picks.length}/{maxPicks}{' '}
-              {locale === 'am' ? 'ቁጥር' : 'picks'}
-            </span>
-          </div>
-          <div
-            className="grid gap-2"
-            style={{
-              gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
+        <div className="animate-fade-up" style={{ animationDelay: '120ms' }}>
+          <NumberPickBoard
+            groupSize={groupSize}
+            picks={picks}
+            maxPicks={maxPicks}
+            locale={locale}
+            onToggle={togglePick}
+            onClear={() => {
+              setPicks([]);
+              setErr('');
             }}
-          >
-            {Array.from({ length: groupSize }, (_, i) => i + 1).map((n, idx) => {
-              const on = picks.includes(n);
-              const locked = !on && picks.length >= maxPicks;
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  disabled={locked}
-                  onClick={() => togglePick(n)}
-                  style={{ animationDelay: `${idx * 12}ms` }}
-                  className={clsx(
-                    'aspect-square rounded-xl text-sm font-black',
-                    on && 'tile-selected text-white',
-                    !on && !locked && 'tile text-white/80',
-                    locked && 'cursor-not-allowed tile-taken text-white/25',
-                  )}
-                >
-                  {String(n).padStart(2, '0')}
-                </button>
-              );
-            })}
-          </div>
-        </section>
+          />
+        </div>
 
         <section
           className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
@@ -402,7 +371,7 @@ export default function RoomsPage() {
                   <span className="text-sm font-semibold">
                     {r.groupSize} · {formatBirrCompact(r.prizePool, locale)}
                   </span>
-                  <SeatRing total={r.groupSize} filledCount={r.members.length} />
+                  <SeatRing total={r.groupSize} filledCount={r.members.length} size="sm" />
                 </Link>
               ))}
           </section>
