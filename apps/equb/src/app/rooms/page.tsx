@@ -173,10 +173,14 @@ export default function RoomsPage() {
 
     try {
       if (multiplayer) {
-        setPlayerName(user.name);
+        setPlayerName(user.name || 'Player');
         try {
-          await openRoom(templateId, user.id);
-          await mpJoin(templateId, user.id, picks);
+          await openRoom(templateId);
+          await mpJoin(templateId, picks);
+          router.push(
+            `/rooms/${encodeURIComponent(templateId)}?picks=${picks.join(',')}`,
+          );
+          return;
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : 'Join failed';
           if (!openLocalRoom(picks)) {
