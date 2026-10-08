@@ -8,10 +8,7 @@ import {
   GROUP_SIZES,
   contributionPerMember,
   roomId,
-  seatsLeft,
-  takenPicks,
   maxPicksForGroup,
-  type LiveRoom,
 } from '@/lib/equb-math';
 import {
   isMultiplayerEnabled,
@@ -27,10 +24,10 @@ import {
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { SeatNodes, SeatRing } from '@/components/SeatNodes';
+import { SeatRing } from '@/components/SeatNodes';
 import { PickRuleCard, PickRuleHint } from '@/components/PickRule';
 import clsx from 'clsx';
-import { ChevronRight, Users, Radio } from 'lucide-react';
+import { ChevronRight, Radio } from 'lucide-react';
 
 const PRIZES = [500, 1000, 2000, 5000, 9000];
 
@@ -229,15 +226,13 @@ export default function RoomsPage() {
                     {formatBirrCompact(r.prizePool, locale)}
                   </p>
                   <p className="text-[10px] text-white/40">
-                    {locale === 'am'
-                      ? `ከፍተኛ ${maxPicksForGroup(r.groupSize)} ቁጥር / ተጫዋች`
-                      : `max ${maxPicksForGroup(r.groupSize)} picks / player`}
+                    {(r.members?.length || 0)}/{r.groupSize}{' '}
+                    {locale === 'am' ? 'ተጫዋቾች' : 'players'}
                   </p>
                 </div>
                 <SeatRing
                   total={r.groupSize}
-                  taken={r.members?.length || 0}
-                  maxVisible={Math.min(r.groupSize, 20)}
+                  filledCount={r.members?.length || 0}
                 />
               </Link>
             ))}
@@ -308,13 +303,8 @@ export default function RoomsPage() {
               {locale === 'am' ? 'ቁጥር' : 'picks'}
             </span>
           </div>
-          <SeatNodes
-            total={groupSize}
-            selected={picks}
-            onToggle={togglePick}
-          />
           <div
-            className="mt-3 grid gap-2"
+            className="grid gap-2"
             style={{
               gridTemplateColumns: `repeat(${Math.min(groupSize <= 20 ? 5 : 10, groupSize)}, minmax(0, 1fr))`,
             }}
@@ -417,7 +407,10 @@ export default function RoomsPage() {
                   <span className="text-sm">
                     {r.groupSize} · {formatBirrCompact(r.prizePool, locale)}
                   </span>
-                  <SeatRing total={r.groupSize} taken={r.members.length} />
+                  <SeatRing
+                    total={r.groupSize}
+                    filledCount={r.members.length}
+                  />
                 </Link>
               ))}
           </section>
