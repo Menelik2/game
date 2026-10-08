@@ -71,20 +71,20 @@ export function SeatNodes({
             !s.isYou &&
               s.filled &&
               'scale-105 border-amber-400/60 bg-amber-500 text-black shadow-md shadow-amber-500/30',
-            !s.isYou && !s.filled && 'border-white/20 bg-white/[0.06] text-white/30',
+            !s.isYou && !s.filled && 'border-white/20 bg-white/5 text-white/30',
           )}
         >
           {size === 'md' ? (s.filled ? s.label : '·') : null}
         </span>
       ))}
       {overflow > 0 && (
-        <span className="text-[10px] font-medium text-white/35">+{overflow}</span>
+        <span className="text-[10px] font-bold text-white/40">+{overflow}</span>
       )}
     </div>
   );
 }
 
-/** Animated radial seat ring — casino-style hub */
+/** Compact circular seat meter for room lists + play page */
 export function SeatRing({
   total,
   filledCount,
@@ -92,6 +92,7 @@ export function SeatRing({
   yourPicks,
   taken,
   drawing = false,
+  size = 'sm',
   className,
 }: {
   total: number;
@@ -100,9 +101,12 @@ export function SeatRing({
   yourPicks?: number[];
   taken?: Iterable<number>;
   drawing?: boolean;
+  /** sm = list row (48px), md = card (80px), lg = play hero (120px) */
+  size?: 'sm' | 'md' | 'lg';
   className?: string;
 }) {
-  const n = Math.min(Math.max(total, 1), 40);
+  const dim = size === 'lg' ? 120 : size === 'md' ? 80 : 48;
+  const n = Math.min(Math.max(total, 1), size === 'sm' ? 16 : 40);
   const takenSet = taken ? new Set(taken) : null;
   const yours = new Set(
     yourPicks && yourPicks.length
@@ -112,11 +116,10 @@ export function SeatRing({
         : [],
   );
   const pct = Math.min(1, filledCount / Math.max(total, 1));
-  const size = 120;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 46;
-  const stroke = 4;
+  const cx = dim / 2;
+  const cy = dim / 2;
+  const r = size === 'sm' ? 16 : size === 'md' ? 28 : 46;
+  const stroke = size === 'sm' ? 3 : 4;
   const circ = 2 * Math.PI * r;
   const dash = circ * pct;
 
@@ -124,47 +127,40 @@ export function SeatRing({
   useEffect(() => {
     const id = window.setInterval(
       () => setTick((t) => t + 1),
-      drawing ? 90 : 1000,
+      drawing ? 90 : 1200,
     );
     return () => window.clearInterval(id);
   }, [drawing]);
 
+  const fontMain = size === 'sm' ? 'text-[10px]' : size === 'md' ? 'text-xs' : 'text-[15px]';
+  const fontSub = size === 'sm' ? 'text-[7px]' : 'text-[8px]';
+  const hubInset = size === 'sm' ? 'inset-[22%]' : 'inset-[26%]';
+
   return (
     <div
-      className={clsx('relative mx-auto select-none', className)}
-      style={{ width: size, height: size }}
+      className={clsx('relative shrink-0 select-none', className)}
+      style={{ width: dim, height: dim }}
     >
-      {/* Ambient glow */}
       <div
         className={clsx(
-          'pointer-events-none absolute -inset-2 rounded-full opacity-60 blur-xl transition-all duration-700',
+          'pointer-events-none absolute -inset-1 rounded-full opacity-50 blur-lg transition-all duration-700',
           drawing && 'bg-gold-500/30',
           !drawing && pct >= 1 && 'bg-gold-500/25',
           !drawing && pct > 0 && pct < 1 && 'bg-equb-500/20',
         )}
       />
 
-      {/* Spinning outer ring while drawing */}
       {drawing && (
-        <div
-          className="pointer-events-none absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-gold-400 border-r-gold-400/40"
-          style={{ animationDuration: '1.2s' }}
-        />
+        <div className="pointer-events-none absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-gold-400 border-r-gold-400/40" />
       )}
 
-      {/* Progress ring SVG */}
-      <svg
-        width={size}
-        height={size}
-        className="absolute inset-0 -rotate-90"
-        aria-hidden
-      >
+      <svg width={dim} height={dim} className="absolute inset-0 -rotate-90" aria-hidden>
         <circle
           cx={cx}
           cy={cy}
           r={r}
           fill="none"
-          stroke="rgba(255,255,255,0.07)"
+          stroke="rgba(255,255,255,0.08)"
           strokeWidth={stroke}
         />
         <circle
@@ -172,7 +168,7 @@ export function SeatRing({
           cy={cy}
           r={r}
           fill="none"
-          stroke={pct >= 1 ? '#fbbf24' : '#34d399'}
+          stroke={pct >= 1 || drawing ? 'rgb(251, 191, 36)' : 'rgb(52, 211, 153)'}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${dash} ${circ}`}
@@ -180,16 +176,16 @@ export function SeatRing({
           style={{
             filter:
               pct > 0
-                ? `drop-shadow(0 0 8px ${pct >= 1 ? 'rgba(251,191,36,0.75)' : 'rgba(52,211,153,0.65)'})`
+                ? `drop-shadow(0 0 6px ${pct >= 1 ? 'rgba(251,191,36,0.7)' : 'rgba(52,211,153,0.55)'})`
                 : undefined,
           }}
         />
       </svg>
 
-      {/* Center hub */}
       <div
         className={clsx(
-          'absolute inset-[26%] flex flex-col items-center justify-center rounded-full border bg-gradient-to-b shadow-inner transition-all duration-500',
+          'absolute flex flex-col items-center justify-center rounded-full border bg-gradient-to-b shadow-inner transition-all duration-500',
+          hubInset,
           drawing
             ? 'animate-pulse border-gold-400/50 from-gold-500/25 to-[#0a1210]'
             : pct >= 1
@@ -200,58 +196,60 @@ export function SeatRing({
         <span
           key={drawing ? 'd' : `${filledCount}-${total}`}
           className={clsx(
-            'font-mono text-[15px] font-black tabular-nums transition-all',
+            'font-mono font-black tabular-nums',
+            fontMain,
             drawing ? 'text-gold-300' : pct >= 1 ? 'text-gold-400' : 'text-white/90',
           )}
         >
           {drawing ? '···' : `${filledCount}/${total}`}
         </span>
-        {!drawing && (
-          <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-wider text-white/35">
-            {pct >= 1 ? 'Full' : 'Seats'}
-          </span>
-        )}
-        {drawing && (
-          <span className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-gold-400/80">
-            Draw
+        {size !== 'sm' && (
+          <span
+            className={clsx(
+              'mt-0.5 font-semibold uppercase tracking-wider',
+              fontSub,
+              drawing ? 'text-gold-400/80' : 'text-white/35',
+            )}
+          >
+            {drawing ? 'Draw' : pct >= 1 ? 'Full' : 'Seats'}
           </span>
         )}
       </div>
 
-      {/* Orbiting seat dots */}
-      {Array.from({ length: n }, (_, i) => {
-        const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-        const x = cx + r * Math.cos(angle);
-        const y = cy + r * Math.sin(angle);
-        const seatNum = i + 1;
-        const filled = takenSet ? takenSet.has(seatNum) : i < filledCount;
-        const isYou = yours.has(seatNum);
-        const idlePulse = !filled && !drawing && tick % 2 === i % 2;
+      {size !== 'sm' &&
+        Array.from({ length: n }, (_, i) => {
+          const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+          const x = cx + r * Math.cos(angle);
+          const y = cy + r * Math.sin(angle);
+          const seatNum = i + 1;
+          const filled = takenSet ? takenSet.has(seatNum) : i < filledCount;
+          const isYou = yours.has(seatNum);
+          const idlePulse = !filled && !drawing && tick % 2 === i % 2;
 
-        return (
-          <span
-            key={i}
-            title={String(seatNum).padStart(2, '0')}
-            className={clsx(
-              'absolute -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all duration-300',
-              isYou &&
-                'z-10 h-3.5 w-3.5 scale-125 border-equb-100 bg-equb-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]',
-              !isYou &&
-                filled &&
-                'h-3 w-3 scale-110 border-amber-300/80 bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.75)]',
-              !isYou && !filled && 'h-2.5 w-2.5 border-white/25 bg-white/10',
-              idlePulse && 'scale-90 opacity-50',
-              drawing && !filled && 'animate-ping',
-            )}
-            style={{
-              left: x,
-              top: y,
-              animationDelay: drawing ? `${(i * 40) % 400}ms` : undefined,
-              animationDuration: drawing ? '1.1s' : undefined,
-            }}
-          />
-        );
-      })}
+          return (
+            <span
+              key={i}
+              title={String(seatNum).padStart(2, '0')}
+              className={clsx(
+                'absolute -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all duration-300',
+                isYou &&
+                  'z-10 h-3.5 w-3.5 scale-125 border-equb-100 bg-equb-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]',
+                !isYou &&
+                  filled &&
+                  'h-3 w-3 scale-110 border-amber-300/80 bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.75)]',
+                !isYou && !filled && 'h-2.5 w-2.5 border-white/25 bg-white/10',
+                idlePulse && 'scale-90 opacity-50',
+                drawing && !filled && 'animate-ping',
+              )}
+              style={{
+                left: x,
+                top: y,
+                animationDelay: drawing ? `${(i * 40) % 400}ms` : undefined,
+                animationDuration: drawing ? '1.1s' : undefined,
+              }}
+            />
+          );
+        })}
     </div>
   );
 }

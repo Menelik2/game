@@ -1,16 +1,8 @@
 import type { Metadata, Viewport } from 'next';
-import { Noto_Sans_Ethiopic } from 'next/font/google';
 import './globals.css';
 import { Shell } from '@/components/Shell';
 import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 import { ContentProtection } from '@/components/ContentProtection';
-
-const ethiopic = Noto_Sans_Ethiopic({
-  subsets: ['ethiopic'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-ethiopic',
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: 'ፋስት እቁብ · Fast Equb',
@@ -39,8 +31,16 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="am" className={`dark ${ethiopic.variable}`}>
-      <body className={`${ethiopic.className} app-protected`}>
+    <html lang="am" className="dark">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="app-protected font-sans">
         <LanguageProvider>
           <ContentProtection />
           <Shell>{children}</Shell>

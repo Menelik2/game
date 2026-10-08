@@ -6,12 +6,11 @@
   color-scheme: dark;
   --equb-glow: 16, 185, 129;
   --gold-glow: 245, 158, 11;
-  --font-ethiopic: 'Noto Sans Ethiopic', 'Noto Sans', system-ui, sans-serif;
 }
 
 body {
   @apply min-h-screen text-white antialiased;
-  font-family: var(--font-ethiopic), system-ui, -apple-system, sans-serif;
+  font-family: 'Noto Sans Ethiopic', system-ui, -apple-system, sans-serif;
   background-color: #040806;
   background-image:
     radial-gradient(ellipse 110% 80% at 50% -30%, rgba(16, 185, 129, 0.28), transparent 55%),
