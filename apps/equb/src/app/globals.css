@@ -52,7 +52,7 @@ html[lang='am'] body {
 }
 
 .chip {
-  @apply rounded-xl border border-white/10 bg-white/[0.06] text-white/80;
+  @apply rounded-xl border border-white/10 bg-white/5 text-white/80;
 }
 
 .chip-active {
@@ -60,7 +60,7 @@ html[lang='am'] body {
 }
 
 .tile {
-  @apply border border-white/12 bg-white/[0.07];
+  @apply border border-white/10 bg-white/5;
 }
 
 .tile-selected {
