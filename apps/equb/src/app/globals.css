@@ -160,3 +160,45 @@ textarea {
     animation: none;
   }
 }
+
+/* ——— Content protection (soft deterrents) ——— */
+body.app-protected {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.app-protected input,
+body.app-protected textarea,
+body.app-protected [contenteditable='true'],
+body.app-protected .allow-select {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+body.app-protected img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+@media print {
+  body.app-protected * {
+    visibility: hidden !important;
+  }
+  body.app-protected::after {
+    content: 'Fast Equb — protected content. Unauthorized copy is prohibited.';
+    visibility: visible !important;
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: #000;
+    background: #fff;
+    padding: 2rem;
+    text-align: center;
+  }
+}
