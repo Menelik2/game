@@ -32,13 +32,14 @@ export type SharedRoom = {
   winnerName: string | null;
   adminFee?: number | null;
   winnerPayout?: number | null;
+  /** Actual Birr collected from players this round */
+  collectedPot?: number | null;
   paidOut?: boolean;
   entropyHex: string | null;
   commitmentHash: string | null;
   drawAt: number;
   secondsLeft: number;
   updatedAt: number;
-  /** Unique Game ID for this cycle (same as id) */
   gameId?: string;
   playerCount?: number;
   maxPlayers?: number;
@@ -83,6 +84,18 @@ function isFull(room: SharedRoom) {
   return seatsTaken(room) >= room.groupSize;
 }
 
+/**
+ * Real money in the pot = what players actually paid this round.
+ * contribution × number of picks per member, capped by template prizePool.
+ */
+function collectedPot(room: SharedRoom, humans: Member[]): number {
+  const unit = Number(room.contribution) || 0;
+  const sum = humans.reduce((s, m) => s + unit * memberPicks(m).length, 0);
+  const cap = Number(room.prizePool) || sum;
+  const pot = cap > 0 ? Math.min(sum, cap) : sum;
+  return Math.round(pot * 100) / 100;
+}
+
 function sb() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const key =
@@ -99,10 +112,10 @@ function withTimer(room: SharedRoom): SharedRoom {
   return {
     ...room,
     members,
-    gameId: room.id,
     playerCount: pc,
     maxPlayers: room.groupSize,
     minPlayers: MIN_PLAYERS,
+    gameId: room.id,
     joiningClosed: room.status !== 'open' || isFull({ ...room, members }),
     recent: (room.recent || []).filter(
       (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
@@ -111,16 +124,18 @@ function withTimer(room: SharedRoom): SharedRoom {
   };
 }
 
-function fresh(templateId: string, recent: SharedRoom['recent'] = []): SharedRoom {
+function parseTemplate(templateId: string): { groupSize: number; prizePool: number } {
   const m = /^equb-(\d+)-(\d+)$/.exec(templateId);
-  if (!m) throw new Error('Invalid room');
-  const groupSize = Number(m[1]);
-  const prizePool = Number(m[2]);
+  if (!m) return { groupSize: 5, prizePool: 500 };
+  return { groupSize: Number(m[1]), prizePool: Number(m[2]) };
+}
+
+function fresh(templateId: string, recent: SharedRoom['recent'] = []): SharedRoom {
+  const { groupSize, prizePool } = parseTemplate(templateId);
   const now = Date.now();
-  const id = `${templateId}-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = `${templateId}-${now}`;
   return {
     id,
-    gameId: id,
     templateId,
     groupSize,
     prizePool,
@@ -132,47 +147,44 @@ function fresh(templateId: string, recent: SharedRoom['recent'] = []): SharedRoo
     winnerName: null,
     adminFee: null,
     winnerPayout: null,
+    collectedPot: null,
     paidOut: false,
     entropyHex: null,
     commitmentHash: null,
     drawAt: now + ROUND_MS,
-    secondsLeft: 60,
+    secondsLeft: ROUND_MS / 1000,
     updatedAt: now,
-    playerCount: 0,
-    maxPlayers: groupSize,
-    minPlayers: MIN_PLAYERS,
-    joiningClosed: false,
+    gameId: id,
     recent: recent || [],
   };
-}
-
-export function sharedEnabled() {
-  return isDbConfigured();
 }
 
 async function read(templateId: string): Promise<SharedRoom | null> {
   if (!isDbConfigured()) return null;
   try {
-    const { data } = await sb()
+    const { data, error } = await sb()
       .from('equb_live_rooms')
       .select('payload')
       .eq('template_id', templateId)
       .maybeSingle();
-    if (data?.payload) return data.payload as SharedRoom;
+    if (error || !data?.payload) return null;
+    return data.payload as SharedRoom;
   } catch {
-    /* */
+    return null;
   }
-  return null;
 }
 
-async function write(room: SharedRoom) {
+async function write(room: SharedRoom): Promise<void> {
   if (!isDbConfigured()) return;
   try {
-    await sb().from('equb_live_rooms').upsert({
-      template_id: room.templateId,
-      payload: room,
-      updated_at: new Date().toISOString(),
-    });
+    await sb().from('equb_live_rooms').upsert(
+      {
+        template_id: room.templateId,
+        payload: room,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'template_id' },
+    );
   } catch {
     /* */
   }
@@ -184,9 +196,13 @@ async function write(room: SharedRoom) {
  * - Need >= MIN_PLAYERS (2) unique players to start
  * - If fewer: keep waiting, roll timer another 60s (same Game ID)
  * - If enough: close joining, run draw, then open next cycle with new Game ID
+ *
+ * Money rules (peer pot):
+ * - Each join debits contribution × picks from the player
+ * - At draw, pot = sum of those fees (capped by prizePool)
+ * - Winner receives (1 − platformFee) of pot; platform keeps fee
  */
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
-  // After a completed game, open the next cycle
   if (room.status === 'completed') {
     const age = Date.now() - (room.updatedAt || 0);
     if (age >= NEXT_CYCLE_DELAY_MS) {
@@ -209,7 +225,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   room.members = (room.members || []).filter((m) => isRealPlayer(m));
   const count = playerCount(room);
 
-  // Not enough players — keep waiting, new 60s cycle on SAME game
   if (count < MIN_PLAYERS) {
     room.status = 'open';
     room.drawAt = Date.now() + ROUND_MS;
@@ -219,7 +234,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     return withTimer(room);
   }
 
-  // Enough players — close joining and start the game
   room.status = 'drawing';
   room.joiningClosed = true;
   room.updatedAt = Date.now();
@@ -243,19 +257,25 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   const chosen = allPicks[idx]!;
   const winningNumber = chosen.n;
   const winner = chosen.member;
-  const { adminFee, winnerPayout } = computePayout(room.prizePool);
+
+  // Peer pot from real contributions only
+  const pot = collectedPot(room, humans);
+  const gross = pot > 0 ? pot : Number(room.prizePool) || 0;
+  const { adminFee, winnerPayout } = computePayout(gross);
 
   room.winningNumber = winningNumber;
   room.winnerId = winner?.playerId ?? null;
   room.winnerName = winner?.name ?? null;
   room.adminFee = adminFee;
   room.winnerPayout = winnerPayout;
+  room.collectedPot = gross;
   room.entropyHex = entropyHex;
   room.commitmentHash = createHash('sha256')
     .update(`${entropyHex}:${winningNumber}`)
     .digest('hex');
   room.updatedAt = Date.now();
 
+  // Auto-credit winner from the pooled Birr
   if (winner?.playerId && winnerPayout > 0 && !room.paidOut) {
     try {
       await settleWinPayout({
@@ -277,7 +297,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
       roomId: room.id,
       templateId: room.templateId,
       groupSize: room.groupSize,
-      prizePool: room.prizePool,
+      prizePool: gross,
       adminFee,
       winnerPayout,
       winnerId: room.winnerId,
@@ -294,7 +314,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
       id: room.id,
       winningNumber,
       winnerName: winner?.name || 'Player',
-      pot: room.prizePool,
+      pot: winnerPayout > 0 ? winnerPayout : gross,
       at: Date.now(),
     },
     ...(room.recent || []).filter(
@@ -321,89 +341,52 @@ export async function peekShared(templateId: string): Promise<SharedRoom | null>
 }
 
 export async function openShared(templateId: string): Promise<SharedRoom> {
-  let room = await read(templateId);
-  const recent = room?.recent || [];
-  if (!room) {
-    room = fresh(templateId);
-  } else if (room.status === 'completed') {
-    room = fresh(templateId, recent);
-  } else {
-    room = await drawAsync(room);
-  }
-  await write(room);
-  return withTimer(room);
+  return getShared(templateId);
 }
 
 export async function joinShared(
   templateId: string,
-  playerId: string,
-  name: string,
-  pickOrPicks: number | number[],
+  member: Member,
+  picks: number[],
 ): Promise<SharedRoom> {
-  if (isFakePlayerId(playerId) || isFakePlayerName(name)) {
-    throw new Error('Real account required — demo/bot players not allowed');
+  let room = await getShared(templateId);
+  if (room.status !== 'open' || room.joiningClosed) {
+    throw new Error('Joining closed — wait for next cycle');
   }
-  let room = await read(templateId);
-  if (!room) room = fresh(templateId);
-  room = await drawAsync(room);
-
-  // If previous cycle finished, open the next game
-  if (room.status === 'completed' || room.status === 'drawing') {
-    if (room.status === 'completed') {
-      const kept = (room.recent || []).filter(
-        (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
-      );
-      room = fresh(templateId, kept);
-    } else {
-      throw new Error('Game already started — joining closed');
-    }
+  if (isFakePlayerId(member.playerId) || isFakePlayerName(member.name)) {
+    throw new Error('Invalid player');
   }
-
-  if (room.status !== 'open') {
-    throw new Error('Joining is closed for this game');
-  }
-
-  if (room.members.some((m) => m.playerId === playerId)) {
-    return withTimer(room);
-  }
-
-  // Max player / seat limit
-  if (isFull(room)) {
-    throw new Error(`Room full (${room.groupSize}/${room.groupSize} players)`);
-  }
-
-  const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
   const max = maxPicks(room.groupSize);
-  const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
-    (n) => n >= 1 && n <= room.groupSize,
-  );
-  if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
-  if (picks.length > max) {
-    throw new Error(`Max ${max} number(s) for this room`);
-  }
+  const clean = [...new Set(picks.map((n) => Math.floor(Number(n))))]
+    .filter((n) => n >= 1 && n <= room.groupSize)
+    .slice(0, max);
+  if (!clean.length) throw new Error('Select at least one number');
+
   const taken = takenSet(room);
-  for (const p of picks) {
+  for (const p of clean) {
     if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
-  if (seatsTaken(room) + picks.length > room.groupSize) {
-    throw new Error(`Not enough seats — max ${room.groupSize} players`);
+  if (seatsTaken(room) + clean.length > room.groupSize) {
+    throw new Error('Room full');
+  }
+  if (room.members.some((m) => m.playerId === member.playerId)) {
+    throw new Error('Already joined this round');
   }
 
-  room.members.push({
-    playerId,
-    name: (name || 'Player').slice(0, 40),
-    pick: picks[0]!,
-    picks,
-    joinedAt: Date.now(),
-  });
-  room.members = room.members.filter((m) => isRealPlayer(m));
+  room.members = [
+    ...room.members,
+    {
+      ...member,
+      pick: clean[0]!,
+      picks: clean,
+      joinedAt: Date.now(),
+    },
+  ];
   room.updatedAt = Date.now();
   await write(room);
   return withTimer(room);
 }
 
-export async function listSharedOpen(): Promise<SharedRoom[]> {
-  return [];
+export function sharedEnabled() {
+  return isDbConfigured();
 }
-
-export { MIN_PLAYERS, ROUND_MS };
