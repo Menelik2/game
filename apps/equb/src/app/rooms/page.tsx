@@ -16,10 +16,8 @@ import {
   joinRoom as mpJoin,
   setPlayerName,
   listLiveRooms,
-  listTemplates,
   probeApi,
   type ServerRoom,
-  type LiveTemplate,
 } from '@/lib/multiplayer';
 import { useI18n } from '@/lib/i18n/LanguageContext';
 import { formatBirrCompact } from '@/lib/money';
@@ -45,7 +43,6 @@ export default function RoomsPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [liveOpen, setLiveOpen] = useState<ServerRoom[]>([]);
-  const [templates, setTemplates] = useState<LiveTemplate[]>([]);
   const [liveOk, setLiveOk] = useState(false);
   const multiplayer = isMultiplayerEnabled();
 
@@ -66,15 +63,11 @@ export default function RoomsPage() {
         return;
       }
       setLiveOk(true);
-      const [roomsList, tpl] = await Promise.all([
-        listLiveRooms().catch(() => [] as ServerRoom[]),
-        listTemplates().catch(() => [] as LiveTemplate[]),
-      ]);
+      const roomsList = await listLiveRooms().catch(() => [] as ServerRoom[]);
       const open = (roomsList || [])
         .filter((r) => r.status === 'open' && (r.members?.length || 0) > 0)
         .sort((a, b) => (b.members?.length || 0) - (a.members?.length || 0));
       setLiveOpen(open);
-      setTemplates(tpl || []);
     } catch {
       setLiveOk(false);
     }
@@ -235,29 +228,6 @@ export default function RoomsPage() {
                   filledCount={r.members?.length || 0}
                 />
               </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {templates.length > 0 && (
-        <section className="glass rounded-2xl p-4">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
-            {locale === 'am' ? 'ቅርጸቶች' : 'Templates'}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {templates.slice(0, 12).map((tpl) => (
-              <button
-                key={tpl.id}
-                type="button"
-                onClick={() => {
-                  setGroupSize(tpl.groupSize);
-                  setPrize(tpl.prizePool);
-                }}
-                className="rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-xs"
-              >
-                {tpl.groupSize} · {formatBirrCompact(tpl.prizePool, locale)}
-              </button>
             ))}
           </div>
         </section>
