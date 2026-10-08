@@ -267,7 +267,6 @@ export async function listDepositsAsync(userId?: string): Promise<Deposit[]> {
 export async function verifyDeposit(input: {
   depositId: string;
   transactionNumber?: string;
-  /** Optional: ensure the deposit belongs to this user */
   userId?: string;
 }) {
   const d = await findDeposit(input.depositId);
@@ -311,7 +310,7 @@ export async function verifyDeposit(input: {
   await rememberDeposit(d);
 
   const cfg = verifyEtConfig();
-  if (!cfg.apiKey && !publicWalletConfig().telebirrMerchantPhone) {
+  if (!cfg.apiKey && !publicWalletConfig().merchantPhone) {
     d.status = 'REVIEW_REQUIRED';
     d.failureReason = 'Payment verification not configured';
     await rememberDeposit(d);
@@ -455,7 +454,7 @@ export async function claimByTransactionNumber(input: {
   }
 
   const cfg = verifyEtConfig();
-  if (!cfg.apiKey && !publicWalletConfig().telebirrMerchantPhone) {
+  if (!cfg.apiKey && !publicWalletConfig().merchantPhone) {
     return {
       ok: false as const,
       status: 'FAILED' as const,
