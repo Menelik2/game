@@ -5,11 +5,8 @@ import { computePayout, settleWinPayout } from './wallet-settle';
 import { recordGameProfit } from './profit-ledger';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
-/** Cycle length: 60 seconds */
 const ROUND_MS = 60_000;
-/** Minimum unique players required to start a draw when timer ends */
 const MIN_PLAYERS = 2;
-/** Brief pause after a completed game before opening the next cycle */
 const NEXT_CYCLE_DELAY_MS = 8_000;
 
 export type Member = {
@@ -19,6 +16,7 @@ export type Member = {
   picks?: number[];
   joinedAt: number;
 };
+
 export type SharedRoom = {
   id: string;
   templateId: string;
@@ -32,7 +30,6 @@ export type SharedRoom = {
   winnerName: string | null;
   adminFee?: number | null;
   winnerPayout?: number | null;
-  /** Actual Birr collected from players this round */
   collectedPot?: number | null;
   paidOut?: boolean;
   entropyHex: string | null;
@@ -59,20 +56,22 @@ function maxPicks(groupSize: number) {
   if (size <= 5) return 1;
   return 2;
 }
+
 function memberPicks(m: Member): number[] {
   if (m.picks && m.picks.length) return m.picks;
   return [m.pick];
 }
-/** Unique real players in the room */
+
 function playerCount(room: SharedRoom): number {
   return room.members.filter((m) => isRealPlayer(m)).length;
 }
-/** Seats occupied (picks), capped by groupSize */
+
 function seatsTaken(room: SharedRoom) {
   return room.members
     .filter((m) => isRealPlayer(m))
     .reduce((n, m) => n + memberPicks(m).length, 0);
 }
+
 function takenSet(room: SharedRoom) {
   const s = new Set<number>();
   for (const m of room.members.filter((m) => isRealPlayer(m))) {
@@ -80,14 +79,12 @@ function takenSet(room: SharedRoom) {
   }
   return s;
 }
+
 function isFull(room: SharedRoom) {
   return seatsTaken(room) >= room.groupSize;
 }
 
-/**
- * Real money in the pot = what players actually paid this round.
- * contribution × number of picks per member, capped by template prizePool.
- */
+/** Real pot = sum of fees players paid (contribution × picks), capped by prizePool. */
 function collectedPot(room: SharedRoom, humans: Member[]): number {
   const unit = Number(room.contribution) || 0;
   const sum = humans.reduce((s, m) => s + unit * memberPicks(m).length, 0);
@@ -191,16 +188,10 @@ async function write(room: SharedRoom): Promise<void> {
 }
 
 /**
- * Game start rules:
- * - Every 60s check player count
- * - Need >= MIN_PLAYERS (2) unique players to start
- * - If fewer: keep waiting, roll timer another 60s (same Game ID)
- * - If enough: close joining, run draw, then open next cycle with new Game ID
- *
- * Money rules (peer pot):
- * - Each join debits contribution × picks from the player
- * - At draw, pot = sum of those fees (capped by prizePool)
- * - Winner receives (1 − platformFee) of pot; platform keeps fee
+ * Money (peer pot):
+ * - Join: debit contribution × picks from each player
+ * - Draw: pot = sum of those debits (capped by prizePool)
+ * - Winner gets (1 − platformFee) of pot; rest is platform fee
  */
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.status === 'completed') {
@@ -258,7 +249,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   const winningNumber = chosen.n;
   const winner = chosen.member;
 
-  // Peer pot from real contributions only
   const pot = collectedPot(room, humans);
   const gross = pot > 0 ? pot : Number(room.prizePool) || 0;
   const { adminFee, winnerPayout } = computePayout(gross);
@@ -275,7 +265,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     .digest('hex');
   room.updatedAt = Date.now();
 
-  // Auto-credit winner from the pooled Birr
   if (winner?.playerId && winnerPayout > 0 && !room.paidOut) {
     try {
       await settleWinPayout({
@@ -307,7 +296,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
       completedAtMs: Date.now(),
     });
   } catch {
-    /* non-blocking */
+    /* */
   }
   room.recent = [
     {
@@ -344,49 +333,78 @@ export async function openShared(templateId: string): Promise<SharedRoom> {
   return getShared(templateId);
 }
 
+export function sharedEnabled() {
+  return isDbConfigured();
+}
+
 export async function joinShared(
   templateId: string,
-  member: Member,
-  picks: number[],
+  playerId: string,
+  name: string,
+  pickOrPicks: number | number[],
 ): Promise<SharedRoom> {
-  let room = await getShared(templateId);
-  if (room.status !== 'open' || room.joiningClosed) {
-    throw new Error('Joining closed — wait for next cycle');
+  if (isFakePlayerId(playerId) || isFakePlayerName(name)) {
+    throw new Error('Real account required — demo/bot players not allowed');
   }
-  if (isFakePlayerId(member.playerId) || isFakePlayerName(member.name)) {
-    throw new Error('Invalid player');
-  }
-  const max = maxPicks(room.groupSize);
-  const clean = [...new Set(picks.map((n) => Math.floor(Number(n))))]
-    .filter((n) => n >= 1 && n <= room.groupSize)
-    .slice(0, max);
-  if (!clean.length) throw new Error('Select at least one number');
+  let room = await read(templateId);
+  if (!room) room = fresh(templateId);
+  room = await drawAsync(room);
 
+  if (room.status === 'completed' || room.status === 'drawing') {
+    if (room.status === 'completed') {
+      const kept = (room.recent || []).filter(
+        (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+      );
+      room = fresh(templateId, kept);
+    } else {
+      throw new Error('Game already started — joining closed');
+    }
+  }
+
+  if (room.status !== 'open') {
+    throw new Error('Joining is closed for this game');
+  }
+
+  if (room.members.some((m) => m.playerId === playerId)) {
+    return withTimer(room);
+  }
+
+  if (isFull(room)) {
+    throw new Error(`Room full (${room.groupSize}/${room.groupSize} players)`);
+  }
+
+  const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
+  const max = maxPicks(room.groupSize);
+  const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
+    (n) => n >= 1 && n <= room.groupSize,
+  );
+  if (picks.length === 0) throw new Error(`Pick 1–${max} number(s)`);
+  if (picks.length > max) {
+    throw new Error(`Max ${max} number(s) for this room`);
+  }
   const taken = takenSet(room);
-  for (const p of clean) {
+  for (const p of picks) {
     if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
-  if (seatsTaken(room) + clean.length > room.groupSize) {
-    throw new Error('Room full');
-  }
-  if (room.members.some((m) => m.playerId === member.playerId)) {
-    throw new Error('Already joined this round');
+  if (seatsTaken(room) + picks.length > room.groupSize) {
+    throw new Error(`Not enough seats — max ${room.groupSize} players`);
   }
 
-  room.members = [
-    ...room.members,
-    {
-      ...member,
-      pick: clean[0]!,
-      picks: clean,
-      joinedAt: Date.now(),
-    },
-  ];
+  room.members.push({
+    playerId,
+    name: (name || 'Player').slice(0, 40),
+    pick: picks[0]!,
+    picks,
+    joinedAt: Date.now(),
+  });
+  room.members = room.members.filter((m) => isRealPlayer(m));
   room.updatedAt = Date.now();
   await write(room);
   return withTimer(room);
 }
 
-export function sharedEnabled() {
-  return isDbConfigured();
+export async function listSharedOpen(): Promise<SharedRoom[]> {
+  return [];
 }
+
+export { MIN_PLAYERS, ROUND_MS };
