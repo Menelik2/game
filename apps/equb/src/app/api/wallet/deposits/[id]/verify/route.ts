@@ -4,17 +4,35 @@ import { verifyDeposit } from '@/lib/wallet/deposits';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   const userId = String(body.userId || '');
-  const transactionNumber = String(body.transactionNumber || body.sms || '').trim();
-  if (!userId) return NextResponse.json({ success: false, message: 'Sign in first' }, { status: 401 });
-  const result = await verifyDeposit({ depositId: id, userId, transactionNumber });
+  const transactionNumber = String(
+    body.transactionNumber || body.sms || '',
+  ).trim();
+
+  if (!userId) {
+    return NextResponse.json(
+      { success: false, message: 'Sign in first' },
+      { status: 401 },
+    );
+  }
+
+  const result = await verifyDeposit({
+    depositId: id,
+    userId,
+    transactionNumber: transactionNumber || undefined,
+  });
+
   const unavailable = /unavailable/i.test(result.message || '');
   const http = result.ok ? 200 : unavailable ? 503 : 400;
   const balance = 'balance' in result ? result.balance : undefined;
   const deposit = 'deposit' in result ? result.deposit : undefined;
+
   return NextResponse.json(
     {
       success: result.ok,

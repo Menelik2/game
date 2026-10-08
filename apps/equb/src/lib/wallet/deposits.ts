@@ -107,11 +107,7 @@ async function markTxnUsed(txn: string) {
   g.__usedTxn!.add(txn);
 }
 
-async function creditConfirmed(
-  d: Deposit,
-  txn: string,
-  amount: number,
-) {
+async function creditConfirmed(d: Deposit, txn: string, amount: number) {
   if (d.status === 'CONFIRMED') {
     return {
       ok: true as const,
@@ -271,9 +267,18 @@ export async function listDepositsAsync(userId?: string): Promise<Deposit[]> {
 export async function verifyDeposit(input: {
   depositId: string;
   transactionNumber?: string;
+  /** Optional: ensure the deposit belongs to this user */
+  userId?: string;
 }) {
   const d = await findDeposit(input.depositId);
   if (!d) {
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      message: 'Deposit not found',
+    };
+  }
+  if (input.userId && d.userId !== input.userId) {
     return {
       ok: false as const,
       status: 'FAILED' as const,
@@ -286,6 +291,7 @@ export async function verifyDeposit(input: {
       status: 'CONFIRMED' as const,
       message: 'Already confirmed',
       deposit: d,
+      balance: await resolveBalance(d.userId),
     };
   }
 
