@@ -21,7 +21,6 @@ body {
   min-height: 100dvh;
 }
 
-/* Better line-height for Ethiopic script */
 html[lang='am'] body {
   line-height: 1.55;
   letter-spacing: 0.01em;
@@ -59,12 +58,26 @@ html[lang='am'] body {
   @apply rounded-xl border border-equb-500/50 bg-equb-500/25 text-equb-100;
 }
 
+/* Number tiles — classic casino feel */
 .tile {
   @apply border border-white/10 bg-white/5;
+  transition:
+    transform 0.15s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.tile:hover:not(:disabled) {
+  transform: scale(1.06);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+.tile:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .tile-selected {
   @apply border-equb-400/60 bg-equb-500/40 shadow-lg shadow-equb-500/30;
+  animation: tile-pop 0.35s ease-out;
 }
 
 .tile-taken {
@@ -73,14 +86,101 @@ html[lang='am'] body {
 
 .tile-win {
   @apply border-amber-300 bg-gradient-to-br from-amber-300 to-gold-500 shadow-lg shadow-amber-500/40;
+  animation: win-flash 0.9s ease-in-out infinite;
 }
 
+/* Classic animations */
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
   }
 }
-
 .animate-shimmer {
   animation: shimmer 1.4s infinite;
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    text-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+    text-shadow: 0 0 20px rgba(251, 191, 36, 0.85);
+  }
+}
+.animate-soft-pulse {
+  animation: soft-pulse 0.85s ease-in-out infinite;
+}
+
+@keyframes tile-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes win-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(251, 191, 36, 0.95);
+    filter: brightness(1.15);
+  }
+}
+
+@keyframes ring-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px rgba(52, 211, 153, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.8));
+  }
+}
+.animate-ring-glow {
+  animation: ring-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes digit-tick {
+  0% {
+    transform: translateY(-4px);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.animate-digit-tick {
+  animation: digit-tick 0.25s ease-out;
+}
+
+/* Old-style timer card */
+.timer-classic {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(16, 185, 129, 0.18), transparent 55%),
+    linear-gradient(180deg, rgba(20, 32, 28, 0.95), rgba(8, 14, 12, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+}
+.timer-classic.urgent {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245, 158, 11, 0.28), transparent 55%),
+    linear-gradient(180deg, rgba(40, 28, 10, 0.95), rgba(12, 10, 6, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(251, 191, 36, 0.12),
+    0 0 24px rgba(245, 158, 11, 0.25);
 }
