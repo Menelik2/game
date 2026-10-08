@@ -6,10 +6,12 @@
   color-scheme: dark;
   --equb-glow: 16, 185, 129;
   --gold-glow: 245, 158, 11;
+  --font-ethiopic: 'Noto Sans Ethiopic', 'Noto Sans', system-ui, sans-serif;
 }
 
 body {
   @apply min-h-screen text-white antialiased;
+  font-family: var(--font-ethiopic), system-ui, -apple-system, sans-serif;
   background-color: #040806;
   background-image:
     radial-gradient(ellipse 110% 80% at 50% -30%, rgba(16, 185, 129, 0.28), transparent 55%),
@@ -17,6 +19,12 @@ body {
     radial-gradient(ellipse 55% 40% at 0% 95%, rgba(16, 185, 129, 0.1), transparent 45%),
     radial-gradient(ellipse 40% 30% at 80% 80%, rgba(52, 211, 153, 0.06), transparent 40%);
   min-height: 100dvh;
+}
+
+/* Better line-height for Ethiopic script */
+html[lang='am'] body {
+  line-height: 1.55;
+  letter-spacing: 0.01em;
 }
 
 .glass {
@@ -39,166 +47,40 @@ body {
 .btn-gold {
   @apply rounded-2xl bg-gradient-to-b from-[#fcd34d] via-gold-400 to-gold-600 py-3.5 text-center text-sm font-black text-black transition active:scale-[0.98] hover:brightness-110;
   box-shadow:
-    0 8px 24px rgba(245, 158, 11, 0.35),
+    0 4px 16px rgba(245, 158, 11, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-
-.btn-equb {
-  @apply rounded-2xl bg-gradient-to-b from-equb-400 to-equb-700 py-3.5 text-center text-sm font-black text-white transition active:scale-[0.98] hover:brightness-110;
-  box-shadow:
-    0 8px 24px rgba(16, 185, 129, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .chip {
-  @apply rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 transition;
+  @apply rounded-xl border border-white/10 bg-white/[0.06] text-white/80;
 }
+
 .chip-active {
-  @apply border-equb-500/50 bg-equb-500/25 text-equb-200 shadow-sm shadow-equb-500/25;
+  @apply rounded-xl border border-equb-500/50 bg-equb-500/25 text-equb-100;
 }
 
 .tile {
-  background: linear-gradient(160deg, #1a2420 0%, #0f1614 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 2px 8px rgba(0, 0, 0, 0.35);
+  @apply border border-white/12 bg-white/[0.07];
 }
+
 .tile-selected {
-  background: linear-gradient(160deg, #34d399 0%, #059669 100%);
-  box-shadow:
-    0 0 0 2px rgba(167, 243, 208, 0.5),
-    0 8px 24px rgba(16, 185, 129, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  @apply border-equb-400/60 bg-equb-500/40 shadow-lg shadow-equb-500/30;
 }
-.tile-win {
-  background: linear-gradient(160deg, #fcd34d 0%, #d97706 100%);
-  box-shadow:
-    0 0 0 2px rgba(253, 230, 138, 0.6),
-    0 8px 28px rgba(245, 158, 11, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
+
 .tile-taken {
-  background: linear-gradient(160deg, #121816 0%, #0a0e0c 100%);
-  opacity: 0.45;
+  @apply border-white/5 bg-black/40;
 }
 
-.safe-top {
-  padding-top: max(0.5rem, env(safe-area-inset-top));
-}
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-input,
-select,
-textarea {
-  font-size: 16px;
-}
-
-@media (max-width: 640px) {
-  body {
-    -webkit-tap-highlight-color: transparent;
-    overscroll-behavior-y: contain;
-  }
-}
-
-@keyframes soft-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.72;
-  }
-}
-.animate-soft-pulse {
-  animation: soft-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes glow {
-  0%,
-  100% {
-    box-shadow: 0 0 14px rgba(16, 185, 129, 0.28);
-  }
-  50% {
-    box-shadow: 0 0 26px rgba(16, 185, 129, 0.5);
-  }
-}
-.animate-glow {
-  animation: glow 2s ease-in-out infinite;
+.tile-win {
+  @apply border-amber-300 bg-gradient-to-br from-amber-300 to-gold-500 shadow-lg shadow-amber-500/40;
 }
 
 @keyframes shimmer {
   100% {
-    transform: translateX(200%);
+    transform: translateX(100%);
   }
 }
+
 .animate-shimmer {
-  animation: shimmer 2.2s infinite;
-}
-
-@keyframes tick-pop {
-  0% {
-    transform: scale(1);
-  }
-  40% {
-    transform: scale(1.04);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-.animate-tick {
-  animation: tick-pop 0.35s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-soft-pulse,
-  .animate-glow,
-  .animate-shimmer,
-  .animate-tick {
-    animation: none;
-  }
-}
-
-/* ——— Content protection (soft deterrents) ——— */
-body.app-protected {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-
-body.app-protected input,
-body.app-protected textarea,
-body.app-protected [contenteditable='true'],
-body.app-protected .allow-select {
-  -webkit-user-select: text;
-  user-select: text;
-  -webkit-touch-callout: default;
-}
-
-body.app-protected img {
-  -webkit-user-drag: none;
-  user-drag: none;
-}
-
-@media print {
-  body.app-protected * {
-    visibility: hidden !important;
-  }
-  body.app-protected::after {
-    content: 'Fast Equb — protected content. Unauthorized copy is prohibited.';
-    visibility: visible !important;
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    font-weight: 700;
-    color: #000;
-    background: #fff;
-    padding: 2rem;
-    text-align: center;
-  }
+  animation: shimmer 1.4s infinite;
 }

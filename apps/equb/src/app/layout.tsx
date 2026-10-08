@@ -1,8 +1,16 @@
 import type { Metadata, Viewport } from 'next';
+import { Noto_Sans_Ethiopic } from 'next/font/google';
 import './globals.css';
 import { Shell } from '@/components/Shell';
 import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 import { ContentProtection } from '@/components/ContentProtection';
+
+const ethiopic = Noto_Sans_Ethiopic({
+  subsets: ['ethiopic'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-ethiopic',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'ፋስት እቁብ · Fast Equb',
@@ -17,7 +25,6 @@ export const metadata: Metadata = {
     },
   },
   other: {
-    // Hints for some crawlers / social preview tools
     google: 'notranslate',
   },
 };
@@ -32,8 +39,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="am" className="dark">
-      <body className="app-protected">
+    <html lang="am" className={`dark ${ethiopic.variable}`}>
+      <body className={`${ethiopic.className} app-protected`}>
         <LanguageProvider>
           <ContentProtection />
           <Shell>{children}</Shell>
