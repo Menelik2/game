@@ -26,7 +26,13 @@ export function middleware(req: NextRequest) {
   res.headers.set('X-Content-Type-Options', 'nosniff');
   res.headers.set('X-Frame-Options', 'DENY');
   res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), display-capture=()',
+  );
+  res.headers.set('X-DNS-Prefetch-Control', 'off');
+  res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  res.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
   res.headers.set(
     'Content-Security-Policy',
     [
@@ -39,6 +45,8 @@ export function middleware(req: NextRequest) {
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
     ].join('; '),
   );
 
@@ -47,9 +55,6 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all paths except static assets
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
