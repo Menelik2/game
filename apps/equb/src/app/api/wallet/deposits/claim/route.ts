@@ -41,15 +41,19 @@ export async function POST(req: NextRequest) {
     const unavailable = /unavailable|not configured/i.test(result.message || '');
     const http = result.ok ? 200 : unavailable ? 503 : 400;
 
+    const deposit = 'deposit' in result ? result.deposit : undefined;
+    const balance = 'balance' in result ? result.balance : undefined;
+    const amount = deposit?.amount;
+
     return NextResponse.json(
       {
         success: result.ok,
         status: result.status,
         message: result.message,
-        amount: result.amount,
+        amount,
         currency: 'ETB',
-        balance: result.balance,
-        deposit: result.deposit,
+        balance,
+        deposit,
       },
       { status: http },
     );
