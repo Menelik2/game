@@ -11,6 +11,9 @@ import {
   readBalance,
   refundJoinFee,
 } from '@/lib/server/wallet-settle';
+import { requireUser } from '@/lib/server/session';
+import { rateLimit, clientIp } from '@/lib/server/rate-limit';
+import { sanitizeUserText } from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,26 +23,41 @@ export async function POST(
   ctx: { params: Promise<{ roomId: string }> },
 ) {
   const { roomId } = await ctx.params;
+
+  // Identity from signed session only — never trust body.playerId
+  const auth = await requireUser(req);
+  if (!auth.ok) return auth.response;
+  const playerId = auth.user.id;
+  const name = sanitizeUserText(auth.user.fullName || 'Player', 40);
+
+  const ip = clientIp(req);
+  const rl = rateLimit(`join:${playerId}:${ip}`, 30, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { success: false, message: `Too many joins. Wait ${rl.retryAfterSec}s.` },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+    );
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
-    const playerId = String(body.playerId || body.userId || '');
-    const name = String(body.name || 'Player');
     let picks: number[] = [];
     if (Array.isArray(body.picks)) {
       picks = body.picks.map((n: unknown) => Number(n));
     } else if (body.pick != null) {
       picks = [Number(body.pick)];
     }
-    if (!playerId || picks.length === 0 || picks.some((p) => !Number.isFinite(p))) {
+    if (picks.length === 0 || picks.some((p) => !Number.isFinite(p))) {
       return NextResponse.json(
-        { success: false, message: 'playerId and pick(s) required' },
+        { success: false, message: 'Valid pick(s) required' },
         { status: 400 },
       );
     }
+    // Cap pick count to prevent abuse
+    picks = picks.slice(0, 5).map((p) => Math.floor(p));
 
     const templateId = decodeURIComponent(roomId);
 
-    // Resolve open room (live instance id needed for fee key)
     let contribution = 0;
     let liveRoomId = templateId;
     let alreadyIn = false;
@@ -110,7 +128,11 @@ export async function POST(
         : joinRoom(templateId, playerId, name, picks);
     } catch (e: unknown) {
       try {
-        await refundJoinFee({ userId: playerId, amount: fee, roomId: liveRoomId });
+        await refundJoinFee({
+          userId: playerId,
+          amount: fee,
+          roomId: liveRoomId,
+        });
       } catch {
         /* */
       }

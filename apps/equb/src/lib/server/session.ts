@@ -11,19 +11,22 @@ export const SESSION_COOKIE = 'equb_session';
 const MAX_AGE_SEC = 60 * 60 * 24 * 14; // 14 days
 
 export type SessionPayload = {
-  sub: string; // user id
+  sub: string;
   role: 'player' | 'admin';
   iat: number;
   exp: number;
 };
 
 function secret(): string {
-  return (
+  const s =
     process.env.SESSION_SECRET ||
     process.env.PASSWORD_PEPPER ||
     process.env.ADMIN_PASSWORD ||
-    'equb-dev-session-change-me'
-  );
+    '';
+  if (!s && process.env.VERCEL === '1') {
+    console.warn('[session] SESSION_SECRET missing in production');
+  }
+  return s || 'equb-dev-session-change-me';
 }
 
 function b64url(buf: Buffer | string): string {
@@ -61,7 +64,9 @@ export function createSessionToken(user: {
   return `${body}.${sig}`;
 }
 
-export function verifySessionToken(token: string | undefined | null): SessionPayload | null {
+export function verifySessionToken(
+  token: string | undefined | null,
+): SessionPayload | null {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
@@ -76,7 +81,9 @@ export function verifySessionToken(token: string | undefined | null): SessionPay
     return null;
   }
   try {
-    const payload = JSON.parse(fromB64url(body).toString('utf8')) as SessionPayload;
+    const payload = JSON.parse(
+      fromB64url(body).toString('utf8'),
+    ) as SessionPayload;
     if (!payload?.sub || !payload.exp) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
@@ -121,7 +128,10 @@ export function clearSessionCookie(res: NextResponse): NextResponse {
   return res;
 }
 
-/** Resolve authenticated user from session cookie (preferred) or legacy header. */
+/**
+ * Resolve user from signed cookie only in production.
+ * Legacy x-user-id disabled when VERCEL=1 or DISABLE_X_USER_ID=1.
+ */
 export async function getSessionUser(
   req: NextRequest,
 ): Promise<DbUser | null> {
@@ -132,8 +142,13 @@ export async function getSessionUser(
     return null;
   }
 
-  // Legacy fallback during migration — disable with DISABLE_X_USER_ID=1
-  if (process.env.DISABLE_X_USER_ID === '1') return null;
+  const allowLegacy =
+    process.env.DISABLE_X_USER_ID !== '1' &&
+    process.env.VERCEL !== '1' &&
+    process.env.NODE_ENV !== 'production';
+
+  if (!allowLegacy) return null;
+
   const legacy =
     req.headers.get('x-user-id') || req.headers.get('x-admin-user-id') || '';
   if (!legacy.trim()) return null;
