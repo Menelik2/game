@@ -239,7 +239,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
           userId: w.playerId,
           amount: winnerPayout,
           roomId: room.id,
-          meta: { winningNumber, pot },
+          winningNumber,
         });
         room.paidOut = true;
       } catch {
@@ -253,10 +253,15 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     try {
       await recordGameProfit({
         roomId: room.id,
-        pot,
+        templateId: room.templateId,
+        groupSize: room.groupSize,
+        prizePool: pot || room.prizePool,
         adminFee,
         winnerPayout,
-        groupSize: room.groupSize,
+        winnerId: room.winnerId,
+        winnerName: room.winnerName,
+        winningNumber: room.winningNumber,
+        seatsTaken: humans.length,
       });
     } catch {
       /* ignore */
