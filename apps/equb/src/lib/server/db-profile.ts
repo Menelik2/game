@@ -1,6 +1,7 @@
 /**
  * Profile CRUD helpers (update / verify password / delete).
  * Uses Supabase app_users table when configured.
+ * Phone number is immutable after registration.
  */
 import { createClient } from '@supabase/supabase-js';
 import { isDbConfigured, dbGetUser, type DbUser } from './db-users';
@@ -31,6 +32,7 @@ export async function dbUpdateProfile(
   id: string,
   input: {
     fullName?: string;
+    /** Phone is immutable after registration — rejected if passed */
     phone?: string;
     passwordHash?: string;
   },
@@ -39,11 +41,15 @@ export async function dbUpdateProfile(
     return { ok: false, error: 'Database not configured' };
   }
 
+  // Phone number cannot be changed after registration
+  if (input.phone) {
+    return { ok: false, error: 'Phone number cannot be changed' };
+  }
+
   const patch: Record<string, unknown> = {};
   if (input.fullName && input.fullName.trim().length >= 2) {
     patch.full_name = input.fullName.trim().slice(0, 80);
   }
-  if (input.phone) patch.phone = input.phone;
   if (input.passwordHash) patch.password_hash = input.passwordHash;
 
   if (Object.keys(patch).length === 0) {
@@ -53,16 +59,6 @@ export async function dbUpdateProfile(
   }
 
   try {
-    if (input.phone) {
-      const { data: clash } = await sb()
-        .from('app_users')
-        .select('id')
-        .eq('phone', input.phone)
-        .neq('id', id)
-        .maybeSingle();
-      if (clash) return { ok: false, error: 'Phone already registered' };
-    }
-
     const { data, error } = await sb()
       .from('app_users')
       .update(patch)
@@ -71,10 +67,6 @@ export async function dbUpdateProfile(
       .single();
 
     if (error) {
-      const msg = (error.message || '').toLowerCase();
-      if (msg.includes('duplicate') || msg.includes('unique')) {
-        return { ok: false, error: 'Phone already registered' };
-      }
       return { ok: false, error: error.message || 'Update failed' };
     }
     if (!data) return { ok: false, error: 'User not found' };
