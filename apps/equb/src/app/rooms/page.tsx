@@ -306,29 +306,7 @@ export default function RoomsPage() {
             </div>
           </div>
 
-          <div className="relative mb-3 grid grid-cols-3 gap-1.5 text-center text-[10px]">
-            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
-              <Users className="mx-auto mb-0.5 h-3.5 w-3.5 text-equb-300" />
-              <p className="text-white/40">{locale === 'am' ? 'ተጫዋቾች' : 'Players'}</p>
-              <p className="font-mono text-sm font-black tabular-nums text-white">{groupSize}</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
-              <Wallet className="mx-auto mb-0.5 h-3.5 w-3.5 text-cyan-300" />
-              <p className="text-white/40">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
-              <p className="font-mono text-sm font-black tabular-nums text-white">
-                {Math.round(contribution)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-gold-500/25 bg-gold-500/10 px-1.5 py-2">
-              <Trophy className="mx-auto mb-0.5 h-3.5 w-3.5 text-gold-400" />
-              <p className="text-gold-400/70">{locale === 'am' ? 'ሽልማት' : 'Prize'}</p>
-              <p className="font-mono text-sm font-black tabular-nums text-gold-300">
-                {prize.toLocaleString()}
-              </p>
-            </div>
-          </div>
-
-          <div className="relative flex flex-wrap gap-2">
+          <div className="relative mb-3 flex flex-wrap gap-2">
             {PRIZES.map((p) => {
               const active = prize === p;
               return (
@@ -352,7 +330,29 @@ export default function RoomsPage() {
             })}
           </div>
 
-          <div className="relative mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs">
+          <div className="relative mb-3 grid grid-cols-3 gap-1.5 text-center text-[10px]">
+            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
+              <Users className="mx-auto mb-0.5 h-3.5 w-3.5 text-equb-300" />
+              <p className="text-white/40">{locale === 'am' ? 'ተጫዋቾች' : 'Players'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-white">{groupSize}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
+              <Wallet className="mx-auto mb-0.5 h-3.5 w-3.5 text-cyan-300" />
+              <p className="text-white/40">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-white">
+                {Math.round(contribution)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gold-500/25 bg-gold-500/10 px-1.5 py-2">
+              <Trophy className="mx-auto mb-0.5 h-3.5 w-3.5 text-gold-400" />
+              <p className="text-gold-400/70">{locale === 'am' ? 'ሽልማት' : 'Prize'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-gold-300">
+                {prize.toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="relative flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs">
             <span className="text-white/45">
               {locale === 'am' ? 'እርስዎ የሚከፍሉት' : 'You pay'}
             </span>
