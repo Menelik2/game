@@ -9,6 +9,7 @@ import { AuthForm } from '@/components/AuthForm';
 import { BrandMark } from '@/components/BrandLogo';
 import { formatBirrCompact } from '@/lib/money';
 import { Sparkles, Shield, Users, Trophy } from 'lucide-react';
+import { RoomsHero } from '@/components/RoomsHero';
 
 export default function HomePage() {
   const user = useEqubStore((s) => s.user);
@@ -16,6 +17,14 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6 lg:space-y-8">
+      <RoomsHero
+        locale={locale}
+        onJoin={() => {
+          if (typeof window !== 'undefined') {
+            window.location.href = '/rooms';
+          }
+        }}
+      />
       <div className="grid gap-6 lg:grid-cols-5 lg:gap-8">
         <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#0e1a16] via-[#0a1210] to-[#0c1412] p-5 sm:p-7 lg:col-span-3 lg:p-10">
           <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-equb-500/20 blur-3xl" />
