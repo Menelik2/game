@@ -29,7 +29,6 @@ export default function ProfilePage() {
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -44,7 +43,6 @@ export default function ProfilePage() {
   function startEdit() {
     if (!user) return;
     setFullName(user.name || '');
-    setPhone(user.phone || user.email || '');
     setCurrentPassword('');
     setNewPassword('');
     setFormMsg('');
@@ -59,29 +57,11 @@ export default function ProfilePage() {
     setFormMsg('');
     const payload: {
       fullName?: string;
-      phone?: string;
       currentPassword?: string;
       newPassword?: string;
     } = {};
     if (fullName.trim() && fullName.trim() !== user.name) {
       payload.fullName = fullName.trim();
-    }
-    const phoneChanged =
-      phone.trim() &&
-      phone.trim() !== (user.phone || '') &&
-      phone.trim() !== (user.email || '');
-    if (phoneChanged) {
-      payload.phone = phone.trim();
-      if (!currentPassword) {
-        setFormErr(
-          am
-            ? 'ስልክ ለመቀየር የአሁኑ የይለፍ ቃል ያስፈልጋል'
-            : 'Current password required to change phone',
-        );
-        setBusy(false);
-        return;
-      }
-      payload.currentPassword = currentPassword;
     }
     if (newPassword) {
       if (!currentPassword) {
@@ -220,15 +200,14 @@ export default function ProfilePage() {
               className="mt-1 w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 text-sm text-white"
             />
           </label>
-          <label className="block text-xs text-white/50">
-            {am ? 'ስልክ' : 'Phone'}
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-white/10 bg-surface-800 px-3 py-2.5 font-mono text-sm text-white"
-              placeholder="09xxxxxxxx"
-            />
-          </label>
+          <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2.5">
+            <p className="text-[10px] text-white/40">
+              {am ? 'ስልክ (አይቀየርም)' : 'Phone (cannot be changed)'}
+            </p>
+            <p className="mt-0.5 font-mono text-sm text-white/70">
+              {user.phone || user.email}
+            </p>
+          </div>
           <label className="block text-xs text-white/50">
             {am ? 'አዲስ የይለፍ ቃል (አማራጭ)' : 'New password (optional)'}
             <input
@@ -241,8 +220,8 @@ export default function ProfilePage() {
           </label>
           <label className="block text-xs text-white/50">
             {am
-              ? 'የአሁኑ የይለፍ ቃል (ስልክ/የይለፍ ቃል ሲቀየር)'
-              : 'Current password (if changing phone/password)'}
+              ? 'የአሁኑ የይለፍ ቃል (የይለፍ ቃል ሲቀየር)'
+              : 'Current password (required to change password)'}
             <input
               type="password"
               value={currentPassword}
