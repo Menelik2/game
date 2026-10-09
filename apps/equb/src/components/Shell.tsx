@@ -18,6 +18,17 @@ function sessionIsAdmin(user: unknown): boolean {
   return (user as { role?: string }).role === 'admin';
 }
 
+/** Sensible back target when history is empty */
+function backHref(path: string): string {
+  if (path.startsWith('/admin')) return '/admin';
+  if (path.startsWith('/rooms/')) return '/rooms';
+  if (path === '/rooms') return '/';
+  if (path === '/wallet' || path === '/profile' || path === '/how-to-play') {
+    return '/';
+  }
+  return '/';
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const user = useEqubStore((s) => s.user);
@@ -54,7 +65,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             )}
           >
             <div className="flex min-w-0 items-center gap-2">
-              {path !== '/' && <BackButton />}
+              {path !== '/' && <BackButton href={backHref(path)} />}
               <Link href="/" className="flex min-w-0 items-center gap-2">
                 <BrandLogo />
               </Link>
