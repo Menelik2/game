@@ -5,7 +5,12 @@ import {
   readSharedByTemplate,
   writeSharedRoom,
 } from '@/lib/server/shared-rooms-list';
-import { MIN_PLAYERS, ROUND_MS, type SharedRoom } from '@/lib/server/shared-rooms';
+import {
+  MIN_PLAYERS,
+  ROUND_MS,
+  getShared,
+  type SharedRoom,
+} from '@/lib/server/shared-rooms';
 import { isDbConfigured } from '@/lib/server/db-users';
 import {
   assertBodySize,
@@ -21,9 +26,13 @@ function freshCycle(prev: SharedRoom): SharedRoom {
   const now = Date.now();
   const id = `${prev.templateId}-${now}`;
   return {
-    ...prev,
     id,
-    gameId: id,
+    templateId: prev.templateId,
+    groupSize: prev.groupSize,
+    prizePool: prev.prizePool,
+    contribution:
+      prev.contribution ||
+      Math.round((prev.prizePool / prev.groupSize) * 100) / 100,
     status: 'open',
     members: [],
     winningNumber: null,
@@ -38,7 +47,11 @@ function freshCycle(prev: SharedRoom): SharedRoom {
     drawAt: now + ROUND_MS,
     secondsLeft: ROUND_MS / 1000,
     updatedAt: now,
+    gameId: id,
     joiningClosed: false,
+    minPlayers: MIN_PLAYERS,
+    maxPlayers: prev.groupSize,
+    playerCount: 0,
     recent: (prev.recent || []).slice(0, 20),
   };
 }
@@ -48,12 +61,13 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return withSecurityHeaders(auth.response);
 
   try {
-    const rooms = await listAllSharedRooms();
+    const dbConfigured = isDbConfigured();
+    const rooms = dbConfigured ? await listAllSharedRooms() : [];
     const open = rooms.filter((r) => r.status === 'open');
     const drawing = rooms.filter((r) => r.status === 'drawing');
     const completed = rooms.filter((r) => r.status === 'completed');
     const totalPlayers = rooms.reduce(
-      (n, r) => n + (r.members?.length || 0),
+      (n, r) => n + (r.members?.length || r.playerCount || 0),
       0,
     );
 
@@ -70,7 +84,7 @@ export async function GET(req: NextRequest) {
             totalPlayers,
             minPlayers: MIN_PLAYERS,
             roundMs: ROUND_MS,
-            dbConfigured: isDbConfigured(),
+            dbConfigured,
           },
         },
       }),
@@ -81,6 +95,19 @@ export async function GET(req: NextRequest) {
         {
           success: false,
           message: e instanceof Error ? e.message : 'Failed to list games',
+          data: {
+            rooms: [],
+            summary: {
+              total: 0,
+              open: 0,
+              drawing: 0,
+              completed: 0,
+              totalPlayers: 0,
+              minPlayers: MIN_PLAYERS,
+              roundMs: ROUND_MS,
+              dbConfigured: isDbConfigured(),
+            },
+          },
         },
         { status: 500 },
       ),
@@ -96,6 +123,19 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req);
   if (!auth.ok) return withSecurityHeaders(auth.response);
 
+  if (!isDbConfigured()) {
+    return withSecurityHeaders(
+      NextResponse.json(
+        {
+          success: false,
+          message:
+            'Database not configured. Set SUPABASE_URL + SERVICE_ROLE_KEY.',
+        },
+        { status: 503 },
+      ),
+    );
+  }
+
   try {
     let body: Record<string, unknown> = {};
     try {
@@ -105,7 +145,7 @@ export async function POST(req: NextRequest) {
     }
 
     const action = String(body.action || '').trim();
-    const templateId = String(body.templateId || '').trim();
+    const templateId = String(body.templateId || body.template_id || '').trim();
 
     if (!action) {
       return withSecurityHeaders(
@@ -126,17 +166,51 @@ export async function POST(req: NextRequest) {
     if (!templateId) {
       return withSecurityHeaders(
         NextResponse.json(
-          { success: false, message: 'templateId required' },
+          { success: false, message: 'templateId required (e.g. equb-5-500)' },
           { status: 400 },
         ),
       );
     }
 
-    const room = await readSharedByTemplate(templateId);
+    let room = await readSharedByTemplate(templateId);
+
+    // Bootstrap empty template so admin can still manage it
+    if (!room && (action === 'reset' || action === 'extend')) {
+      const m = /^equb-(\d+)-(\d+)$/.exec(templateId);
+      const groupSize = m ? Number(m[1]) : 5;
+      const prizePool = m ? Number(m[2]) : 500;
+      const now = Date.now();
+      room = {
+        id: `${templateId}-${now}`,
+        templateId,
+        groupSize,
+        prizePool,
+        contribution: Math.round((prizePool / groupSize) * 100) / 100,
+        status: 'open',
+        members: [],
+        winningNumber: null,
+        winnerId: null,
+        winnerName: null,
+        entropyHex: null,
+        commitmentHash: null,
+        drawAt: now + ROUND_MS,
+        secondsLeft: ROUND_MS / 1000,
+        updatedAt: now,
+        gameId: `${templateId}-${now}`,
+        minPlayers: MIN_PLAYERS,
+        maxPlayers: groupSize,
+        playerCount: 0,
+        recent: [],
+      };
+    }
+
     if (!room) {
       return withSecurityHeaders(
         NextResponse.json(
-          { success: false, message: 'Room not found' },
+          {
+            success: false,
+            message: `Room not found: ${templateId}. Open it once from /rooms first.`,
+          },
           { status: 404 },
         ),
       );
@@ -156,7 +230,7 @@ export async function POST(req: NextRequest) {
       return withSecurityHeaders(
         NextResponse.json({
           success: true,
-          message: 'Room reset — new cycle started',
+          message: 'Room reset — new 60s cycle started',
           data: next,
         }),
       );
@@ -172,12 +246,40 @@ export async function POST(req: NextRequest) {
       room.status = 'open';
       room.joiningClosed = false;
       room.updatedAt = Date.now();
-      await writeSharedRoom(room);
+      const ok = await writeSharedRoom(room);
+      if (!ok) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { success: false, message: 'DB write failed' },
+            { status: 500 },
+          ),
+        );
+      }
       return withSecurityHeaders(
         NextResponse.json({
           success: true,
           message: `Timer extended by ${seconds}s`,
           data: room,
+        }),
+      );
+    }
+
+    if (action === 'force_draw') {
+      // Expire timer so drawAsync runs on next getShared (needs ≥ MIN_PLAYERS)
+      room.drawAt = Date.now() - 1000;
+      room.secondsLeft = 0;
+      room.status = 'open';
+      room.updatedAt = Date.now();
+      await writeSharedRoom(room);
+      const after = await getShared(templateId);
+      return withSecurityHeaders(
+        NextResponse.json({
+          success: true,
+          message:
+            (after.members?.length || 0) < MIN_PLAYERS
+              ? `Need ${MIN_PLAYERS} players to draw (have ${after.members?.length || 0}). Timer reset.`
+              : `Draw ran · status ${after.status}`,
+          data: after,
         }),
       );
     }
@@ -211,16 +313,20 @@ export async function POST(req: NextRequest) {
 
     if (action === 'clear_members') {
       room.members = [];
+      room.playerCount = 0;
       room.updatedAt = Date.now();
       room.status = 'open';
       room.joiningClosed = false;
       room.drawAt = Date.now() + ROUND_MS;
       room.secondsLeft = ROUND_MS / 1000;
+      room.winningNumber = null;
+      room.winnerId = null;
+      room.winnerName = null;
       await writeSharedRoom(room);
       return withSecurityHeaders(
         NextResponse.json({
           success: true,
-          message: 'All members cleared',
+          message: 'All members cleared — new timer started',
           data: room,
         }),
       );
@@ -237,6 +343,7 @@ export async function POST(req: NextRequest) {
         );
       }
       room.members = (room.members || []).filter((m) => m.playerId !== playerId);
+      room.playerCount = room.members.length;
       room.updatedAt = Date.now();
       await writeSharedRoom(room);
       return withSecurityHeaders(
@@ -253,7 +360,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           message:
-            'Unknown action. Use: reset | extend | close_joining | open_joining | clear_members | kick',
+            'Unknown action. Use: reset | extend | force_draw | close_joining | open_joining | clear_members | kick',
         },
         { status: 400 },
       ),

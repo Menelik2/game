@@ -12,48 +12,65 @@ function sb() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+function normalizeRoom(room: SharedRoom): SharedRoom {
+  const now = Date.now();
+  const members = Array.isArray(room.members) ? room.members : [];
+  return {
+    ...room,
+    members,
+    secondsLeft: Math.max(0, Math.ceil((Number(room.drawAt) - now) / 1000)),
+    playerCount: members.length,
+    maxPlayers: room.groupSize,
+    minPlayers: room.minPlayers ?? 5,
+  };
+}
+
 export async function listSharedOpen(): Promise<SharedRoom[]> {
-  if (!isDbConfigured()) return [];
-  try {
-    const { data, error } = await sb()
-      .from('equb_live_rooms')
-      .select('payload')
-      .limit(80);
-    if (error || !data) return [];
-    const now = Date.now();
-    return data
-      .map((row) => (row as { payload?: SharedRoom }).payload)
-      .filter((room): room is SharedRoom => Boolean(room && room.status === 'open'))
-      .map((room) => ({
-        ...room,
-        secondsLeft: Math.max(0, Math.ceil((Number(room.drawAt) - now) / 1000)),
-      }));
-  } catch {
-    return [];
-  }
+  const all = await listAllSharedRooms();
+  return all.filter((room) => room.status === 'open');
 }
 
 /** Admin: all live room rows regardless of status */
 export async function listAllSharedRooms(): Promise<SharedRoom[]> {
   if (!isDbConfigured()) return [];
   try {
-    const { data, error } = await sb()
+    // Prefer ordered query; fall back without order if column/index missing
+    let data: unknown[] | null = null;
+    const primary = await sb()
       .from('equb_live_rooms')
       .select('payload, updated_at')
       .order('updated_at', { ascending: false })
       .limit(120);
-    if (error || !data) return [];
-    const now = Date.now();
+
+    if (primary.error) {
+      const fallback = await sb()
+        .from('equb_live_rooms')
+        .select('payload')
+        .limit(120);
+      if (fallback.error || !fallback.data) return [];
+      data = fallback.data;
+    } else {
+      data = primary.data;
+    }
+
+    if (!data) return [];
+
     return data
-      .map((row) => (row as { payload?: SharedRoom }).payload)
-      .filter((room): room is SharedRoom => Boolean(room))
-      .map((room) => ({
-        ...room,
-        secondsLeft: Math.max(0, Math.ceil((Number(room.drawAt) - now) / 1000)),
-        playerCount: (room.members || []).length,
-        maxPlayers: room.groupSize,
-        minPlayers: room.minPlayers ?? 5,
-      }));
+      .map((row) => {
+        const r = row as { payload?: SharedRoom | string };
+        let payload = r.payload;
+        if (typeof payload === 'string') {
+          try {
+            payload = JSON.parse(payload) as SharedRoom;
+          } catch {
+            return null;
+          }
+        }
+        if (!payload || typeof payload !== 'object') return null;
+        if (!payload.templateId && !payload.id) return null;
+        return normalizeRoom(payload as SharedRoom);
+      })
+      .filter((room): room is SharedRoom => Boolean(room));
   } catch {
     return [];
   }
@@ -61,13 +78,14 @@ export async function listAllSharedRooms(): Promise<SharedRoom[]> {
 
 export async function writeSharedRoom(room: SharedRoom): Promise<boolean> {
   if (!isDbConfigured()) return false;
+  if (!room.templateId) return false;
   try {
-    await sb().from('equb_live_rooms').upsert({
+    const { error } = await sb().from('equb_live_rooms').upsert({
       template_id: room.templateId,
       payload: room,
       updated_at: new Date().toISOString(),
     });
-    return true;
+    return !error;
   } catch {
     return false;
   }
@@ -76,7 +94,7 @@ export async function writeSharedRoom(room: SharedRoom): Promise<boolean> {
 export async function readSharedByTemplate(
   templateId: string,
 ): Promise<SharedRoom | null> {
-  if (!isDbConfigured()) return null;
+  if (!isDbConfigured() || !templateId) return null;
   try {
     const { data, error } = await sb()
       .from('equb_live_rooms')
@@ -84,7 +102,15 @@ export async function readSharedByTemplate(
       .eq('template_id', templateId)
       .maybeSingle();
     if (error || !data?.payload) return null;
-    return data.payload as SharedRoom;
+    let payload = data.payload as SharedRoom | string;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload) as SharedRoom;
+      } catch {
+        return null;
+      }
+    }
+    return normalizeRoom(payload as SharedRoom);
   } catch {
     return null;
   }
