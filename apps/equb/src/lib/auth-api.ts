@@ -168,3 +168,46 @@ export function isDbUserId(id: string): boolean {
     id,
   );
 }
+
+export async function apiUpdateProfile(input: {
+  fullName?: string;
+  phone?: string;
+  currentPassword?: string;
+  newPassword?: string;
+}): Promise<{ ok: true; user: ApiUser } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/me', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.success) {
+      return { ok: false, error: json?.message || `Update failed (${res.status})` };
+    }
+    return { ok: true, user: json.data as ApiUser };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
+export async function apiDeleteAccount(input: {
+  password: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/auth/me', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.success) {
+      return { ok: false, error: json?.message || `Delete failed (${res.status})` };
+    }
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
