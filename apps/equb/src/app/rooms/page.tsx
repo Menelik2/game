@@ -336,18 +336,21 @@ export default function RoomsPage() {
               <p className="text-white/40">{locale === 'am' ? 'ተጫዋቾች' : 'Players'}</p>
               <p className="font-mono text-sm font-black tabular-nums text-white">{groupSize}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
+            <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-2">
               <Wallet className="mx-auto mb-0.5 h-3.5 w-3.5 text-cyan-300" />
-              <p className="text-white/40">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
-              <p className="font-mono text-sm font-black tabular-nums text-white">
-                {Math.round(contribution)}
+              <p className="text-cyan-300/80">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-cyan-200">
+                {formatBirrCompact(contribution, locale)}
+              </p>
+              <p className="mt-0.5 text-[9px] text-white/35">
+                {locale === 'am' ? 'በ1 ቁጥር' : 'per number'}
               </p>
             </div>
             <div className="rounded-xl border border-gold-500/25 bg-gold-500/10 px-1.5 py-2">
               <Trophy className="mx-auto mb-0.5 h-3.5 w-3.5 text-gold-400" />
               <p className="text-gold-400/70">{locale === 'am' ? 'ሽልማት' : 'Prize'}</p>
               <p className="font-mono text-sm font-black tabular-nums text-gold-300">
-                {prize.toLocaleString()}
+                {formatBirrCompact(prize, locale)}
               </p>
             </div>
           </div>
@@ -355,9 +358,17 @@ export default function RoomsPage() {
           <div className="relative flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs">
             <span className="text-white/45">
               {locale === 'am' ? 'እርስዎ የሚከፍሉት' : 'You pay'}
+              {picks.length > 1 && (
+                <span className="ml-1 text-white/30">
+                  ({picks.length} × {formatBirrCompact(contribution, locale)})
+                </span>
+              )}
             </span>
             <span className="font-mono text-sm font-black tabular-nums text-gold-300">
-              {formatBirrCompact(totalFee > 0 ? totalFee : contribution, locale)}
+              {formatBirrCompact(
+                picks.length > 0 ? totalFee : contribution,
+                locale,
+              )}
             </span>
           </div>
         </section>
