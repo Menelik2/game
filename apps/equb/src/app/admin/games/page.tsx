@@ -17,6 +17,8 @@ import {
   Trophy,
   Zap,
   Loader2,
+  Ban,
+  DoorOpen,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -42,6 +44,7 @@ type Room = {
   minPlayers?: number;
   maxPlayers?: number;
   joiningClosed?: boolean;
+  adminClosed?: boolean;
   drawAt?: number;
 };
 
@@ -114,7 +117,7 @@ export default function AdminGamesPage() {
     templateId: string,
     extra?: Record<string, unknown>,
   ) {
-    setBusy(`${action}:${templateId}`);
+    setBusy(`${action}:${templateId || 'all'}`);
     setMsg(null);
     try {
       const res = await adminFetch('/api/admin/games', {
@@ -150,21 +153,42 @@ export default function AdminGamesPage() {
             Games Control
           </h2>
           <p className="mt-1 text-xs text-white/45">
-            Live rooms · reset · timer · force draw · kick · min{' '}
+            Close open rooms · reopen · reset · force draw · min{' '}
             {summary?.minPlayers ?? 5} players to start
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            void load();
-          }}
-          className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs font-semibold text-white/70 hover:border-amber-500/40"
-        >
-          <RefreshCw className={clsx('h-3.5 w-3.5', loading && 'animate-spin')} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={() => {
+              if (
+                confirm(
+                  'Close ALL open/drawing rooms? Players cannot join until reopened.',
+                )
+              ) {
+                void act('close_all', '');
+              }
+            }}
+            className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/15 px-3 py-2 text-xs font-bold text-red-200 disabled:opacity-40"
+          >
+            <Ban className="h-3.5 w-3.5" />
+            Close all open
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs font-semibold text-white/70 hover:border-amber-500/40"
+          >
+            <RefreshCw
+              className={clsx('h-3.5 w-3.5', loading && 'animate-spin')}
+            />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {summary && (
@@ -243,7 +267,8 @@ export default function AdminGamesPage() {
           const key = r.templateId || r.id;
           const pc = r.members?.length || r.playerCount || 0;
           const isExp = expanded === key;
-          const busyKey = (a: string) => busy === `${a}:${r.templateId}`;
+          const busyKey = (a: string) =>
+            busy === `${a}:${r.templateId}` || busy === `${a}:all`;
           const minP = r.minPlayers ?? summary?.minPlayers ?? 5;
 
           return (
@@ -276,12 +301,17 @@ export default function AdminGamesPage() {
                     >
                       {r.status}
                     </span>
-                    {r.joiningClosed && (
+                    {r.adminClosed && (
+                      <span className="rounded-full bg-red-600/25 px-2 py-0.5 text-[10px] font-bold text-red-200">
+                        CLOSED BY ADMIN
+                      </span>
+                    )}
+                    {r.joiningClosed && !r.adminClosed && (
                       <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] text-red-300">
                         join closed
                       </span>
                     )}
-                    {r.status === 'open' && pc < minP && (
+                    {r.status === 'open' && !r.adminClosed && pc < minP && (
                       <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">
                         need {minP - pc} more
                       </span>
@@ -297,7 +327,7 @@ export default function AdminGamesPage() {
                     <Users className="h-3.5 w-3.5" />
                     {pc}/{r.groupSize}
                   </span>
-                  {r.status === 'open' && (
+                  {r.status === 'open' && !r.adminClosed && (
                     <span className="flex items-center gap-1 font-mono text-amber-300">
                       <Timer className="h-3.5 w-3.5" />
                       {r.secondsLeft ?? '—'}s
@@ -314,9 +344,38 @@ export default function AdminGamesPage() {
               {isExp && (
                 <div className="space-y-3 border-t border-white/10 px-4 py-3">
                   <div className="flex flex-wrap gap-2">
+                    {r.adminClosed ? (
+                      <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={() => void act('reopen', r.templateId)}
+                        className="flex items-center gap-1.5 rounded-xl border border-equb-500/40 bg-equb-500/20 px-3 py-2 text-xs font-bold text-equb-200 disabled:opacity-40"
+                      >
+                        <DoorOpen className="h-3.5 w-3.5" />
+                        {busyKey('reopen') ? '...' : 'Reopen room'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              'Close this game? Players cannot join until you reopen it.',
+                            )
+                          ) {
+                            void act('close', r.templateId);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-600/25 px-3 py-2 text-xs font-bold text-red-100 disabled:opacity-40"
+                      >
+                        <Ban className="h-3.5 w-3.5" />
+                        {busyKey('close') ? '...' : 'Close game'}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      disabled={!!busy}
+                      disabled={!!busy || !!r.adminClosed}
                       onClick={() => void act('reset', r.templateId)}
                       className="flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-200 disabled:opacity-40"
                     >
@@ -325,7 +384,7 @@ export default function AdminGamesPage() {
                     </button>
                     <button
                       type="button"
-                      disabled={!!busy}
+                      disabled={!!busy || !!r.adminClosed}
                       onClick={() =>
                         void act('extend', r.templateId, { seconds: 60 })
                       }
@@ -336,7 +395,7 @@ export default function AdminGamesPage() {
                     </button>
                     <button
                       type="button"
-                      disabled={!!busy}
+                      disabled={!!busy || !!r.adminClosed}
                       onClick={() => void act('force_draw', r.templateId)}
                       className="flex items-center gap-1.5 rounded-xl border border-gold-500/30 bg-gold-500/15 px-3 py-2 text-xs font-bold text-gold-200 disabled:opacity-40"
                     >
@@ -345,7 +404,7 @@ export default function AdminGamesPage() {
                     </button>
                     <button
                       type="button"
-                      disabled={!!busy}
+                      disabled={!!busy || !!r.adminClosed}
                       onClick={() =>
                         void act(
                           r.joiningClosed ? 'open_joining' : 'close_joining',
