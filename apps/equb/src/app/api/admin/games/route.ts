@@ -34,6 +34,7 @@ function freshCycle(prev: SharedRoom): SharedRoom {
       prev.contribution ||
       Math.round((prev.prizePool / prev.groupSize) * 100) / 100,
     status: 'open',
+    adminClosed: false,
     members: [],
     winningNumber: null,
     winnerId: null,
@@ -163,6 +164,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (action === 'close_all') {
+      const rooms = await listAllSharedRooms();
+      let closed = 0;
+      for (const r of rooms) {
+        if (
+          r.status !== 'open' &&
+          r.status !== 'drawing' &&
+          r.status !== 'waiting'
+        ) {
+          continue;
+        }
+        r.status = 'completed';
+        r.adminClosed = true;
+        r.joiningClosed = true;
+        r.secondsLeft = 0;
+        r.drawAt = Date.now();
+        r.updatedAt = Date.now();
+        const ok = await writeSharedRoom(r);
+        if (ok) closed += 1;
+      }
+      return withSecurityHeaders(
+        NextResponse.json({
+          success: true,
+          message: `Closed ${closed} open/drawing room(s)`,
+          data: { closed },
+        }),
+      );
+    }
+
     if (!templateId) {
       return withSecurityHeaders(
         NextResponse.json(
@@ -174,8 +204,7 @@ export async function POST(req: NextRequest) {
 
     let room = await readSharedByTemplate(templateId);
 
-    // Bootstrap empty template so admin can still manage it
-    if (!room && (action === 'reset' || action === 'extend')) {
+    if (!room && (action === 'reset' || action === 'extend' || action === 'reopen')) {
       const m = /^equb-(\d+)-(\d+)$/.exec(templateId);
       const groupSize = m ? Number(m[1]) : 5;
       const prizePool = m ? Number(m[2]) : 500;
@@ -187,6 +216,7 @@ export async function POST(req: NextRequest) {
         prizePool,
         contribution: Math.round((prizePool / groupSize) * 100) / 100,
         status: 'open',
+        adminClosed: false,
         members: [],
         winningNumber: null,
         winnerId: null,
@@ -244,6 +274,7 @@ export async function POST(req: NextRequest) {
       room.drawAt = Date.now() + seconds * 1000;
       room.secondsLeft = seconds;
       room.status = 'open';
+      room.adminClosed = false;
       room.joiningClosed = false;
       room.updatedAt = Date.now();
       const ok = await writeSharedRoom(room);
@@ -265,7 +296,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'force_draw') {
-      // Expire timer so drawAsync runs on next getShared (needs ≥ MIN_PLAYERS)
+      if (room.adminClosed) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { success: false, message: 'Room is closed by admin — reopen first' },
+            { status: 400 },
+          ),
+        );
+      }
       room.drawAt = Date.now() - 1000;
       room.secondsLeft = 0;
       room.status = 'open';
@@ -298,6 +336,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'open_joining') {
+      if (room.adminClosed) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { success: false, message: 'Room is closed by admin — use Reopen' },
+            { status: 400 },
+          ),
+        );
+      }
       room.joiningClosed = false;
       room.status = 'open';
       room.updatedAt = Date.now();
@@ -317,6 +363,7 @@ export async function POST(req: NextRequest) {
       room.updatedAt = Date.now();
       room.status = 'open';
       room.joiningClosed = false;
+      room.adminClosed = false;
       room.drawAt = Date.now() + ROUND_MS;
       room.secondsLeft = ROUND_MS / 1000;
       room.winningNumber = null;
@@ -355,12 +402,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (action === 'close') {
+      room.status = 'completed';
+      room.adminClosed = true;
+      room.joiningClosed = true;
+      room.secondsLeft = 0;
+      room.drawAt = Date.now();
+      room.updatedAt = Date.now();
+      const ok = await writeSharedRoom(room);
+      if (!ok) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { success: false, message: 'DB write failed' },
+            { status: 500 },
+          ),
+        );
+      }
+      return withSecurityHeaders(
+        NextResponse.json({
+          success: true,
+          message: `Game closed (${room.templateId}). Players cannot join until reopened.`,
+          data: room,
+        }),
+      );
+    }
+
+    if (action === 'reopen') {
+      const next = freshCycle(room);
+      next.adminClosed = false;
+      next.joiningClosed = false;
+      next.status = 'open';
+      const ok = await writeSharedRoom(next);
+      if (!ok) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { success: false, message: 'DB write failed' },
+            { status: 500 },
+          ),
+        );
+      }
+      return withSecurityHeaders(
+        NextResponse.json({
+          success: true,
+          message: `Room reopened (${room.templateId}) — new cycle`,
+          data: next,
+        }),
+      );
+    }
+
     return withSecurityHeaders(
       NextResponse.json(
         {
           success: false,
           message:
-            'Unknown action. Use: reset | extend | force_draw | close_joining | open_joining | clear_members | kick',
+            'Unknown action. Use: close | close_all | reopen | reset | extend | force_draw | close_joining | open_joining | clear_members | kick',
         },
         { status: 400 },
       ),
