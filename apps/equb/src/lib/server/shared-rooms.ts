@@ -43,6 +43,8 @@ export type SharedRoom = {
   maxPlayers?: number;
   minPlayers?: number;
   joiningClosed?: boolean;
+  /** When true, admin forced this room closed — no join, no auto next cycle */
+  adminClosed?: boolean;
   recent?: Array<{
     id: string;
     winningNumber: number;
@@ -119,7 +121,10 @@ function withTimer(room: SharedRoom): SharedRoom {
     maxPlayers: room.groupSize,
     minPlayers: MIN_PLAYERS,
     gameId: room.id,
-    joiningClosed: room.status !== 'open' || isFull({ ...room, members }),
+    joiningClosed:
+      Boolean(room.adminClosed) ||
+      room.status !== 'open' ||
+      isFull({ ...room, members }),
     recent: (room.recent || []).filter(
       (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
     ),
@@ -144,6 +149,7 @@ function fresh(templateId: string, recent: SharedRoom['recent'] = []): SharedRoo
     prizePool,
     contribution: Math.round((prizePool / groupSize) * 100) / 100,
     status: 'open',
+    adminClosed: false,
     members: [],
     winningNumber: null,
     winnerId: null,
@@ -203,6 +209,10 @@ function cryptoDraw(groupSize: number): {
 }
 
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
+  if (room.adminClosed) {
+    room.joiningClosed = true;
+    return room;
+  }
   const now = Date.now();
   if (room.status === 'open' && now >= room.drawAt) {
     const humans = room.members.filter((m) => isRealPlayer(m));
@@ -285,6 +295,8 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
 
     setTimeout(async () => {
       try {
+        const current = await read(room.templateId);
+        if (current?.adminClosed) return;
         const kept = (room.recent || []).filter(
           (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
         );
@@ -303,6 +315,12 @@ export async function getShared(templateId: string): Promise<SharedRoom> {
   if (!room) {
     room = fresh(templateId);
     await write(room);
+  }
+  // Admin closed: freeze room — no draw, no auto-restart
+  if (room.adminClosed) {
+    room.joiningClosed = true;
+    room.status = room.status === 'drawing' ? 'completed' : room.status;
+    return withTimer(room);
   }
   room = await drawAsync(room);
   return withTimer(room);
@@ -332,7 +350,16 @@ export async function joinShared(
   }
   let room = await read(templateId);
   if (!room) room = fresh(templateId);
+
+  if (room.adminClosed) {
+    throw new Error('This room was closed by an administrator');
+  }
+
   room = await drawAsync(room);
+
+  if (room.adminClosed) {
+    throw new Error('This room was closed by an administrator');
+  }
 
   if (room.status === 'completed' || room.status === 'drawing') {
     if (room.status === 'completed') {
