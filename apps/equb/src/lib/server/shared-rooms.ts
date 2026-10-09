@@ -6,7 +6,8 @@ import { recordGameProfit } from './profit-ledger';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
-const MIN_PLAYERS = 2;
+/** Game starts only when at least 5 real players have joined. */
+const MIN_PLAYERS = 5;
 const NEXT_CYCLE_DELAY_MS = 8_000;
 
 export type Member = {
@@ -206,6 +207,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.status === 'open' && now >= room.drawAt) {
     const humans = room.members.filter((m) => isRealPlayer(m));
     const pc = humans.length;
+    // Wait for minimum 5 real players before starting the draw
     if (pc < MIN_PLAYERS) {
       room.drawAt = now + ROUND_MS;
       room.secondsLeft = ROUND_MS / 1000;
