@@ -289,76 +289,46 @@ export default function RoomsPage() {
         </div>
 
         <section
-          className="animate-fade-up relative overflow-hidden rounded-2xl border border-equb-500/20 bg-gradient-to-br from-[#0a1f1c] via-[#0c1a18] to-[#081412] p-4 shadow-xl shadow-black/40 sm:p-5"
+          className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
           style={{ animationDelay: '160ms' }}
         >
-          <div className="pointer-events-none absolute -right-8 top-0 h-40 w-40 rounded-full bg-equb-500/10 blur-3xl" />
-          <div className="pointer-events-none absolute bottom-0 left-0 h-32 w-32 rounded-full bg-gold-500/5 blur-3xl" />
+          <div className="pointer-events-none absolute -right-6 top-0 h-16 w-16 rounded-full bg-gold-500/10 blur-2xl" />
 
-          <div className="relative mb-4 flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-500/40 bg-gold-500/15 shadow-inner">
-              <Trophy className="h-5 w-5 text-gold-400" />
-            </div>
+          <div className="relative mb-3 flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-gold-400" />
             <div>
-              <h2 className="text-base font-black tracking-wide text-white sm:text-lg">
-                <span className="text-equb-400">3 · </span>
-                {locale === 'am' ? 'ሽልማት' : 'PRIZE'}
-              </h2>
-              <p className="mt-0.5 text-xs text-white/45">
+              <p className="text-xs font-bold uppercase tracking-wider text-white/50">
+                3 · {locale === 'am' ? 'ሽልማት' : 'Prize'}
+              </p>
+              <p className="text-[11px] text-white/40">
                 {locale === 'am' ? 'የሽልማት መጠን ይምረጡ' : 'Choose your prize amount'}
               </p>
             </div>
           </div>
 
-          <div className="relative mb-4 grid grid-cols-3 gap-2">
-            <div className="rounded-2xl border border-white/10 bg-black/35 px-2 py-3 text-center sm:px-3">
-              <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-equb-500/20">
-                <Users className="h-4 w-4 text-equb-300" />
-              </div>
-              <p className="text-[10px] font-medium text-white/45">
-                {locale === 'am' ? 'ተጫዋቾች' : 'Players'}
-              </p>
-              <p className="mt-0.5 font-mono text-lg font-black tabular-nums text-white">
-                {groupSize}
-              </p>
-              <p className="text-[10px] text-white/30">
-                {locale === 'am' ? 'በዚህ ጨዋታ' : 'in this game'}
-              </p>
+          <div className="relative mb-3 grid grid-cols-3 gap-1.5 text-center text-[10px]">
+            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
+              <Users className="mx-auto mb-0.5 h-3.5 w-3.5 text-equb-300" />
+              <p className="text-white/40">{locale === 'am' ? 'ተጫዋቾች' : 'Players'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-white">{groupSize}</p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-black/35 px-2 py-3 text-center sm:px-3">
-              <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-cyan-500/20">
-                <Wallet className="h-4 w-4 text-cyan-300" />
-              </div>
-              <p className="text-[10px] font-medium text-white/45">
-                {locale === 'am' ? 'መግቢያ' : 'Entry fee'}
-              </p>
-              <p className="mt-0.5 font-mono text-lg font-black tabular-nums text-white">
+            <div className="rounded-xl border border-white/10 bg-black/30 px-1.5 py-2">
+              <Wallet className="mx-auto mb-0.5 h-3.5 w-3.5 text-cyan-300" />
+              <p className="text-white/40">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-white">
                 {Math.round(contribution)}
               </p>
-              <p className="text-[10px] text-white/30">
-                {locale === 'am' ? 'ብር / ተጫዋች' : 'Birr / player'}
-              </p>
             </div>
-            <div className="rounded-2xl border border-gold-500/30 bg-gold-500/10 px-2 py-3 text-center sm:px-3">
-              <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-gold-500/20">
-                <Trophy className="h-4 w-4 text-gold-400" />
-              </div>
-              <p className="text-[10px] font-medium text-gold-400/80">
-                {locale === 'am' ? 'ሽልማት' : 'Total prize'}
-              </p>
-              <p className="mt-0.5 font-mono text-lg font-black tabular-nums text-gold-300">
+            <div className="rounded-xl border border-gold-500/25 bg-gold-500/10 px-1.5 py-2">
+              <Trophy className="mx-auto mb-0.5 h-3.5 w-3.5 text-gold-400" />
+              <p className="text-gold-400/70">{locale === 'am' ? 'ሽልማት' : 'Prize'}</p>
+              <p className="font-mono text-sm font-black tabular-nums text-gold-300">
                 {prize.toLocaleString()}
-              </p>
-              <p className="text-[10px] text-gold-400/50">
-                {locale === 'am' ? 'ሙሉ ገንዘብ' : 'winner takes'}
               </p>
             </div>
           </div>
 
-          <p className="relative mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/40">
-            {locale === 'am' ? 'መጠን ይምረጡ' : 'Select amount'}
-          </p>
-          <div className="relative grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          <div className="relative flex flex-wrap gap-2">
             {PRIZES.map((p) => {
               const active = prize === p;
               return (
@@ -367,49 +337,28 @@ export default function RoomsPage() {
                   type="button"
                   onClick={() => setPrize(p)}
                   className={clsx(
-                    'relative flex min-h-[3.25rem] items-center justify-center rounded-2xl border-2 px-3 py-3 text-center transition duration-200 active:scale-[0.97]',
+                    'relative flex min-h-[2.75rem] items-center justify-center rounded-xl px-3.5 py-2.5 text-sm font-bold transition duration-200 active:scale-95',
                     active
-                      ? 'border-equb-400 bg-equb-500/20 shadow-[0_0_20px_rgba(16,185,129,0.35)] ring-1 ring-equb-400/50'
-                      : 'border-white/10 bg-black/30 hover:border-white/25 hover:bg-white/[0.06]',
+                      ? 'chip-active scale-105 shadow-md shadow-equb-500/25 ring-1 ring-equb-400/50'
+                      : 'chip hover:scale-105 hover:border-white/20',
                   )}
                 >
                   {active && (
-                    <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-equb-400 text-black shadow">
-                      <Check className="h-3 w-3 stroke-[3]" />
-                    </span>
+                    <Check className="absolute right-1.5 top-1.5 h-3 w-3 text-equb-300" />
                   )}
-                  <span
-                    className={clsx(
-                      'font-mono text-base font-black tabular-nums sm:text-lg',
-                      active ? 'text-white' : 'text-white/85',
-                    )}
-                  >
-                    {p.toLocaleString()}{' '}
-                    <span className={clsx('text-xs font-bold', active ? 'text-equb-300' : 'text-white/40')}>
-                      {locale === 'am' ? 'ብር' : 'Birr'}
-                    </span>
-                  </span>
+                  {formatBirrCompact(p, locale)}
                 </button>
               );
             })}
           </div>
 
-          <div className="relative mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-3 py-2.5">
-            <p className="text-xs text-white/50">
-              {locale === 'am' ? 'እርስዎ የሚከፍሉት' : 'You will pay'}
-            </p>
-            <p className="font-mono text-sm font-black tabular-nums text-gold-300">
+          <div className="relative mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs">
+            <span className="text-white/45">
+              {locale === 'am' ? 'እርስዎ የሚከፍሉት' : 'You pay'}
+            </span>
+            <span className="font-mono text-sm font-black tabular-nums text-gold-300">
               {formatBirrCompact(totalFee > 0 ? totalFee : contribution, locale)}
-              <span className="ml-1 text-[10px] font-medium text-white/40">
-                {picks.length > 1
-                  ? locale === 'am'
-                    ? `(${picks.length} ቁጥር)`
-                    : `(${picks.length} picks)`
-                  : locale === 'am'
-                    ? '(1 ቁጥር)'
-                    : '(1 pick)'}
-              </span>
-            </p>
+            </span>
           </div>
         </section>
 
