@@ -5,9 +5,9 @@ import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 import { ContentProtection } from '@/components/ContentProtection';
 
 export const metadata: Metadata = {
-  title: 'ፋስት እቁብ · Fast Equb',
+  title: 'ፋስት ቢንጎ · Fast Bingo',
   description:
-    'ዲጂታል እቁብ — እውነተኛ ብር በቴሌብር። ባህላዊ የኢትዮጵያ እቁብ በመስመር ላይ። Real-money Ethiopian Equb via Telebirr.',
+    'ፋስት ቢንጎ — እውነተኛ ብር በቴሌብር። ቁጥር ይምረጡ፣ አሸናፊው ድምሩን ይወስዳል። Real-money Fast Bingo via Telebirr.',
   robots: {
     index: true,
     follow: true,

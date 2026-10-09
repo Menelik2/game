@@ -22,7 +22,7 @@ export function BrandLogo({
   const img = (
     <span
       className={clsx(
-        'relative shrink-0 overflow-hidden rounded-xl shadow-lg shadow-purple-500/30 ring-1 ring-white/20',
+        'relative shrink-0 overflow-hidden rounded-xl shadow-lg shadow-amber-500/25 ring-1 ring-white/20',
         className,
       )}
       style={{ width: size, height: size }}
@@ -30,7 +30,7 @@ export function BrandLogo({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={LOGO_DATA_URI}
-        alt="ፈጣን እቁብ"
+        alt="ፋስት ቢንጎ"
         width={size}
         height={size}
         className="h-full w-full object-cover"
@@ -45,11 +45,11 @@ export function BrandLogo({
       {showText && (
         <span className="min-w-0">
           <span className="block truncate text-sm font-bold leading-tight lg:text-base">
-            {title || 'ፈጣን እቁብ'}
+            {title || 'ፋስት ቢንጎ'}
           </span>
           {subtitle !== '' && (
             <span className="block truncate text-[10px] text-equb-400">
-              {subtitle ?? 'Fast Equb'}
+              {subtitle ?? 'Fast Bingo'}
             </span>
           )}
         </span>
@@ -69,7 +69,7 @@ export function BrandMark({ size = 88, className }: { size?: number; className?:
   return (
     <div
       className={clsx(
-        'relative overflow-hidden rounded-2xl shadow-xl shadow-purple-600/40 ring-2 ring-gold-400/30',
+        'relative overflow-hidden rounded-2xl shadow-xl shadow-amber-500/35 ring-2 ring-gold-400/30',
         className,
       )}
       style={{ width: size, height: size }}
@@ -77,7 +77,7 @@ export function BrandMark({ size = 88, className }: { size?: number; className?:
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={LOGO_DATA_URI}
-        alt="ፈጣን እቁብ"
+        alt="ፋስት ቢንጎ"
         width={size}
         height={size}
         className="h-full w-full object-cover"
