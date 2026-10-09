@@ -2,7 +2,7 @@ export type Locale = 'am' | 'en';
 
 export const dictionaries = {
   am: {
-    brand: 'ፋስት እቁብ',
+    brand: 'ፋስት ቢንጎ',
     brandSub: 'እውነተኛ ብር · ቴሌብር',
     demoBanner: 'እውነተኛ ገንዘብ · ቴሌብር ያስገቡ · ከእውነተኛ ተጫዋቾች ጋር ይጫወቱ',
     nav: {
@@ -85,8 +85,8 @@ export const dictionaries = {
       noAccount: 'መለያ የለዎትም? ተመዝገብ',
     },
     home: {
-      title: 'ፋስት እቁብ',
-      subtitle: 'ባህላዊ እቁብ — እውነተኛ ብር በቴሌብር',
+      title: 'ፋስት ቢንጎ',
+      subtitle: 'ፋስት ቢንጎ — እውነተኛ ብር በቴሌብር',
       intro: 'ከጓደኞች ጋር ቡድን ይፍጠሩ፣ ቁጥር ይምረጡ፣ አሸናፊው ሽልማቱን ይወስዳል።',
       howTitle: 'እንዴት ይጫወታል',
       rulesTitle: 'ህጎች',
@@ -185,7 +185,7 @@ export const dictionaries = {
     },
   },
   en: {
-    brand: 'Fast Equb',
+    brand: 'Fast Bingo',
     brandSub: 'Real money · Telebirr',
     demoBanner: 'Real money · Deposit via Telebirr · Play with real players',
     nav: {
@@ -268,8 +268,8 @@ export const dictionaries = {
       noAccount: 'No account? Register',
     },
     home: {
-      title: 'Fast Equb',
-      subtitle: 'Traditional Equb — real money via Telebirr',
+      title: 'Fast Bingo',
+      subtitle: 'Fast Bingo — real money via Telebirr',
       intro: 'Form a group with friends, pick a number, winner takes the pot.',
       howTitle: 'How it works',
       rulesTitle: 'Rules',
