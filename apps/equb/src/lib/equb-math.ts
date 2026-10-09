@@ -6,10 +6,18 @@ export const GROUP_SIZES = [
 ] as const;
 export type GroupSize = (typeof GROUP_SIZES)[number];
 
+/**
+ * How many numbers a player may pick in a room.
+ * 5 → 1, 10 → 2, 20 → 3, … each next group size +1 pick.
+ */
 export function maxPicksForGroup(groupSize: number): number {
   const size = Math.floor(Number(groupSize) || 0);
+  const idx = GROUP_SIZES.indexOf(size as GroupSize);
+  if (idx >= 0) return idx + 1;
+  // fallback for unexpected sizes
   if (size <= 5) return 1;
-  return 2;
+  if (size <= 10) return 2;
+  return Math.min(11, Math.max(1, Math.ceil(size / 10)));
 }
 
 export const ADMIN_FEE_RATE = 0.15;
@@ -150,7 +158,7 @@ export function validatePicks(
   if (clean.length > max) {
     return {
       ok: false,
-      message: groupSize <= 5 ? 'Max 1 number for 5-player room' : `Max 2 numbers for ${groupSize}-player room`,
+      message: `Max ${max} number(s) for ${groupSize}-player room`,
     };
   }
   if (taken) {

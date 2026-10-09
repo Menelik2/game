@@ -1,9 +1,9 @@
 'use client';
 
-import { maxPicksForGroup } from '@/lib/equb-math';
+import { maxPicksForGroup, GROUP_SIZES } from '@/lib/equb-math';
 import clsx from 'clsx';
 
-/** Compact badge: “max 1” / “max 2” for a group size */
+/** Compact badge for a group size */
 export function PickRuleBadge({
   groupSize,
   locale = 'am',
@@ -53,37 +53,32 @@ export function PickRuleCard({
       <p className="text-[10px] font-bold uppercase tracking-wider text-equb-300/90">
         {am ? 'የቁጥር ምርጫ ህግ' : 'Number pick rule'}
       </p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <div
-          className={clsx(
-            'rounded-xl border px-3 py-2',
-            groupSize <= 5
-              ? 'border-sky-400/40 bg-sky-500/15'
-              : 'border-white/10 bg-black/30',
-          )}
-        >
-          <p className="text-[10px] text-white/45">
-            {am ? '5 ተጫዋቾች' : '5 players'}
-          </p>
-          <p className="mt-0.5 text-sm font-black text-sky-200">
-            {am ? '1 ቁጥር' : '1 number'}
-          </p>
-        </div>
-        <div
-          className={clsx(
-            'rounded-xl border px-3 py-2',
-            groupSize > 5
-              ? 'border-amber-400/40 bg-amber-500/15'
-              : 'border-white/10 bg-black/30',
-          )}
-        >
-          <p className="text-[10px] text-white/45">
-            {am ? '10+ ተጫዋቾች' : '10+ players'}
-          </p>
-          <p className="mt-0.5 text-sm font-black text-amber-200">
-            {am ? '2 ቁጥሮች' : '2 numbers'}
-          </p>
-        </div>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-white/55">
+        {am
+          ? '5 ተጫዋቾች = 1 ቁጥር · ቡድኑ ሲጨምር ቁጥር ምርጫ በ1 ይጨምራል'
+          : '5 players = 1 number · each larger group +1 pick'}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {GROUP_SIZES.slice(0, 6).map((g) => {
+          const m = maxPicksForGroup(g);
+          const active = g === groupSize;
+          return (
+            <span
+              key={g}
+              className={clsx(
+                'rounded-lg border px-2 py-1 text-[10px] font-bold tabular-nums',
+                active
+                  ? 'border-equb-400/50 bg-equb-500/25 text-equb-100'
+                  : 'border-white/10 bg-black/30 text-white/50',
+              )}
+            >
+              {g}→{m}
+            </span>
+          );
+        })}
+        <span className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-[10px] text-white/40">
+          …100→11
+        </span>
       </div>
       <p className="mt-2.5 text-center text-xs font-semibold text-white/80">
         {am
@@ -94,7 +89,7 @@ export function PickRuleCard({
   );
 }
 
-/** One-line helper under group size chips */
+/** Short line under group-size chips */
 export function PickRuleHint({
   groupSize,
   locale = 'am',
@@ -107,8 +102,8 @@ export function PickRuleHint({
   return (
     <p className="mt-2 text-[11px] leading-relaxed text-equb-200">
       {am
-        ? `ህግ፡ 5 ተጫዋቾች = 1 ቁጥር · 10 እና ከዚያ በላይ = 2 ቁጥሮች · አሁን ከፍተኛ ${max}`
-        : `Rule: 5 players = 1 number · 10+ = 2 numbers · now max ${max}`}
+        ? `ህግ፡ 5 = 1 ቁጥር · 10 = 2 · 20 = 3 · … · አሁን ከፍተኛ ${max}`
+        : `Rule: 5=1 · 10=2 · 20=3 · … · now max ${max}`}
     </p>
   );
 }
