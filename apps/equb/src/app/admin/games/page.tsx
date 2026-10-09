@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/admin-fetch';
 import { formatBirrCompact } from '@/lib/money';
 import {
-  Gamepad2,
+  Dice5,
   RefreshCw,
   RotateCcw,
   Timer,
@@ -15,6 +15,8 @@ import {
   UserX,
   Radio,
   Trophy,
+  Zap,
+  Loader2,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -61,24 +63,43 @@ export default function AdminGamesPage() {
     null,
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await adminFetch('/api/admin/games');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+
+      if (res.status === 401 || res.status === 403) {
+        setMsg({
+          type: 'err',
+          text: json.message || 'Admin session required — sign in again',
+        });
+        setRooms([]);
+        setLoading(false);
+        return;
+      }
+
       if (json.success) {
-        setRooms(json.data.rooms || []);
-        setSummary(json.data.summary || null);
+        setRooms(Array.isArray(json.data?.rooms) ? json.data.rooms : []);
+        setSummary(json.data?.summary || null);
         setMsg(null);
       } else {
-        setMsg({ type: 'err', text: json.message || 'Failed to load' });
+        setMsg({
+          type: 'err',
+          text: json.message || 'Failed to load games',
+        });
+        if (json.data?.rooms) setRooms(json.data.rooms);
+        if (json.data?.summary) setSummary(json.data.summary);
       }
     } catch (e) {
       setMsg({
         type: 'err',
         text: e instanceof Error ? e.message : 'Load failed',
       });
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -100,9 +121,12 @@ export default function AdminGamesPage() {
         method: 'POST',
         body: JSON.stringify({ action, templateId, ...extra }),
       });
-      const json = await res.json();
-      if (!json.success) {
-        setMsg({ type: 'err', text: json.message || 'Action failed' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        setMsg({
+          type: 'err',
+          text: json.message || `Action failed (${res.status})`,
+        });
       } else {
         setMsg({ type: 'ok', text: json.message || 'Done' });
         await load();
@@ -122,25 +146,29 @@ export default function AdminGamesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-black text-amber-50">
-            <Gamepad2 className="h-5 w-5 text-amber-400" />
+            <Dice5 className="h-5 w-5 text-amber-400" />
             Games Control
           </h2>
           <p className="mt-1 text-xs text-white/45">
-            Live rooms · force reset · timer · kick players · min 5 to start
+            Live rooms · reset · timer · force draw · kick · min{' '}
+            {summary?.minPlayers ?? 5} players to start
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
           className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs font-semibold text-white/70 hover:border-amber-500/40"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className={clsx('h-3.5 w-3.5', loading && 'animate-spin')} />
           Refresh
         </button>
       </div>
 
       {summary && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { label: 'Rooms', value: summary.total, color: 'text-white' },
             { label: 'Open', value: summary.open, color: 'text-equb-300' },
@@ -178,7 +206,8 @@ export default function AdminGamesPage() {
 
       {summary && !summary.dbConfigured && (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Database not configured — shared live rooms unavailable.
+          Database not configured — set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+          in Vercel. Live shared rooms need the equb_live_rooms table.
         </p>
       )}
 
@@ -195,10 +224,18 @@ export default function AdminGamesPage() {
         </p>
       )}
 
+      {loading && rooms.length === 0 && (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-white/40">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading rooms…
+        </div>
+      )}
+
       <div className="space-y-3">
-        {rooms.length === 0 && (
+        {!loading && rooms.length === 0 && (
           <p className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/40">
-            No live rooms yet. Players open rooms from /rooms.
+            No live rooms yet. When players open a room from /rooms, it appears
+            here.
           </p>
         )}
 
@@ -207,6 +244,7 @@ export default function AdminGamesPage() {
           const pc = r.members?.length || r.playerCount || 0;
           const isExp = expanded === key;
           const busyKey = (a: string) => busy === `${a}:${r.templateId}`;
+          const minP = r.minPlayers ?? summary?.minPlayers ?? 5;
 
           return (
             <div
@@ -221,7 +259,8 @@ export default function AdminGamesPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-sm font-bold text-white">
-                      {r.groupSize} · {formatBirrCompact(r.prizePool, 'am')}
+                      {r.groupSize} ·{' '}
+                      {formatBirrCompact(Number(r.prizePool) || 0, 'am')}
                     </span>
                     <span
                       className={clsx(
@@ -231,6 +270,8 @@ export default function AdminGamesPage() {
                           'bg-amber-500/20 text-amber-300',
                         r.status === 'completed' &&
                           'bg-white/10 text-white/45',
+                        r.status === 'waiting' &&
+                          'bg-sky-500/15 text-sky-300',
                       )}
                     >
                       {r.status}
@@ -238,6 +279,11 @@ export default function AdminGamesPage() {
                     {r.joiningClosed && (
                       <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] text-red-300">
                         join closed
+                      </span>
+                    )}
+                    {r.status === 'open' && pc < minP && (
+                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">
+                        need {minP - pc} more
                       </span>
                     )}
                   </div>
@@ -291,6 +337,15 @@ export default function AdminGamesPage() {
                     <button
                       type="button"
                       disabled={!!busy}
+                      onClick={() => void act('force_draw', r.templateId)}
+                      className="flex items-center gap-1.5 rounded-xl border border-gold-500/30 bg-gold-500/15 px-3 py-2 text-xs font-bold text-gold-200 disabled:opacity-40"
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      {busyKey('force_draw') ? '...' : 'Force draw'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!busy}
                       onClick={() =>
                         void act(
                           r.joiningClosed ? 'open_joining' : 'close_joining',
@@ -313,11 +368,7 @@ export default function AdminGamesPage() {
                       type="button"
                       disabled={!!busy}
                       onClick={() => {
-                        if (
-                          confirm(
-                            'Clear all members from this room?',
-                          )
-                        ) {
+                        if (confirm('Clear all members from this room?')) {
                           void act('clear_members', r.templateId);
                         }
                       }}
@@ -331,7 +382,7 @@ export default function AdminGamesPage() {
                   <div>
                     <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-white/40">
                       <Radio className="h-3 w-3" />
-                      Members ({pc})
+                      Members ({pc}) · need {minP} to start
                     </p>
                     {(r.members || []).length === 0 && (
                       <p className="text-xs text-white/35">No players yet</p>
@@ -347,8 +398,7 @@ export default function AdminGamesPage() {
                               {m.name}
                             </span>
                             <span className="ml-2 font-mono text-white/40">
-                              #
-                              {(m.picks || [m.pick]).join(', #')}
+                              #{(m.picks || [m.pick]).join(', #')}
                             </span>
                           </div>
                           <button
