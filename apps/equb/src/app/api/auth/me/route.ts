@@ -99,8 +99,6 @@ export async function PATCH(req: NextRequest) {
       fullNameRaw !== undefined
         ? sanitizeUserText(fullNameRaw, 80)
         : undefined;
-    const phoneRaw =
-      body.phone !== undefined ? String(body.phone || '').slice(0, 32) : undefined;
     const currentPassword =
       body.currentPassword !== undefined
         ? String(body.currentPassword || '').slice(0, 128)
@@ -110,6 +108,40 @@ export async function PATCH(req: NextRequest) {
         ? String(body.newPassword || '').slice(0, 128)
         : undefined;
 
+    // Phone is permanent — never allow change after registration
+    if (body.phone !== undefined && String(body.phone || '').trim() !== '') {
+      const attempted = String(body.phone || '').trim();
+      const normalizedAttempt = (() => {
+        try {
+          return normalizePhone(attempted);
+        } catch {
+          return null;
+        }
+      })();
+      if (normalizedAttempt && normalizedAttempt !== user.phone) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            {
+              success: false,
+              message: 'Phone number cannot be changed',
+            },
+            { status: 403 },
+          ),
+        );
+      }
+      if (!normalizedAttempt && attempted !== user.phone) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            {
+              success: false,
+              message: 'Phone number cannot be changed',
+            },
+            { status: 403 },
+          ),
+        );
+      }
+    }
+
     if (fullName !== undefined && fullName.length < 2) {
       return withSecurityHeaders(
         NextResponse.json(
@@ -117,24 +149,6 @@ export async function PATCH(req: NextRequest) {
           { status: 400 },
         ),
       );
-    }
-
-    let phone: string | undefined;
-    if (phoneRaw !== undefined) {
-      const n = normalizePhone(phoneRaw);
-      if (!n) {
-        return withSecurityHeaders(
-          NextResponse.json(
-            {
-              success: false,
-              message:
-                'Valid Ethiopian phone required. Examples: 09xxxxxxxx or +2519xxxxxxxx',
-            },
-            { status: 400 },
-          ),
-        );
-      }
-      phone = n;
     }
 
     if (newPassword !== undefined) {
@@ -168,32 +182,8 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    if (phone && phone !== user.phone) {
-      if (!currentPassword) {
-        return withSecurityHeaders(
-          NextResponse.json(
-            {
-              success: false,
-              message: 'Current password required to change phone',
-            },
-            { status: 400 },
-          ),
-        );
-      }
-      const ok = await dbVerifyPassword(user.id, hashPassword(currentPassword));
-      if (!ok) {
-        return withSecurityHeaders(
-          NextResponse.json(
-            { success: false, message: 'Current password is incorrect' },
-            { status: 403 },
-          ),
-        );
-      }
-    }
-
     const result = await dbUpdateProfile(user.id, {
       fullName,
-      phone,
       passwordHash: newPassword ? hashPassword(newPassword) : undefined,
     });
 
