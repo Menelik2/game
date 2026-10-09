@@ -25,6 +25,7 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SeatRing } from '@/components/SeatNodes';
 import { PickRuleCard, PickRuleHint } from '@/components/PickRule';
 import { NumberPickBoard } from '@/components/NumberPickBoard';
+import { RoomsHero } from '@/components/RoomsHero';
 import clsx from 'clsx';
 import { ChevronRight, Radio, Trophy, Users, Wallet, Check } from 'lucide-react';
 
@@ -200,6 +201,14 @@ export default function RoomsPage() {
         <LanguageSwitcher />
       </div>
 
+      <RoomsHero
+        locale={locale}
+        onJoin={() => {
+          const el = document.getElementById('group-size-section');
+          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
+      />
+
       {multiplayer && liveOk && liveOpen.length > 0 && (
         <section className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4">
           <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-equb-500/20 blur-2xl" />
@@ -241,6 +250,7 @@ export default function RoomsPage() {
         </div>
 
         <section
+          id="group-size-section"
           className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4 sm:p-5"
           style={{ animationDelay: '80ms' }}
         >
