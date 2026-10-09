@@ -7,7 +7,7 @@ import {
   dbUpdateProfile,
   dbVerifyPassword,
   dbDeleteUser,
-} from '@/lib/server/db-users';
+} from '@/lib/server/db-profile';
 import { hashPassword, normalizePhone } from '@/lib/password';
 import { rateLimit, clientIp } from '@/lib/server/rate-limit';
 import {
@@ -42,7 +42,6 @@ function publicData(user: {
   };
 }
 
-/** Read current profile (session cookie). */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) {
@@ -58,7 +57,6 @@ export async function GET(req: NextRequest) {
   );
 }
 
-/** Update name / phone / password. */
 export async function PATCH(req: NextRequest) {
   const tooBig = assertBodySize(req);
   if (tooBig) return withSecurityHeaders(tooBig);
@@ -151,7 +149,10 @@ export async function PATCH(req: NextRequest) {
       if (!currentPassword) {
         return withSecurityHeaders(
           NextResponse.json(
-            { success: false, message: 'Current password required to change password' },
+            {
+              success: false,
+              message: 'Current password required to change password',
+            },
             { status: 400 },
           ),
         );
@@ -171,7 +172,10 @@ export async function PATCH(req: NextRequest) {
       if (!currentPassword) {
         return withSecurityHeaders(
           NextResponse.json(
-            { success: false, message: 'Current password required to change phone' },
+            {
+              success: false,
+              message: 'Current password required to change phone',
+            },
             { status: 400 },
           ),
         );
@@ -222,7 +226,6 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-/** Delete own account (requires password). */
 export async function DELETE(req: NextRequest) {
   const tooBig = assertBodySize(req);
   if (tooBig) return withSecurityHeaders(tooBig);
@@ -257,7 +260,8 @@ export async function DELETE(req: NextRequest) {
       NextResponse.json(
         {
           success: false,
-          message: 'Admin accounts cannot be deleted from profile. Use admin tools.',
+          message:
+            'Admin accounts cannot be deleted from profile. Use admin tools.',
         },
         { status: 403 },
       ),
