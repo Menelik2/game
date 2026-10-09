@@ -1,23 +1,13 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useEqubStore } from '@/lib/store';
 
 /**
  * Soft client-side deterrents against casual cloning and screenshots.
- * Note: browsers cannot fully block OS-level screenshots or determined attackers.
+ * Watermark shows brand only — never personal data.
  */
 export function ContentProtection() {
-  const user = useEqubStore((s) => s.user);
-  const label =
-    user && typeof user === 'object'
-      ? String(
-          (user as { phone?: string; fullName?: string; id?: string }).phone ||
-            (user as { fullName?: string }).fullName ||
-            (user as { id?: string }).id ||
-            '',
-        ).slice(0, 24)
-      : 'Fast Equb';
+  const label = 'ፈጣን ቢንጎ';
 
   useEffect(() => {
     const onContext = (e: MouseEvent) => {
@@ -32,7 +22,6 @@ export function ContentProtection() {
     const onKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       const ctrl = e.ctrlKey || e.metaKey;
-      // Block common inspect / save / print shortcuts
       if (
         key === 'f12' ||
         (ctrl && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) ||
@@ -44,7 +33,6 @@ export function ContentProtection() {
     };
     const onCopy = (e: ClipboardEvent) => {
       const sel = window.getSelection()?.toString() || '';
-      // Allow copy inside inputs/textareas only
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return;
@@ -68,12 +56,11 @@ export function ContentProtection() {
 
   return (
     <>
-      {/* Invisible watermark layer — shows in many screenshots / print */}
       <div
         className="pointer-events-none fixed inset-0 z-[9998] overflow-hidden select-none"
         aria-hidden
       >
-        <div className="absolute inset-0 opacity-[0.045]">
+        <div className="absolute inset-0 opacity-[0.04]">
           {Array.from({ length: 24 }).map((_, i) => (
             <div
               key={i}
@@ -84,7 +71,7 @@ export function ContentProtection() {
                 transform: 'rotate(-28deg)',
               }}
             >
-              {label} · FAST EQUB · PROTECTED
+              {label} · FAST BINGO
             </div>
           ))}
         </div>
