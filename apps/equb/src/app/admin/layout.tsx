@@ -16,6 +16,7 @@ import {
   Gamepad2,
   Settings,
   BarChart3,
+  ArrowUpFromLine,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AdminGuard } from '@/components/AdminGuard';
@@ -25,6 +26,7 @@ const links = [
   { href: '/admin/games', label: 'Games', icon: Gamepad2 },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/deposits', label: 'Deposits', icon: Landmark },
+  { href: '/admin/withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
   { href: '/admin/telebirr', label: 'Telebirr', icon: Smartphone },
   { href: '/admin/profit', label: 'Profit', icon: TrendingUp },
   { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
