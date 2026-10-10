@@ -37,7 +37,8 @@ async function debitUser(userId: string, amount: number): Promise<number> {
     return next;
   }
   ensureWallet(userId);
-  return applyDelta(userId, -amount);
+  const w = applyDelta(userId, -amount, 'withdrawal_hold');
+  return w.balance;
 }
 
 async function creditUser(userId: string, amount: number): Promise<number> {
@@ -47,7 +48,8 @@ async function creditUser(userId: string, amount: number): Promise<number> {
     return next;
   }
   ensureWallet(userId);
-  return applyDelta(userId, amount);
+  const w = applyDelta(userId, amount, 'withdrawal_refund');
+  return w.balance;
 }
 
 export async function createWithdrawal(input: {
@@ -89,7 +91,6 @@ export async function createWithdrawal(input: {
     };
   }
 
-  // Debit immediately so funds are held until admin pays or rejects
   let balance: number;
   try {
     balance = await debitUser(input.userId, amount);
@@ -129,7 +130,6 @@ export async function listAllWithdrawals(status?: WithdrawalStatus) {
   return dbListWithdrawals({ status, limit: 100 });
 }
 
-/** Admin marks as paid after sending ETB via Telebirr to payoutPhone */
 export async function adminMarkPaid(input: {
   withdrawalId: string;
   adminId: string;
@@ -144,7 +144,11 @@ export async function adminMarkPaid(input: {
     return { ok: true, withdrawal: w, message: 'Already marked paid' };
   }
   if (w.status === 'REJECTED' || w.status === 'CANCELLED') {
-    return { ok: false, message: `Cannot pay a ${w.status} withdrawal`, withdrawal: w };
+    return {
+      ok: false,
+      message: `Cannot pay a ${w.status} withdrawal`,
+      withdrawal: w,
+    };
   }
 
   w.status = 'PAID';
@@ -161,7 +165,6 @@ export async function adminMarkPaid(input: {
   };
 }
 
-/** Reject and refund player balance */
 export async function adminRejectWithdrawal(input: {
   withdrawalId: string;
   adminId: string;
