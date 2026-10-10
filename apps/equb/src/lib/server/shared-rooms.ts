@@ -1,7 +1,11 @@
 import { randomBytes, createHash } from 'crypto';
 import { isDbConfigured } from './db-users';
 import { createClient } from '@supabase/supabase-js';
-import { computePayout, settleWinPayout } from './wallet-settle';
+import {
+  computePayout,
+  settleWinPayout,
+  refundJoinFee,
+} from './wallet-settle';
 import { recordGameProfit } from './profit-ledger';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
@@ -43,7 +47,6 @@ export type SharedRoom = {
   maxPlayers?: number;
   minPlayers?: number;
   joiningClosed?: boolean;
-  /** When true, admin forced this room closed — no join, no auto next cycle */
   adminClosed?: boolean;
   recent?: Array<{
     id: string;
@@ -54,8 +57,8 @@ export type SharedRoom = {
   }>;
 };
 
-/** 5→1, 10→2, 20→3 … same ladder as equb-math.maxPicksForGroup */
-function maxPicks(groupSize: number) {
+/** 5→1, 10→2, 20→3 … 100→11 */
+export function maxPicksForGroup(groupSize: number) {
   const ladder = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
   const size = Math.floor(Number(groupSize) || 0);
   const idx = ladder.indexOf(size as (typeof ladder)[number]);
@@ -68,10 +71,6 @@ function maxPicks(groupSize: number) {
 function memberPicks(m: Member): number[] {
   if (m.picks && m.picks.length) return m.picks;
   return [m.pick];
-}
-
-function playerCount(room: SharedRoom): number {
-  return room.members.filter((m) => isRealPlayer(m)).length;
 }
 
 function seatsTaken(room: SharedRoom) {
@@ -92,13 +91,14 @@ function isFull(room: SharedRoom) {
   return seatsTaken(room) >= room.groupSize;
 }
 
-/** Real pot = sum of fees players paid (contribution × picks), capped by prizePool. */
+/** Real pot = sum of fees players paid (contribution × picks). */
 function collectedPot(room: SharedRoom, humans: Member[]): number {
   const unit = Number(room.contribution) || 0;
-  const sum = humans.reduce((s, m) => s + unit * memberPicks(m).length, 0);
-  const cap = Number(room.prizePool) || sum;
-  const pot = cap > 0 ? Math.min(sum, cap) : sum;
-  return Math.round(pot * 100) / 100;
+  const sum = humans.reduce(
+    (s, m) => s + unit * memberPicks(m).length,
+    0,
+  );
+  return Math.round(sum * 100) / 100;
 }
 
 function sb() {
@@ -132,13 +132,19 @@ function withTimer(room: SharedRoom): SharedRoom {
   };
 }
 
-function parseTemplate(templateId: string): { groupSize: number; prizePool: number } {
+function parseTemplate(templateId: string): {
+  groupSize: number;
+  prizePool: number;
+} {
   const m = /^equb-(\d+)-(\d+)$/.exec(templateId);
   if (!m) return { groupSize: 5, prizePool: 500 };
   return { groupSize: Number(m[1]), prizePool: Number(m[2]) };
 }
 
-function fresh(templateId: string, recent: SharedRoom['recent'] = []): SharedRoom {
+function fresh(
+  templateId: string,
+  recent: SharedRoom['recent'] = [],
+): SharedRoom {
   const { groupSize, prizePool } = parseTemplate(templateId);
   const now = Date.now();
   const id = `${templateId}-${now}`;
@@ -196,6 +202,7 @@ async function write(room: SharedRoom): Promise<void> {
   }
 }
 
+/** Fair RNG: number in 1..groupSize (independent of who joined). */
 function cryptoDraw(groupSize: number): {
   winningNumber: number;
   entropyHex: string;
@@ -204,8 +211,29 @@ function cryptoDraw(groupSize: number): {
   const entropy = randomBytes(32);
   const entropyHex = entropy.toString('hex');
   const commitmentHash = createHash('sha256').update(entropy).digest('hex');
-  const winningNumber = (entropy.readUInt32BE(0) % groupSize) + 1;
+  const n = Math.max(1, Math.floor(groupSize) || 1);
+  const winningNumber = (entropy.readUInt32BE(0) % n) + 1;
   return { winningNumber, entropyHex, commitmentHash };
+}
+
+async function refundAllMembers(
+  room: SharedRoom,
+  humans: Member[],
+): Promise<void> {
+  const unit = Number(room.contribution) || 0;
+  for (const m of humans) {
+    const fee = Math.round(unit * memberPicks(m).length * 100) / 100;
+    if (fee <= 0) continue;
+    try {
+      await refundJoinFee({
+        userId: m.playerId,
+        amount: fee,
+        roomId: room.id,
+      });
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
@@ -217,7 +245,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.status === 'open' && now >= room.drawAt) {
     const humans = room.members.filter((m) => isRealPlayer(m));
     const pc = humans.length;
-    // Wait for minimum 5 real players before starting the draw
+
     if (pc < MIN_PLAYERS) {
       room.drawAt = now + ROUND_MS;
       room.secondsLeft = ROUND_MS / 1000;
@@ -225,24 +253,36 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
       await write(room);
       return room;
     }
+
     room.status = 'drawing';
     room.joiningClosed = true;
     room.updatedAt = now;
     await write(room);
 
-    const { winningNumber, entropyHex, commitmentHash } = cryptoDraw(room.groupSize);
+    const { winningNumber, entropyHex, commitmentHash } = cryptoDraw(
+      room.groupSize,
+    );
     room.winningNumber = winningNumber;
     room.entropyHex = entropyHex;
     room.commitmentHash = commitmentHash;
 
-    const winners = humans.filter((m) => memberPicks(m).includes(winningNumber));
+    const winners = humans.filter((m) =>
+      memberPicks(m).includes(winningNumber),
+    );
     const pot = collectedPot(room, humans);
     room.collectedPot = pot;
-    const { winnerPayout, adminFee } = computePayout(pot || room.prizePool);
-    room.adminFee = adminFee;
-    room.winnerPayout = winnerPayout;
 
-    if (winners.length === 1) {
+    // Only pay from real collected fees — never invent prizePool money
+    if (pot <= 0) {
+      room.adminFee = 0;
+      room.winnerPayout = 0;
+      room.winnerId = null;
+      room.winnerName = null;
+      room.paidOut = false;
+    } else if (winners.length === 1) {
+      const { winnerPayout, adminFee } = computePayout(pot);
+      room.adminFee = adminFee;
+      room.winnerPayout = winnerPayout;
       const w = winners[0]!;
       room.winnerId = w.playerId;
       room.winnerName = w.name;
@@ -258,23 +298,30 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
         room.paidOut = false;
       }
     } else {
+      // No winner or tie → refund every player's join fee
+      room.adminFee = 0;
+      room.winnerPayout = 0;
       room.winnerId = null;
       room.winnerName = winners.length > 1 ? 'Tie' : null;
+      room.paidOut = false;
+      await refundAllMembers(room, humans);
     }
 
     try {
-      await recordGameProfit({
-        roomId: room.id,
-        templateId: room.templateId,
-        groupSize: room.groupSize,
-        prizePool: pot || room.prizePool,
-        adminFee,
-        winnerPayout,
-        winnerId: room.winnerId,
-        winnerName: room.winnerName,
-        winningNumber: room.winningNumber,
-        seatsTaken: humans.length,
-      });
+      if (pot > 0 && winners.length === 1) {
+        await recordGameProfit({
+          roomId: room.id,
+          templateId: room.templateId,
+          groupSize: room.groupSize,
+          prizePool: pot,
+          adminFee: room.adminFee,
+          winnerPayout: room.winnerPayout,
+          winnerId: room.winnerId,
+          winnerName: room.winnerName,
+          winningNumber: room.winningNumber,
+          seatsTaken: humans.length,
+        });
+      }
     } catch {
       /* ignore */
     }
@@ -316,7 +363,6 @@ export async function getShared(templateId: string): Promise<SharedRoom> {
     room = fresh(templateId);
     await write(room);
   }
-  // Admin closed: freeze room — no draw, no auto-restart
   if (room.adminClosed) {
     room.joiningClosed = true;
     room.status = room.status === 'drawing' ? 'completed' : room.status;
@@ -326,7 +372,9 @@ export async function getShared(templateId: string): Promise<SharedRoom> {
   return withTimer(room);
 }
 
-export async function peekShared(templateId: string): Promise<SharedRoom | null> {
+export async function peekShared(
+  templateId: string,
+): Promise<SharedRoom | null> {
   const room = await read(templateId);
   return room ? withTimer(room) : null;
 }
@@ -376,16 +424,16 @@ export async function joinShared(
     throw new Error('Joining is closed for this game');
   }
 
+  if (room.joiningClosed || isFull(room)) {
+    throw new Error(`Room full (${room.groupSize}/${room.groupSize})`);
+  }
+
   if (room.members.some((m) => m.playerId === playerId)) {
     return withTimer(room);
   }
 
-  if (isFull(room)) {
-    throw new Error(`Room full (${room.groupSize}/${room.groupSize} players)`);
-  }
-
   const raw = Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks];
-  const max = maxPicks(room.groupSize);
+  const max = maxPicksForGroup(room.groupSize);
   const picks = [...new Set(raw.map((n) => Math.floor(Number(n))))].filter(
     (n) => n >= 1 && n <= room.groupSize,
   );
@@ -398,7 +446,7 @@ export async function joinShared(
     if (taken.has(p)) throw new Error(`Number ${p} already taken`);
   }
   if (seatsTaken(room) + picks.length > room.groupSize) {
-    throw new Error(`Not enough seats — max ${room.groupSize} players`);
+    throw new Error(`Not enough seats — max ${room.groupSize}`);
   }
 
   room.members.push({
