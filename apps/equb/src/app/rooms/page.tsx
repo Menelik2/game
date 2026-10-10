@@ -37,7 +37,7 @@ import {
 
 const PRIZES = [500, 1000, 2000, 5000, 9000];
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2;
 
 export default function RoomsPage() {
   const router = useRouter();
@@ -62,8 +62,6 @@ export default function RoomsPage() {
     () => contributionPerMember(prizeVal, size),
     [prizeVal, size],
   );
-  const totalFee =
-    Math.round(contribution * Math.max(picks.length, 1) * 100) / 100;
   const templateId = roomId(size, prizeVal);
 
   const refreshLive = useCallback(async () => {
@@ -95,41 +93,12 @@ export default function RoomsPage() {
     setPicks((prev) => prev.slice(0, maxPicks));
   }, [maxPicks]);
 
-  function goStep1() {
-    setStep(1);
-    setErr('');
-  }
-
   function selectPlayers(g: number) {
     setGroupSize(g);
     setPicks([]);
     setPrize(null);
     setErr('');
     setStep(2);
-  }
-
-  function goStep2() {
-    if (!groupSize) {
-      setErr(am ? 'መጀመሪያ ተጫዋቾች ቁጥር ይምረጡ' : 'Select player count first');
-      return;
-    }
-    setStep(2);
-    setErr('');
-  }
-
-  function goStep3() {
-    if (picks.length === 0) {
-      setErr(am ? 'ቢያንስ አንድ ቁጥር ይምረጡ' : 'Pick at least one number');
-      return;
-    }
-    if (picks.length > maxPicks) {
-      setErr(
-        am ? `ከፍተኛ ${maxPicks} ቁጥር ብቻ` : `Max ${maxPicks} number(s)`,
-      );
-      return;
-    }
-    setStep(3);
-    setErr('');
   }
 
   async function handleJoin() {
@@ -145,17 +114,14 @@ export default function RoomsPage() {
     }
     if (picks.length === 0) {
       setErr(am ? 'ቁጥር ይምረጡ' : 'Pick numbers');
-      setStep(2);
       return;
     }
     if (!prize) {
       setErr(am ? 'የብር መጠን ይምረጡ' : 'Select amount');
-      setStep(3);
       return;
     }
 
-    const feeNeed =
-      Math.round(contribution * picks.length * 100) / 100;
+    const feeNeed = Math.round(contribution * picks.length * 100) / 100;
     if (feeNeed > 0 && Number(user.balance || 0) < feeNeed) {
       setErr(
         am
@@ -188,12 +154,6 @@ export default function RoomsPage() {
   const liveEmpty = liveOpen.filter((r) => (r.members?.length || 0) === 0);
   const liveDisplay = [...liveWithPlayers, ...liveEmpty].slice(0, 6);
 
-  const steps = [
-    { n: 1 as Step, label: am ? 'ተጫዋቾች' : 'Players', icon: Users },
-    { n: 2 as Step, label: am ? 'ቁጥር' : 'Numbers', icon: Hash },
-    { n: 3 as Step, label: am ? 'ብር' : 'Birr', icon: Trophy },
-  ];
-
   return (
     <div className="space-y-4 pb-24">
       <div className="animate-fade-up flex flex-wrap items-center justify-between gap-2">
@@ -203,51 +163,60 @@ export default function RoomsPage() {
           </h1>
           <p className="mt-1 text-xs text-white/45">
             {am
-              ? 'ደረጃ በደረጃ ይምረጡ — ቀላል ነው'
-              : 'Follow the steps — simple and clear'}
+              ? '1) ተጫዋቾች  2) ቁጥር + ብር'
+              : '1) Players  2) Numbers + Birr'}
           </p>
         </div>
         <LanguageSwitcher />
       </div>
 
-      {/* Progress steps */}
+      {/* Progress: 2 steps only */}
       <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-black/30 p-2">
-        {steps.map((s, i) => {
-          const done =
-            (s.n === 1 && groupSize != null) ||
-            (s.n === 2 && picks.length > 0) ||
-            (s.n === 3 && prize != null);
-          const active = step === s.n;
-          const Icon = s.icon;
-          return (
-            <button
-              key={s.n}
-              type="button"
-              onClick={() => {
-                if (s.n === 1) goStep1();
-                else if (s.n === 2 && groupSize) goStep2();
-                else if (s.n === 3 && picks.length > 0) goStep3();
-              }}
-              className={clsx(
-                'flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition',
-                active && 'bg-equb-500 text-white shadow-md shadow-equb-500/30',
-                !active && done && 'bg-equb-500/15 text-equb-200',
-                !active && !done && 'text-white/35',
-              )}
-            >
-              {done && !active ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Icon className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">{s.label}</span>
-              <span className="sm:hidden">{s.n}</span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => {
+            setStep(1);
+            setErr('');
+          }}
+          className={clsx(
+            'flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition',
+            step === 1
+              ? 'bg-equb-500 text-white shadow-md shadow-equb-500/30'
+              : groupSize
+                ? 'bg-equb-500/15 text-equb-200'
+                : 'text-white/35',
+          )}
+        >
+          {groupSize && step !== 1 ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Users className="h-3.5 w-3.5" />
+          )}
+          {am ? 'ተጫዋቾች' : 'Players'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (groupSize) {
+              setStep(2);
+              setErr('');
+            }
+          }}
+          className={clsx(
+            'flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition',
+            step === 2
+              ? 'bg-equb-500 text-white shadow-md shadow-equb-500/30'
+              : picks.length > 0 && prize
+                ? 'bg-equb-500/15 text-equb-200'
+                : 'text-white/35',
+          )}
+        >
+          <Hash className="h-3.5 w-3.5" />
+          {am ? 'ቁጥር + ብር' : 'Numbers + Birr'}
+        </button>
       </div>
 
-      {/* Live rooms shortcut */}
+      {/* Live rooms on step 1 */}
       {multiplayer && liveOk && liveDisplay.length > 0 && step === 1 && (
         <section className="animate-fade-up glass relative overflow-hidden rounded-2xl p-3">
           <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-equb-300">
@@ -275,7 +244,7 @@ export default function RoomsPage() {
         </section>
       )}
 
-      {/* STEP 1 — Players */}
+      {/* STEP 1 — Players only */}
       {step === 1 && (
         <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
           <div className="text-center">
@@ -312,183 +281,167 @@ export default function RoomsPage() {
 
           <p className="text-center text-[11px] text-white/35">
             {am
-              ? 'ከመረጡ በኋላ ቁጥር መምረጥ ይቀጥላል'
-              : 'Next: pick your bingo numbers'}
+              ? 'ከመረጡ በኋላ ቁጥር እና ብር ይመርጣሉ'
+              : 'Next: pick numbers and Birr amount'}
           </p>
         </section>
       )}
 
-      {/* STEP 2 — Numbers */}
+      {/* STEP 2 — Numbers + Birr on SAME page */}
       {step === 2 && groupSize != null && (
-        <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
-          <div className="flex items-start justify-between gap-2">
-            <button
-              type="button"
-              onClick={goStep1}
-              className="flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              {am ? 'ተመለስ' : 'Back'}
-            </button>
-            <div className="text-right">
-              <p className="text-[10px] uppercase text-white/40">
-                {am ? 'ተጫዋቾች' : 'Players'}
-              </p>
-              <p className="font-mono text-sm font-bold text-equb-300">
-                {groupSize}
-              </p>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300">
-              <Hash className="h-7 w-7" />
-            </div>
-            <h2 className="text-lg font-black text-white">
-              {am ? 'ቁጥርዎን ይምረጡ' : 'Pick your numbers'}
-            </h2>
-            <p className="mt-1 text-sm text-white/50">
-              {am
-                ? `ከ 1 እስከ ${groupSize} · ከፍተኛ ${maxPicks} ቁጥር`
-                : `From 1 to ${groupSize} · max ${maxPicks}`}
-            </p>
-          </div>
-
-          <NumberPickBoard
-            groupSize={groupSize}
-            picks={picks}
-            maxPicks={maxPicks}
-            locale={locale}
-            onToggle={(n) => {
-              setPicks((prev) => {
-                if (prev.includes(n)) return prev.filter((x) => x !== n);
-                if (prev.length >= maxPicks) return prev;
-                return [...prev, n].sort((a, b) => a - b);
-              });
-            }}
-            onClear={() => setPicks([])}
-          />
-
-          {picks.length > 0 && (
-            <p className="text-center text-sm text-equb-200">
-              {am ? 'የመረጡት' : 'Selected'}:{' '}
-              <span className="font-mono font-bold">
-                {picks.map((n) => String(n).padStart(2, '0')).join(' · ')}
-              </span>
-            </p>
-          )}
-
-          <button
-            type="button"
-            disabled={picks.length === 0}
-            onClick={goStep3}
-            className="btn-gold flex w-full items-center justify-center gap-2 py-3.5 text-base disabled:opacity-40"
-          >
-            {am ? 'ቀጥል · ብር ይምረጡ' : 'Next · choose Birr'}
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </section>
-      )}
-
-      {/* STEP 3 — Birr / Prize */}
-      {step === 3 && groupSize != null && picks.length > 0 && (
-        <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
-          <div className="flex items-start justify-between gap-2">
-            <button
-              type="button"
-              onClick={goStep2}
-              className="flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              {am ? 'ተመለስ' : 'Back'}
-            </button>
-            <div className="text-right text-xs text-white/50">
-              <p>
-                {groupSize} {am ? 'ተጫዋቾች' : 'players'} · #{' '}
-                {picks.map((n) => String(n).padStart(2, '0')).join(',')}
-              </p>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-500/15 text-gold-300">
-              <Trophy className="h-7 w-7" />
-            </div>
-            <h2 className="text-lg font-black text-white">
-              {am ? 'በስንት ብር ይጫወታሉ?' : 'How much Birr?'}
-            </h2>
-            <p className="mt-1 text-sm text-white/50">
-              {am ? 'የሽልማት / ጨዋታ መጠን ይምረጡ' : 'Choose the prize amount'}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {PRIZES.map((p) => (
+        <div className="space-y-4">
+          <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
+            <div className="flex items-start justify-between gap-2">
               <button
-                key={p}
                 type="button"
-                onClick={() => setPrize(p)}
-                className={clsx(
-                  'rounded-2xl border-2 py-4 text-base font-black transition active:scale-95',
-                  prize === p
-                    ? 'border-gold-400 bg-gold-400 text-black shadow-lg shadow-gold-500/30'
-                    : 'border-white/10 bg-black/30 text-white/85 hover:border-gold-400/40',
-                )}
+                onClick={() => {
+                  setStep(1);
+                  setErr('');
+                }}
+                className="flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60"
               >
-                {formatBirrCompact(p, locale)}
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {am ? 'ተመለስ' : 'Back'}
               </button>
-            ))}
-          </div>
-
-          {prize != null && (
-            <div className="space-y-2 rounded-2xl border border-white/10 bg-black/40 p-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-white/50">
-                  {am ? 'መግቢያ (በ1 ቁጥር)' : 'Entry / number'}
-                </span>
-                <span className="font-mono font-bold text-cyan-200">
-                  {formatBirrCompact(contribution, locale)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-white/50">
-                  {am ? 'እርስዎ የሚከፍሉት' : 'You pay'}
-                  <span className="ml-1 text-white/30">
-                    ({picks.length} × {formatBirrCompact(contribution, locale)})
-                  </span>
-                </span>
-                <span className="font-mono text-lg font-black text-gold-300">
-                  {formatBirrCompact(
-                    Math.round(contribution * picks.length * 100) / 100,
-                    locale,
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-white/50">
-                  {am ? 'ሽልማት' : 'Prize pool'}
-                </span>
-                <span className="font-mono font-bold text-white">
-                  {formatBirrCompact(prize, locale)}
-                </span>
+              <div className="text-right">
+                <p className="text-[10px] uppercase text-white/40">
+                  {am ? 'ተጫዋቾች' : 'Players'}
+                </p>
+                <p className="font-mono text-sm font-bold text-equb-300">
+                  {groupSize}
+                </p>
               </div>
             </div>
-          )}
 
-          <button
-            type="button"
-            disabled={!prize || busy}
-            onClick={() => void handleJoin()}
-            className="btn-gold relative flex w-full items-center justify-center gap-2 overflow-hidden py-3.5 text-base disabled:opacity-40"
-          >
-            {busy
-              ? '...'
-              : am
-                ? 'ጨዋታ ጀምር / ተቀላቀል'
-                : 'Join & play'}
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </section>
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300">
+                <Hash className="h-7 w-7" />
+              </div>
+              <h2 className="text-lg font-black text-white">
+                {am ? 'ቁጥርዎን ይምረጡ' : 'Pick your numbers'}
+              </h2>
+              <p className="mt-1 text-sm text-white/50">
+                {am
+                  ? `ከ 1 እስከ ${groupSize} · ከፍተኛ ${maxPicks} ቁጥር`
+                  : `From 1 to ${groupSize} · max ${maxPicks}`}
+              </p>
+            </div>
+
+            <NumberPickBoard
+              groupSize={groupSize}
+              picks={picks}
+              maxPicks={maxPicks}
+              locale={locale}
+              onToggle={(n) => {
+                setPicks((prev) => {
+                  if (prev.includes(n)) return prev.filter((x) => x !== n);
+                  if (prev.length >= maxPicks) return prev;
+                  return [...prev, n].sort((a, b) => a - b);
+                });
+              }}
+              onClear={() => setPicks([])}
+            />
+
+            {picks.length > 0 && (
+              <p className="text-center text-sm text-equb-200">
+                {am ? 'የመረጡት' : 'Selected'}:{' '}
+                <span className="font-mono font-bold">
+                  {picks.map((n) => String(n).padStart(2, '0')).join(' · ')}
+                </span>
+              </p>
+            )}
+          </section>
+
+          {/* Birr — same step, appears under numbers after pick */}
+          {picks.length > 0 && (
+            <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
+              <div className="text-center">
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-500/15 text-gold-300">
+                  <Trophy className="h-7 w-7" />
+                </div>
+                <h2 className="text-lg font-black text-white">
+                  {am ? 'በስንት ብር ይጫወታሉ?' : 'How much Birr?'}
+                </h2>
+                <p className="mt-1 text-sm text-white/50">
+                  {am
+                    ? 'የሽልማት / ጨዋታ መጠን ይምረጡ'
+                    : 'Choose the prize amount'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {PRIZES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setPrize(p);
+                      setErr('');
+                    }}
+                    className={clsx(
+                      'rounded-2xl border-2 py-4 text-base font-black transition active:scale-95',
+                      prize === p
+                        ? 'border-gold-400 bg-gold-400 text-black shadow-lg shadow-gold-500/30'
+                        : 'border-white/10 bg-black/30 text-white/85 hover:border-gold-400/40',
+                    )}
+                  >
+                    {formatBirrCompact(p, locale)}
+                  </button>
+                ))}
+              </div>
+
+              {prize != null && (
+                <div className="space-y-2 rounded-2xl border border-white/10 bg-black/40 p-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/50">
+                      {am ? 'መግቢያ (በ1 ቁጥር)' : 'Entry / number'}
+                    </span>
+                    <span className="font-mono font-bold text-cyan-200">
+                      {formatBirrCompact(contribution, locale)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/50">
+                      {am ? 'እርስዎ የሚከፍሉት' : 'You pay'}
+                      <span className="ml-1 text-white/30">
+                        ({picks.length} ×{' '}
+                        {formatBirrCompact(contribution, locale)})
+                      </span>
+                    </span>
+                    <span className="font-mono text-lg font-black text-gold-300">
+                      {formatBirrCompact(
+                        Math.round(contribution * picks.length * 100) / 100,
+                        locale,
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/50">
+                      {am ? 'ሽልማት' : 'Prize pool'}
+                    </span>
+                    <span className="font-mono font-bold text-white">
+                      {formatBirrCompact(prize, locale)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!prize || busy}
+                onClick={() => void handleJoin()}
+                className="btn-gold relative flex w-full items-center justify-center gap-2 overflow-hidden py-3.5 text-base disabled:opacity-40"
+              >
+                {busy
+                  ? '...'
+                  : am
+                    ? 'ጨዋታ ጀምር / ተቀላቀል'
+                    : 'Join & play'}
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </section>
+          )}
+        </div>
       )}
 
       {err && (
