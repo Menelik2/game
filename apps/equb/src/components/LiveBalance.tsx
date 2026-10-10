@@ -58,40 +58,70 @@ export function LiveBalance({
 
   useEffect(() => {
     if (!userId) return;
-    let unsub: (() => void) | undefined;
-    try {
-      unsub = subscribeServerBalance(userId, (bal) => {
-        if (typeof bal === 'number') apply(bal);
-      });
-    } catch {
-      /* ignore */
-    }
-    const id = window.setInterval(() => {
-      void refreshBalance?.();
-    }, 20000);
+    refreshBalance();
+    const id = window.setInterval(() => refreshBalance(), 1500);
+    const onFocus = () => refreshBalance();
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refreshBalance();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (
+        e.key === 'equb-accounts-v1' ||
+        e.key === 'fast-equb-v6' ||
+        e.key?.startsWith('fast-equb')
+      ) {
+        refreshBalance();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('storage', onStorage);
     return () => {
       window.clearInterval(id);
-      unsub?.();
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('storage', onStorage);
     };
   }, [userId, refreshBalance]);
 
-  if (display == null) return null;
+  // Backend SSE real-time balance
+  useEffect(() => {
+    if (!userId) return;
+    const { playerId } = getPlayerIdentity();
+    const unsub = subscribeServerBalance(playerId, (ev) => {
+      if (typeof ev.balance !== 'number') return;
+      apply(ev.balance);
+      const cur = useEqubStore.getState().user;
+      if (cur && Math.abs(cur.balance - ev.balance) > 0.001) {
+        setSessionUser({ ...cur, balance: ev.balance });
+      }
+    });
+    return unsub;
+  }, [userId, setSessionUser]);
+
+  if (display == null || !userId) return null;
 
   return (
-    <span
+    <div
       className={clsx(
-        'inline-flex shrink-0 items-center justify-center rounded-full font-mono font-bold tabular-nums transition-colors',
+        'inline-flex h-9 shrink-0 items-center gap-0.5 rounded-full border font-mono font-bold tabular-nums transition-all duration-300',
         size === 'lg'
-          ? 'px-4 py-2 text-base'
-          : 'h-9 max-w-[7.5rem] px-2.5 text-xs sm:max-w-none sm:px-3 sm:text-sm',
-        flash === 'up' && 'bg-equb-500/30 text-equb-200',
-        flash === 'down' && 'bg-red-500/25 text-red-200',
-        !flash && 'border border-equb-500/30 bg-equb-500/15 text-equb-300',
+          ? 'h-auto px-5 py-2.5 text-2xl'
+          : 'max-w-[7.25rem] px-2.5 text-xs sm:max-w-none sm:px-3 sm:text-sm',
+        flash === 'up' &&
+          'scale-105 border-emerald-400/40 bg-emerald-500/35 text-emerald-200 shadow-lg shadow-emerald-500/20',
+        flash === 'down' &&
+          'scale-105 border-red-400/40 bg-red-500/35 text-red-200 shadow-lg shadow-red-500/20',
+        !flash && 'border-equb-500/30 bg-equb-500/15 text-equb-300',
         className,
       )}
+      aria-live="polite"
+      aria-atomic="true"
       title={formatBirrCompact(display, locale)}
     >
       <span className="truncate">{formatBirrCompact(display, locale)}</span>
-    </span>
+      {flash === 'up' && <span className="text-[10px]">▲</span>}
+      {flash === 'down' && <span className="text-[10px]">▼</span>}
+    </div>
   );
 }
