@@ -44,7 +44,17 @@ type Deposit = {
   transactionNumber?: string | null;
 };
 
+type Withdrawal = {
+  id: string;
+  amount: number;
+  status: string;
+  payoutPhone: string;
+  createdAt: string;
+  adminNote?: string | null;
+};
+
 const PRESETS = [50, 100, 200, 500, 1000, 2000];
+const WD_PRESETS = [50, 100, 200, 500, 1000];
 
 export default function WalletPage() {
   const user = useEqubStore((s) => s.user);
@@ -63,6 +73,10 @@ export default function WalletPage() {
   const [msg, setMsg] = useState<{ type: 'ok' | 'err' | 'info'; text: string } | null>(null);
   const [copied, setCopied] = useState<'phone' | 'name' | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [wdAmount, setWdAmount] = useState('100');
+  const [wdPhone, setWdPhone] = useState('');
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [wdMin, setWdMin] = useState(50);
 
   const flash = (type: 'ok' | 'err' | 'info', text: string) => {
     setMsg({ type, text });
@@ -92,12 +106,69 @@ export default function WalletPage() {
     } catch {
       /* ignore */
     }
+    try {
+      const wr = await fetch('/api/wallet/withdrawals', { cache: 'no-store' });
+      const wj = await wr.json();
+      if (wj?.success) {
+        setWithdrawals(wj.withdrawals || []);
+        if (wj.config?.minWithdraw) setWdMin(Number(wj.config.minWithdraw));
+      }
+    } catch {
+      /* ignore */
+    }
     refreshBalance();
   }, [user, setSessionUser, refreshBalance]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (user?.phone && !wdPhone) setWdPhone(user.phone);
+  }, [user?.phone, wdPhone]);
+
+  async function requestWithdraw() {
+    if (!user) {
+      flash('err', am ? 'መጀመሪያ ይግቡ' : 'Sign in first');
+      return;
+    }
+    const amt = Number(wdAmount);
+    if (!Number.isFinite(amt) || amt < wdMin) {
+      flash('err', am ? `ዝቅተኛው ${wdMin} ብር ነው` : `Minimum is ${wdMin} ETB`);
+      return;
+    }
+    if (amt > Number(user.balance || 0)) {
+      flash('err', am ? 'በቂ ቀሪ ሂሳብ የለም' : 'Insufficient balance');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/wallet/withdrawals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amt, payoutPhone: wdPhone }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        flash('err', json.message || (am ? 'አልተሳካም' : 'Failed'));
+      } else {
+        flash(
+          'ok',
+          am
+            ? 'ጥያቄ ተልኳል። አስተዳዳሪ ወደ ቴሌብርዎ ይልካል።'
+            : 'Request sent. Admin will pay your Telebirr.',
+        );
+        if (typeof json.balance === 'number') {
+          setSessionUser({ ...user, balance: json.balance });
+        }
+        await load();
+      }
+    } catch (e) {
+      flash('err', e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function startDeposit() {
     if (!user) return;
@@ -372,7 +443,6 @@ export default function WalletPage() {
             </p>
           </div>
 
-          {/* Primary: transaction number only */}
           <TelebirrClaimForm />
 
           <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
@@ -437,11 +507,120 @@ export default function WalletPage() {
       )}
 
       {tab === 'withdraw' && (
-        <div className="rounded-2xl border border-white/10 bg-black/30 p-5 text-center">
-          <ArrowUpFromLine className="mx-auto h-8 w-8 text-white/25" />
-          <p className="mt-3 text-sm text-white/55">
-            {am ? 'ማውጣት የአስተዳዳሪ ፈቃድ ይፈልጋል።' : 'Withdrawals require admin approval.'}
-          </p>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs leading-relaxed text-amber-100/80">
+            {am
+              ? 'ገንዘብዎ ከቴሌብር ሂሳብዎ ይላካል። አስተዳዳሪ ከንግድ ቴሌብር (0977832379) በእጅ ይልካል። ቀሪ ሂሳብዎ እስከ ክፍያ ወይም ውድቅ ድረስ ይያዛል።'
+              : 'Payout goes to YOUR Telebirr number. Admin sends from merchant Telebirr (0977832379). Balance is held until paid or rejected.'}
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/40">
+              {am ? 'መጠን (ብር)' : 'Amount (ETB)'}
+            </p>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {WD_PRESETS.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setWdAmount(String(n))}
+                  className={clsx(
+                    'rounded-full px-3 py-1.5 text-xs font-bold',
+                    wdAmount === String(n)
+                      ? 'bg-amber-400 text-black'
+                      : 'border border-white/10 text-white/60',
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setWdAmount(String(Math.floor(Number(user?.balance || 0))))
+                }
+                className="rounded-full border border-equb-500/30 px-3 py-1.5 text-xs font-bold text-equb-300"
+              >
+                {am ? 'ሁሉም' : 'Max'}
+              </button>
+            </div>
+            <input
+              type="number"
+              min={wdMin}
+              value={wdAmount}
+              onChange={(e) => setWdAmount(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 font-mono text-lg font-bold text-white"
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/40">
+              {am ? 'የቴሌብር ቁጥርዎ (ለመቀበል)' : 'Your Telebirr number (to receive)'}
+            </p>
+            <div className="relative">
+              <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+              <input
+                type="tel"
+                inputMode="numeric"
+                placeholder="09xxxxxxxx"
+                value={wdPhone}
+                onChange={(e) => setWdPhone(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-black/40 py-3 pl-10 pr-4 font-mono text-sm text-white"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy || !user}
+            onClick={() => void requestWithdraw()}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 text-sm font-black text-black shadow-lg shadow-amber-500/25 disabled:opacity-40"
+          >
+            <ArrowUpFromLine className="h-4 w-4" />
+            {busy
+              ? am
+                ? 'በመላክ ላይ…'
+                : 'Submitting…'
+              : am
+                ? 'ማውጣት ጠይቅ'
+                : 'Request withdrawal'}
+          </button>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/40">
+              {am ? 'የማውጣት ታሪክ' : 'Withdrawal history'}
+            </p>
+            <ul className="space-y-2">
+              {withdrawals.length === 0 && (
+                <p className="rounded-xl border border-white/5 py-6 text-center text-xs text-white/35">
+                  {am ? 'ገና ጥያቄ የለም' : 'No requests yet'}
+                </p>
+              )}
+              {withdrawals.map((w) => (
+                <li
+                  key={w.id}
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-black/30 px-4 py-3"
+                >
+                  <div>
+                    <p className="font-mono font-bold text-gold-400">
+                      {Number(w.amount).toFixed(2)} ETB
+                    </p>
+                    <p className="text-[10px] text-white/40">→ {w.payoutPhone}</p>
+                  </div>
+                  <span
+                    className={clsx(
+                      'text-[10px] font-bold uppercase',
+                      w.status === 'PENDING' && 'text-amber-300',
+                      w.status === 'PAID' && 'text-equb-300',
+                      w.status === 'REJECTED' && 'text-red-300',
+                    )}
+                  >
+                    {w.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -464,9 +643,15 @@ export default function WalletPage() {
                 <p className="text-[10px] text-white/40">{d.merchantOrderId}</p>
               </div>
               <span className="flex items-center gap-1 text-xs uppercase text-white/50">
-                {d.status === 'CONFIRMED' && <CheckCircle2 className="h-3.5 w-3.5 text-equb-400" />}
-                {d.status === 'PENDING' && <Clock className="h-3.5 w-3.5 text-amber-400" />}
-                {d.status === 'FAILED' && <XCircle className="h-3.5 w-3.5 text-red-400" />}
+                {d.status === 'CONFIRMED' && (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-equb-400" />
+                )}
+                {d.status === 'PENDING' && (
+                  <Clock className="h-3.5 w-3.5 text-amber-400" />
+                )}
+                {d.status === 'FAILED' && (
+                  <XCircle className="h-3.5 w-3.5 text-red-400" />
+                )}
                 {d.status}
               </span>
             </li>
