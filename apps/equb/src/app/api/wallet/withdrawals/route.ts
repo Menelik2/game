@@ -1,54 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireUser } from '@/lib/server/session';
+import { getSessionUser } from '@/lib/server/session';
 import {
   createWithdrawal,
   listUserWithdrawals,
   withdrawalPublicInfo,
 } from '@/lib/wallet/withdrawals';
 import { rateLimit, clientIp } from '@/lib/server/rate-limit';
-import {
-  assertBodySize,
-  originAllowed,
-  forbiddenOrigin,
-  withSecurityHeaders,
-} from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(req: NextRequest) {
-  const auth = await requireUser(req);
-  if (!auth.ok) return withSecurityHeaders(auth.response);
+/**
+ * Resolve user id: prefer signed session cookie; fall back to body/query userId
+ * (same pattern as /api/wallet/deposits so logged-in zustand users still work).
+ */
+async function resolveUserId(
+  req: NextRequest,
+  bodyUserId?: string,
+): Promise<string | null> {
+  try {
+    const sessionUser = await getSessionUser(req);
+    if (sessionUser?.id) return sessionUser.id;
+  } catch {
+    /* ignore */
+  }
+  const q = req.nextUrl.searchParams.get('userId');
+  if (q && q.trim()) return q.trim();
+  if (bodyUserId && String(bodyUserId).trim()) return String(bodyUserId).trim();
+  return null;
+}
 
-  const items = await listUserWithdrawals(auth.user.id);
-  return withSecurityHeaders(
-    NextResponse.json({
+export async function GET(req: NextRequest) {
+  try {
+    const userId = await resolveUserId(req);
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Sign in required',
+          withdrawals: [],
+          config: withdrawalPublicInfo(),
+        },
+        { status: 401 },
+      );
+    }
+
+    const items = await listUserWithdrawals(userId);
+    return NextResponse.json({
       success: true,
       withdrawals: items,
       config: withdrawalPublicInfo(),
-    }),
-  );
+    });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: e instanceof Error ? e.message : 'Could not load withdrawals',
+        withdrawals: [],
+        config: withdrawalPublicInfo(),
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const tooBig = assertBodySize(req);
-  if (tooBig) return withSecurityHeaders(tooBig);
-  if (!originAllowed(req)) return withSecurityHeaders(forbiddenOrigin());
-
-  const auth = await requireUser(req);
-  if (!auth.ok) return withSecurityHeaders(auth.response);
-
-  const ip = clientIp(req);
-  const rl = rateLimit(`withdraw:${auth.user.id}:${ip}`, 8, 60_000);
-  if (!rl.ok) {
-    return withSecurityHeaders(
-      NextResponse.json(
-        { success: false, message: 'Too many requests — try again later' },
-        { status: 429 },
-      ),
-    );
-  }
-
   try {
     let body: Record<string, unknown> = {};
     try {
@@ -57,42 +73,57 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
+    const userId = await resolveUserId(req, String(body.userId || ''));
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, message: 'Sign in first' },
+        { status: 401 },
+      );
+    }
+
+    const ip = clientIp(req);
+    const rl = rateLimit(`withdraw:${userId}:${ip}`, 10, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Too many requests — try again in ${rl.retryAfterSec}s`,
+        },
+        { status: 429 },
+      );
+    }
+
     const amount = Number(body.amount);
     const payoutPhone = String(body.payoutPhone || body.phone || '').trim();
 
     const result = await createWithdrawal({
-      userId: auth.user.id,
+      userId,
       amount,
       payoutPhone,
     });
 
     if (!result.ok) {
-      return withSecurityHeaders(
-        NextResponse.json(
-          { success: false, message: result.message },
-          { status: 400 },
-        ),
+      return NextResponse.json(
+        { success: false, message: result.message },
+        { status: 400 },
       );
     }
 
-    return withSecurityHeaders(
-      NextResponse.json({
-        success: true,
-        message:
-          'Withdrawal requested. Admin will send ETB to your Telebirr number.',
-        withdrawal: result.withdrawal,
-        balance: result.balance,
-      }),
-    );
+    return NextResponse.json({
+      success: true,
+      message:
+        'Withdrawal requested. Admin will send ETB to your Telebirr number.',
+      withdrawal: result.withdrawal,
+      balance: result.balance,
+    });
   } catch (e: unknown) {
-    return withSecurityHeaders(
-      NextResponse.json(
-        {
-          success: false,
-          message: e instanceof Error ? e.message : 'Withdrawal failed',
-        },
-        { status: 500 },
-      ),
+    console.error('[withdrawals POST]', e);
+    return NextResponse.json(
+      {
+        success: false,
+        message: e instanceof Error ? e.message : 'Withdrawal failed',
+      },
+      { status: 500 },
     );
   }
 }

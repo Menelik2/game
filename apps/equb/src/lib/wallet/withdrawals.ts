@@ -22,11 +22,14 @@ import {
 
 export type { StoredWithdrawal as Withdrawal, WithdrawalStatus };
 
-function normalizePhone(raw: string): string | null {
-  const d = String(raw || '').replace(/\D/g, '');
+/** Accept 09xxxxxxxx, +2519xxxxxxxx, 2519xxxxxxxx */
+export function normalizePayoutPhone(raw: string): string | null {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (d.startsWith('251') && d.length >= 12) {
+    d = '0' + d.slice(3);
+  }
+  if (d.length === 9 && d.startsWith('9')) d = '0' + d;
   if (d.length === 10 && d.startsWith('09')) return d;
-  if (d.length === 12 && d.startsWith('2519')) return '0' + d.slice(3);
-  if (d.length === 9 && d.startsWith('9')) return '0' + d;
   return null;
 }
 
@@ -61,9 +64,15 @@ export async function createWithdrawal(input: {
   | { ok: false; message: string }
 > {
   const amount = Math.round(Number(input.amount) * 100) / 100;
-  const settings = getPlatformSettings();
-  const minW = Math.max(10, Number(settings.minDepositEtb) || 50);
-  const maxW = Math.max(minW, Number(settings.maxDepositEtb) || 100_000);
+  let minW = 50;
+  let maxW = 100_000;
+  try {
+    const settings = getPlatformSettings();
+    minW = Math.max(10, Number(settings.minDepositEtb) || 50);
+    maxW = Math.max(minW, Number(settings.maxDepositEtb) || 100_000);
+  } catch {
+    /* defaults */
+  }
 
   if (!Number.isFinite(amount) || amount < minW) {
     return { ok: false, message: `Minimum withdrawal is ${minW} ETB` };
@@ -72,18 +81,30 @@ export async function createWithdrawal(input: {
     return { ok: false, message: `Maximum withdrawal is ${maxW} ETB` };
   }
 
-  const payoutPhone = normalizePhone(input.payoutPhone);
+  const payoutPhone = normalizePayoutPhone(input.payoutPhone);
   if (!payoutPhone) {
     return {
       ok: false,
-      message: 'Enter a valid Ethiopian Telebirr number (09xxxxxxxx)',
+      message: 'Enter a valid Telebirr number (09xxxxxxxx or +2519xxxxxxxx)',
     };
   }
 
-  const user = isDbConfigured() ? await dbGetUser(input.userId) : null;
-  const bal = user
-    ? Number(user.balance)
-    : Number(ensureWallet(input.userId).balance);
+  let userName = 'Player';
+  let userPhone = '';
+  let bal = 0;
+
+  if (isDbConfigured()) {
+    const user = await dbGetUser(input.userId);
+    if (!user) {
+      return { ok: false, message: 'User not found — please sign in again' };
+    }
+    userName = user.fullName || 'Player';
+    userPhone = user.phone || '';
+    bal = Number(user.balance);
+  } else {
+    bal = Number(ensureWallet(input.userId).balance);
+  }
+
   if (!Number.isFinite(bal) || bal < amount) {
     return {
       ok: false,
@@ -105,8 +126,8 @@ export async function createWithdrawal(input: {
   const withdrawal: StoredWithdrawal = {
     id: randomUUID(),
     userId: input.userId,
-    userName: user?.fullName || 'Player',
-    userPhone: user?.phone || '',
+    userName,
+    userPhone,
     amount,
     currency: 'ETB',
     payoutPhone,
@@ -118,7 +139,24 @@ export async function createWithdrawal(input: {
     paidAt: null,
   };
 
-  await dbSaveWithdrawal(withdrawal);
+  try {
+    await dbSaveWithdrawal(withdrawal);
+  } catch (e) {
+    // Refund if we cannot store the request
+    try {
+      await creditUser(input.userId, amount);
+    } catch {
+      /* ignore */
+    }
+    return {
+      ok: false,
+      message:
+        e instanceof Error
+          ? e.message
+          : 'Could not save withdrawal — try again',
+    };
+  }
+
   return { ok: true, withdrawal, balance };
 }
 
@@ -208,14 +246,25 @@ export async function adminRejectWithdrawal(input: {
 }
 
 export function withdrawalPublicInfo() {
-  const merchant = telebirrPublicConfig();
-  const settings = getPlatformSettings();
-  return {
-    minWithdraw: Math.max(10, settings.minDepositEtb || 50),
-    maxWithdraw: Math.max(50, settings.maxDepositEtb || 100_000),
-    merchantPhone: merchant.merchantPhone,
-    merchantName: merchant.merchantName,
-    instruction:
-      'Admin sends your withdrawal to the Telebirr number you provide. Funds are held from your balance until paid or rejected.',
-  };
+  try {
+    const merchant = telebirrPublicConfig();
+    const settings = getPlatformSettings();
+    return {
+      minWithdraw: Math.max(10, settings.minDepositEtb || 50),
+      maxWithdraw: Math.max(50, settings.maxDepositEtb || 100_000),
+      merchantPhone: merchant.merchantPhone,
+      merchantName: merchant.merchantName,
+      instruction:
+        'Admin sends your withdrawal to the Telebirr number you provide. Funds are held from your balance until paid or rejected.',
+    };
+  } catch {
+    return {
+      minWithdraw: 50,
+      maxWithdraw: 100_000,
+      merchantPhone: '0977832379',
+      merchantName: 'Menelik',
+      instruction:
+        'Admin sends your withdrawal to the Telebirr number you provide.',
+    };
+  }
 }
