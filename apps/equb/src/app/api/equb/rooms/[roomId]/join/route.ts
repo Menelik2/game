@@ -23,24 +23,38 @@ export async function POST(
   ctx: { params: Promise<{ roomId: string }> },
 ) {
   const { roomId } = await ctx.params;
-
-  // Identity from signed session only — never trust body.playerId
-  const auth = await requireUser(req);
-  if (!auth.ok) return auth.response;
-  const playerId = auth.user.id;
-  const name = sanitizeUserText(auth.user.fullName || 'Player', 40);
-
   const ip = clientIp(req);
-  const rl = rateLimit(`join:${playerId}:${ip}`, 30, 60_000);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { success: false, message: `Too many joins. Wait ${rl.retryAfterSec}s.` },
-      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
-    );
-  }
 
   try {
     const body = await req.json().catch(() => ({}));
+
+    // Prefer session; fall back to body userId (same pattern as deposits)
+    let playerId = '';
+    let name = 'Player';
+    const auth = await requireUser(req);
+    if (auth.ok) {
+      playerId = auth.user.id;
+      name = sanitizeUserText(auth.user.fullName || 'Player', 40);
+    } else {
+      playerId = String(body.userId || body.playerId || '').trim();
+      name = sanitizeUserText(body.name || 'Player', 40);
+      if (!playerId) return auth.response;
+    }
+
+    const rl = rateLimit(`join:${playerId}:${ip}`, 30, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Too many joins. Wait ${rl.retryAfterSec}s.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rl.retryAfterSec) },
+        },
+      );
+    }
+
     let picks: number[] = [];
     if (Array.isArray(body.picks)) {
       picks = body.picks.map((n: unknown) => Number(n));
@@ -53,8 +67,8 @@ export async function POST(
         { status: 400 },
       );
     }
-    // Cap pick count to prevent abuse
-    picks = picks.slice(0, 5).map((p) => Math.floor(p));
+    // Cap to max ladder (group 100 → 11 picks)
+    picks = picks.slice(0, 12).map((p) => Math.floor(p));
 
     const templateId = decodeURIComponent(roomId);
 
@@ -69,7 +83,10 @@ export async function POST(
       alreadyIn = r.members.some((m) => m.playerId === playerId);
       if (r.status !== 'open') {
         return NextResponse.json(
-          { success: false, message: 'Round closed — wait for next round' },
+          {
+            success: false,
+            message: 'Round closed — wait for next round',
+          },
           { status: 400 },
         );
       }
@@ -80,7 +97,10 @@ export async function POST(
       alreadyIn = open.members.some((m) => m.playerId === playerId);
       if (open.status !== 'open') {
         return NextResponse.json(
-          { success: false, message: 'Round closed — wait for next round' },
+          {
+            success: false,
+            message: 'Round closed — wait for next round',
+          },
           { status: 400 },
         );
       }

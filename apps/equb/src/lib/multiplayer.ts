@@ -1,15 +1,12 @@
-/**
- * Multiplayer client — prefers same-origin /api (Vercel) then NEXT_PUBLIC_API_URL.
- */
+/** Client multiplayer API — always sends session cookies */
 
 function resolveApiBase(): string {
-  const env = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
-  if (typeof window === 'undefined') return env;
-  if (!env) return '';
+  const env =
+    (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) || '';
+  if (env) return env.replace(/\/$/, '');
   try {
-    const u = new URL(env);
     if (
-      (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
+      typeof window !== 'undefined' &&
       window.location.hostname !== 'localhost' &&
       window.location.hostname !== '127.0.0.1'
     ) {
@@ -146,13 +143,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(apiUrl(path), {
       ...init,
       signal: ctrl.signal,
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
       cache: 'no-store',
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg =
-        (Array.isArray(json?.message) ? json.message.join(', ') : json?.message) ||
+        (Array.isArray(json?.message)
+          ? json.message.join(', ')
+          : json?.message) ||
         json?.error?.message ||
         `HTTP ${res.status}`;
       throw new Error(msg);
@@ -172,9 +172,7 @@ export async function joinRoomWithBalance(
   pickOrPicks: number | number[],
 ): Promise<{ room: ServerRoom; balance?: number; fee?: number }> {
   const { playerId, name } = getPlayerIdentity();
-  const picks = (
-    Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks]
-  )
+  const picks = (Array.isArray(pickOrPicks) ? pickOrPicks : [pickOrPicks])
     .map((n) => Math.floor(Number(n)))
     .filter((n) => Number.isFinite(n) && n > 0);
 
@@ -190,6 +188,7 @@ export async function joinRoomWithBalance(
       {
         method: 'POST',
         signal: ctrl.signal,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
         body: JSON.stringify({
@@ -220,17 +219,23 @@ export async function probeApi(): Promise<boolean> {
   const env = resolveApiBase();
   if (env) bases.push(env);
   for (const base of bases) {
-    for (const path of ['/api/health', '/api/equb/ping', '/api/equb/templates']) {
+    for (const path of [
+      '/api/health',
+      '/api/equb/ping',
+      '/api/equb/templates',
+    ]) {
       try {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 4_000);
         const res = await fetch(`${base}${path}`, {
           signal: ctrl.signal,
           cache: 'no-store',
+          credentials: 'include',
         });
         clearTimeout(timer);
         if (res.ok) {
-          if (typeof window !== 'undefined') (window as any).__equbApiBase = base;
+          if (typeof window !== 'undefined')
+            (window as any).__equbApiBase = base;
           return true;
         }
       } catch {
@@ -250,10 +255,10 @@ export function listLiveRooms() {
 }
 
 export function openRoom(templateId: string) {
-  return req<ServerRoom>(`/equb/rooms/${encodeURIComponent(templateId)}/open`, {
-    method: 'POST',
-    body: '{}',
-  });
+  return req<ServerRoom>(
+    `/equb/rooms/${encodeURIComponent(templateId)}/open`,
+    { method: 'POST', body: '{}' },
+  );
 }
 
 export function fetchRoom(id: string) {
@@ -267,49 +272,40 @@ export function joinRoom(templateId: string, pickOrPicks: number | number[]) {
 export type ServerWallet = {
   playerId: string;
   balance: number;
-  updatedAt: number;
-  version: number;
 };
 
-function walletBase(): string {
-  const override =
-    typeof window !== 'undefined' ? (window as any).__equbApiBase : undefined;
-  return override !== undefined && override !== null
-    ? String(override)
-    : resolveApiBase();
-}
-
-export async function fetchServerWallet(playerId: string): Promise<ServerWallet> {
-  const res = await fetch(
-    `${walletBase()}/api/wallet/${encodeURIComponent(playerId)}`,
-  );
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.message || 'Wallet fetch failed');
-  return (json.data || json) as ServerWallet;
+export async function fetchServerWallet(
+  playerId: string,
+): Promise<ServerWallet> {
+  return req<ServerWallet>(`/wallet/${encodeURIComponent(playerId)}`);
 }
 
 export function subscribeServerBalance(
   playerId: string,
-  onEvent: (ev: {
-    balance: number;
-    delta?: number;
-    reason?: string;
-    version?: number;
-  }) => void,
+  onBal: (ev: { balance: number }) => void,
 ): () => void {
   if (typeof window === 'undefined') return () => {};
-  const es = new EventSource(
-    `${walletBase()}/api/wallet/${encodeURIComponent(playerId)}/stream`,
-  );
-  es.onmessage = (msg) => {
+  let es: EventSource | null = null;
+  try {
+    es = new EventSource(
+      apiUrl(`/wallet/${encodeURIComponent(playerId)}/stream`),
+    );
+    es.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+        if (typeof data.balance === 'number') onBal({ balance: data.balance });
+      } catch {
+        /* */
+      }
+    };
+  } catch {
+    /* */
+  }
+  return () => {
     try {
-      const data = JSON.parse(msg.data);
-      if (data?.type === 'snapshot' && data.data)
-        onEvent({ balance: data.data.balance, version: data.data.version });
-      else if (typeof data?.balance === 'number') onEvent(data);
+      es?.close();
     } catch {
-      /* ignore */
+      /* */
     }
   };
-  return () => es.close();
 }
