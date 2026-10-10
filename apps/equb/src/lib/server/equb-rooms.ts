@@ -1,5 +1,9 @@
 import { randomBytes, createHash } from 'crypto';
-import { computePayout, settleWinPayout } from './wallet-settle';
+import {
+  computePayout,
+  settleWinPayout,
+  refundJoinFee,
+} from './wallet-settle';
 import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-players';
 
 const ROUND_MS = 60_000;
@@ -49,11 +53,18 @@ const g = globalThis as unknown as { __equbRooms?: Map<string, Room> };
 if (!g.__equbRooms) g.__equbRooms = new Map();
 const rooms = g.__equbRooms;
 
+/** 5→1, 10→2, … 100→11 */
 function maxPicks(groupSize: number) {
+  const ladder = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
   const size = Math.floor(Number(groupSize) || 0);
+  const idx = ladder.indexOf(size as (typeof ladder)[number]);
+  if (idx >= 0) return idx + 1;
   if (size <= 5) return 1;
-  return 2;
+  if (size <= 10) return 2;
+  return Math.min(11, Math.max(1, Math.ceil(size / 10)));
 }
+
+const MIN_PLAYERS = 5;
 
 function memberPicks(m: Member): number[] {
   if (m.picks && m.picks.length) return m.picks;
@@ -95,44 +106,26 @@ export function withTimer(room: Room): Room {
 
 function createRoom(templateId: string): Room {
   const match = /^equb-(\d+)-(\d+)$/.exec(templateId);
-  if (!match) {
+  let groupSize: number;
+  let prizePool: number;
+  if (match) {
+    groupSize = Number(match[1]);
+    prizePool = Number(match[2]);
+  } else {
     const parts = String(templateId).split('-');
-    const groupSize = Number(parts[parts[0] === 'equb' ? 1 : 0]) || 10;
-    const prizePool = Number(parts[parts[0] === 'equb' ? 2 : 1]) || 1000;
-    const contribution = contributionOf(prizePool, groupSize);
-    const now = Date.now();
-    const room: Room = {
-      id: `${templateId}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-      templateId,
-      groupSize,
-      prizePool,
-      contribution,
-      tier: prizePool <= 500 ? 'entry' : prizePool < 10000 ? 'low' : 'mid',
-      status: 'open',
-      members: [],
-      winningNumber: null,
-      winnerId: null,
-      winnerName: null,
-      adminFee: null,
-      winnerPayout: null,
-      paidOut: false,
-      entropyHex: null,
-      commitmentHash: null,
-      drawAt: now + ROUND_MS,
-      secondsLeft: ROUND_MS / 1000,
-      createdAt: now,
-      updatedAt: now,
-      recent: [],
-    };
-    rooms.set(room.id, room);
-    return room;
+    groupSize = Number(parts[parts[0] === 'equb' ? 1 : 0]) || 10;
+    prizePool = Number(parts[parts[0] === 'equb' ? 2 : 1]) || 1000;
   }
-  const groupSize = parseInt(match[1], 10);
-  const prizePool = parseInt(match[2], 10);
+  if (!GROUP_SIZES.includes(groupSize)) {
+    groupSize = GROUP_SIZES.reduce((a, b) =>
+      Math.abs(b - groupSize) < Math.abs(a - groupSize) ? b : a,
+    );
+  }
   const contribution = contributionOf(prizePool, groupSize);
   const now = Date.now();
-  const room: Room = {
-    id: `${templateId}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+  const id = `${templateId}-${now}`;
+  return {
+    id,
     templateId,
     groupSize,
     prizePool,
@@ -154,14 +147,10 @@ function createRoom(templateId: string): Room {
     updatedAt: now,
     recent: [],
   };
-  rooms.set(room.id, room);
-  return room;
 }
 
-export function buildCatalog(maxPrize = 9000) {
-  const pools: number[] = [500];
-  for (let p = 1000; p <= 9000; p += 1000) pools.push(p);
-  for (let p = 10000; p <= 90000; p += 10000) pools.push(p);
+export function listTemplates() {
+  const prizes = [500, 1000, 2000, 5000, 9000, 10000, 20000, 50000, 90000];
   const out: Array<{
     id: string;
     groupSize: number;
@@ -169,14 +158,13 @@ export function buildCatalog(maxPrize = 9000) {
     contribution: number;
     tier: string;
   }> = [];
-  for (const size of GROUP_SIZES) {
-    for (const prize of pools) {
-      if (prize > maxPrize) continue;
+  for (const groupSize of GROUP_SIZES) {
+    for (const prize of prizes) {
       out.push({
-        id: `equb-${size}-${prize}`,
-        groupSize: size,
+        id: `equb-${groupSize}-${prize}`,
+        groupSize,
         prizePool: prize,
-        contribution: contributionOf(prize, size),
+        contribution: contributionOf(prize, groupSize),
         tier: prize <= 500 ? 'entry' : prize < 10000 ? 'low' : 'mid',
       });
     }
@@ -221,7 +209,8 @@ export async function maybeDrawAsync(room: Room): Promise<Room> {
   if (Date.now() < room.drawAt) return withTimer(room);
 
   room.members = realMembers(room);
-  if (seatsTaken(room) < 1) {
+  const humans = realMembers(room);
+  if (humans.length < MIN_PLAYERS) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
     rooms.set(room.id, room);
@@ -231,50 +220,71 @@ export async function maybeDrawAsync(room: Room): Promise<Room> {
   room.status = 'drawing';
   rooms.set(room.id, room);
 
-  const humans = realMembers(room);
-  const allPicks: { member: Member; n: number }[] = [];
-  for (const m of humans) {
-    for (const n of memberPicks(m)) allPicks.push({ member: m, n });
-  }
-  if (allPicks.length === 0) {
-    room.status = 'open';
-    room.drawAt = Date.now() + ROUND_MS;
-    rooms.set(room.id, room);
-    return withTimer(room);
-  }
+  // Fair RNG: 1..groupSize (NOT only from selected picks)
+  const entropy = randomBytes(32);
+  const entropyHex = entropy.toString('hex');
+  const n = Math.max(1, Math.floor(room.groupSize) || 1);
+  const winningNumber = (entropy.readUInt32BE(0) % n) + 1;
+  const commitmentHash = createHash('sha256').update(entropy).digest('hex');
 
-  const entropyHex = randomBytes(16).toString('hex');
-  const buf = randomBytes(4);
-  const idx = buf.readUInt32BE(0) % allPicks.length;
-  const chosen = allPicks[idx]!;
-  const winningNumber = chosen.n;
-  const winner = chosen.member;
+  const unit = Number(room.contribution) || 0;
+  const pot =
+    Math.round(
+      humans.reduce((s, m) => s + unit * memberPicks(m).length, 0) * 100,
+    ) / 100;
 
-  const { adminFee, winnerPayout } = computePayout(room.prizePool);
+  const winners = humans.filter((m) => memberPicks(m).includes(winningNumber));
 
   room.winningNumber = winningNumber;
-  room.winnerId = winner.playerId;
-  room.winnerName = winner.name;
-  room.adminFee = adminFee;
-  room.winnerPayout = winnerPayout;
   room.entropyHex = entropyHex;
-  room.commitmentHash = createHash('sha256')
-    .update(`${entropyHex}:${winningNumber}`)
-    .digest('hex');
+  room.commitmentHash = commitmentHash;
   room.updatedAt = Date.now();
   room.members = humans;
 
-  if (winner.playerId && winnerPayout > 0 && !room.paidOut) {
-    try {
-      await settleWinPayout({
-        userId: winner.playerId,
-        amount: winnerPayout,
-        roomId: room.id,
-        winningNumber,
-      });
-      room.paidOut = true;
-    } catch {
-      room.paidOut = false;
+  if (pot <= 0) {
+    room.adminFee = 0;
+    room.winnerPayout = 0;
+    room.winnerId = null;
+    room.winnerName = null;
+    room.paidOut = false;
+  } else if (winners.length === 1) {
+    const { adminFee, winnerPayout } = computePayout(pot);
+    room.adminFee = adminFee;
+    room.winnerPayout = winnerPayout;
+    const winner = winners[0]!;
+    room.winnerId = winner.playerId;
+    room.winnerName = winner.name;
+    if (winner.playerId && winnerPayout > 0 && !room.paidOut) {
+      try {
+        await settleWinPayout({
+          userId: winner.playerId,
+          amount: winnerPayout,
+          roomId: room.id,
+          winningNumber,
+        });
+        room.paidOut = true;
+      } catch {
+        room.paidOut = false;
+      }
+    }
+  } else {
+    room.adminFee = 0;
+    room.winnerPayout = 0;
+    room.winnerId = null;
+    room.winnerName = winners.length > 1 ? 'Tie' : null;
+    room.paidOut = false;
+    for (const m of humans) {
+      const fee = Math.round(unit * memberPicks(m).length * 100) / 100;
+      if (fee <= 0) continue;
+      try {
+        await refundJoinFee({
+          userId: m.playerId,
+          amount: fee,
+          roomId: room.id,
+        });
+      } catch {
+        /* best effort */
+      }
     }
   }
 
@@ -283,9 +293,9 @@ export async function maybeDrawAsync(room: Room): Promise<Room> {
     {
       id: room.id,
       winningNumber,
-      winnerName: winner.name,
-      winnerId: winner.playerId,
-      pot: room.prizePool,
+      winnerName: room.winnerName || '',
+      winnerId: room.winnerId || undefined,
+      pot,
       at: Date.now(),
     },
     ...(room.recent || []).filter(
@@ -302,7 +312,7 @@ export function maybeDraw(room: Room): Room {
   }
   if (room.status !== 'open') return withTimer(room);
   if (Date.now() < room.drawAt) return withTimer(room);
-  if (seatsTaken(room) < 1) {
+  if (realMembers(room).length < MIN_PLAYERS) {
     room.drawAt = Date.now() + ROUND_MS;
     room.updatedAt = Date.now();
     rooms.set(room.id, room);
@@ -373,3 +383,5 @@ export function listRooms(): Room[] {
     return withTimer(rooms.get(r.id) || r);
   });
 }
+
+export { MIN_PLAYERS, ROUND_MS, GROUP_SIZES };
