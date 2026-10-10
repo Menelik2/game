@@ -170,7 +170,6 @@ export default function RoomsPage() {
         <LanguageSwitcher />
       </div>
 
-      {/* Progress: 2 steps only */}
       <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-black/30 p-2">
         <button
           type="button"
@@ -216,7 +215,6 @@ export default function RoomsPage() {
         </button>
       </div>
 
-      {/* Live rooms on step 1 */}
       {multiplayer && liveOk && liveDisplay.length > 0 && step === 1 && (
         <section className="animate-fade-up glass relative overflow-hidden rounded-2xl p-3">
           <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-equb-300">
@@ -244,33 +242,32 @@ export default function RoomsPage() {
         </section>
       )}
 
-      {/* STEP 1 — Players only */}
       {step === 1 && (
-        <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
+        <section className="animate-fade-up glass space-y-3 rounded-2xl p-4">
           <div className="text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-equb-500/20 text-equb-300">
-              <Users className="h-7 w-7" />
+            <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-equb-500/20 text-equb-300">
+              <Users className="h-5 w-5" />
             </div>
-            <h2 className="text-lg font-black text-white">
+            <h2 className="text-base font-black text-white sm:text-lg">
               {am ? 'ስንት ተጫዋቾች?' : 'How many players?'}
             </h2>
-            <p className="mt-1 text-sm text-white/50">
+            <p className="mt-1 text-xs text-white/50">
               {am
                 ? 'የቡድን መጠን ይምረጡ · ቢያንስ 5 ሰዎች ያስፈልጋሉ'
                 : 'Choose group size · at least 5 players needed'}
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
             {GROUP_SIZES.map((g) => (
               <button
                 key={g}
                 type="button"
                 onClick={() => selectPlayers(g)}
                 className={clsx(
-                  'rounded-2xl border-2 py-4 text-lg font-black transition active:scale-95',
+                  'rounded-xl border py-2 text-sm font-bold transition active:scale-95 sm:py-2.5 sm:text-base',
                   groupSize === g
-                    ? 'border-equb-400 bg-equb-500 text-white shadow-lg shadow-equb-500/30'
+                    ? 'border-equb-400 bg-equb-500 text-white shadow-md shadow-equb-500/25'
                     : 'border-white/10 bg-black/30 text-white/80 hover:border-equb-500/40',
                 )}
               >
@@ -287,10 +284,9 @@ export default function RoomsPage() {
         </section>
       )}
 
-      {/* STEP 2 — Numbers + Birr on SAME page */}
       {step === 2 && groupSize != null && (
-        <div className="space-y-4">
-          <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
+        <div className="space-y-3">
+          <section className="animate-fade-up glass space-y-3 rounded-2xl p-4">
             <div className="flex items-start justify-between gap-2">
               <button
                 type="button"
@@ -314,13 +310,13 @@ export default function RoomsPage() {
             </div>
 
             <div className="text-center">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300">
-                <Hash className="h-7 w-7" />
+              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+                <Hash className="h-5 w-5" />
               </div>
-              <h2 className="text-lg font-black text-white">
+              <h2 className="text-base font-black text-white sm:text-lg">
                 {am ? 'ቁጥርዎን ይምረጡ' : 'Pick your numbers'}
               </h2>
-              <p className="mt-1 text-sm text-white/50">
+              <p className="mt-1 text-xs text-white/50">
                 {am
                   ? `ከ 1 እስከ ${groupSize} · ከፍተኛ ${maxPicks} ቁጥር`
                   : `From 1 to ${groupSize} · max ${maxPicks}`}
@@ -352,24 +348,23 @@ export default function RoomsPage() {
             )}
           </section>
 
-          {/* Birr — same step, appears under numbers after pick */}
           {picks.length > 0 && (
-            <section className="animate-fade-up glass space-y-4 rounded-2xl p-5">
+            <section className="animate-fade-up glass space-y-3 rounded-2xl p-4">
               <div className="text-center">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-500/15 text-gold-300">
-                  <Trophy className="h-7 w-7" />
+                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-gold-500/15 text-gold-300">
+                  <Trophy className="h-5 w-5" />
                 </div>
-                <h2 className="text-lg font-black text-white">
+                <h2 className="text-base font-black text-white sm:text-lg">
                   {am ? 'በስንት ብር ይጫወታሉ?' : 'How much Birr?'}
                 </h2>
-                <p className="mt-1 text-sm text-white/50">
+                <p className="mt-1 text-xs text-white/50">
                   {am
                     ? 'የሽልማት / ጨዋታ መጠን ይምረጡ'
                     : 'Choose the prize amount'}
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
                 {PRIZES.map((p) => (
                   <button
                     key={p}
@@ -379,9 +374,9 @@ export default function RoomsPage() {
                       setErr('');
                     }}
                     className={clsx(
-                      'rounded-2xl border-2 py-4 text-base font-black transition active:scale-95',
+                      'rounded-xl border py-2.5 text-sm font-bold transition active:scale-95',
                       prize === p
-                        ? 'border-gold-400 bg-gold-400 text-black shadow-lg shadow-gold-500/30'
+                        ? 'border-gold-400 bg-gold-400 text-black shadow-md shadow-gold-500/25'
                         : 'border-white/10 bg-black/30 text-white/85 hover:border-gold-400/40',
                     )}
                   >
@@ -391,7 +386,7 @@ export default function RoomsPage() {
               </div>
 
               {prize != null && (
-                <div className="space-y-2 rounded-2xl border border-white/10 bg-black/40 p-4">
+                <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-white/50">
                       {am ? 'መግቢያ (በ1 ቁጥር)' : 'Entry / number'}
@@ -408,7 +403,7 @@ export default function RoomsPage() {
                         {formatBirrCompact(contribution, locale)})
                       </span>
                     </span>
-                    <span className="font-mono text-lg font-black text-gold-300">
+                    <span className="font-mono text-base font-black text-gold-300">
                       {formatBirrCompact(
                         Math.round(contribution * picks.length * 100) / 100,
                         locale,
@@ -430,7 +425,7 @@ export default function RoomsPage() {
                 type="button"
                 disabled={!prize || busy}
                 onClick={() => void handleJoin()}
-                className="btn-gold relative flex w-full items-center justify-center gap-2 overflow-hidden py-3.5 text-base disabled:opacity-40"
+                className="btn-gold relative flex w-full items-center justify-center gap-2 overflow-hidden py-3 text-base disabled:opacity-40"
               >
                 {busy
                   ? '...'
