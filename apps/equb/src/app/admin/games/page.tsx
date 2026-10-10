@@ -13,7 +13,6 @@ import {
   Unlock,
   Trash2,
   UserX,
-  Radio,
   Trophy,
   Zap,
   Loader2,
@@ -231,15 +230,14 @@ export default function AdminGamesPage() {
             >
               <button
                 type="button"
-                onClick={() =>
-                  setExpanded(isExp ? null : r.templateId)
-                }
+                onClick={() => setExpanded(isExp ? null : r.templateId)}
                 className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-sm font-bold text-white">
-                      {r.groupSize} · {formatBirrCompact(r.prizePool)}
+                      {r.groupSize} ·{' '}
+                      {formatBirrCompact(Number(r.prizePool) || 0)}
                     </span>
                     <span
                       className={clsx(
@@ -353,7 +351,9 @@ export default function AdminGamesPage() {
                     <button
                       type="button"
                       disabled={!!busy || !!r.adminClosed}
-                      onClick={() => void act('extend', r.templateId, { seconds: 60 })}
+                      onClick={() =>
+                        void act('extend', r.templateId, { seconds: 60 })
+                      }
                       className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 disabled:opacity-40"
                     >
                       <Timer className="h-3.5 w-3.5" />
