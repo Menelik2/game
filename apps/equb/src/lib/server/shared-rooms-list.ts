@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import type { SharedRoom } from './shared-rooms';
 
 function sb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -27,14 +28,13 @@ function normalizeRoom(room: SharedRoom): SharedRoom {
 
 export async function listSharedOpen(): Promise<SharedRoom[]> {
   const all = await listAllSharedRooms();
-  return all.filter((room) => room.status === 'open');
+  return all.filter((room) => room.status === 'open' && !room.adminClosed);
 }
 
 /** Admin: all live room rows regardless of status */
 export async function listAllSharedRooms(): Promise<SharedRoom[]> {
   if (!isDbConfigured()) return [];
   try {
-    // Prefer ordered query; fall back without order if column/index missing
     let data: unknown[] | null = null;
     const primary = await sb()
       .from('equb_live_rooms')
@@ -114,4 +114,36 @@ export async function readSharedByTemplate(
   } catch {
     return null;
   }
+}
+
+/** Permanently remove a live room row from the database. */
+export async function deleteSharedRoom(templateId: string): Promise<boolean> {
+  if (!isDbConfigured() || !templateId) return false;
+  try {
+    const { error } = await sb()
+      .from('equb_live_rooms')
+      .delete()
+      .eq('template_id', templateId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete every room that is completed and/or admin-closed. */
+export async function deleteAllClosedSharedRooms(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const all = await listAllSharedRooms();
+  let n = 0;
+  for (const r of all) {
+    if (!r.templateId) continue;
+    const closed =
+      Boolean(r.adminClosed) ||
+      r.status === 'completed' ||
+      r.status === 'waiting';
+    if (!closed) continue;
+    const ok = await deleteSharedRoom(r.templateId);
+    if (ok) n += 1;
+  }
+  return n;
 }
