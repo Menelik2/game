@@ -63,7 +63,6 @@ export default function RoomsPage() {
       }
       setLiveOk(true);
       const roomsList = await listLiveRooms().catch(() => [] as ServerRoom[]);
-      // Show all open live rooms (with or without members)
       const open = (roomsList || [])
         .filter((r) => r.status === 'open')
         .sort((a, b) => (b.members?.length || 0) - (a.members?.length || 0));
@@ -120,7 +119,6 @@ export default function RoomsPage() {
 
     try {
       setPlayerName(user.name || 'Player');
-      // Always use LIVE shared rooms — no local-only fallback
       await openRoom(templateId);
       await mpJoin(templateId, picks);
       router.push(
@@ -135,7 +133,6 @@ export default function RoomsPage() {
     }
   }
 
-  // Prefer rooms with players, then warm empties (max 8)
   const liveWithPlayers = liveOpen.filter((r) => (r.members?.length || 0) > 0);
   const liveEmpty = liveOpen.filter((r) => (r.members?.length || 0) === 0);
   const liveDisplay = [...liveWithPlayers, ...liveEmpty].slice(0, 8);
@@ -150,7 +147,6 @@ export default function RoomsPage() {
         <LanguageSwitcher />
       </div>
 
-      {/* LIVE rooms — shared multiplayer */}
       {multiplayer && liveOk && (
         <section className="animate-fade-up glass relative overflow-hidden rounded-2xl p-4">
           <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-equb-500/20 blur-2xl" />
@@ -185,8 +181,7 @@ export default function RoomsPage() {
                         {label}
                       </span>
                       <p className="text-[10px] text-equb-300/80">
-                        {locale === 'am' ? 'ቀጥታ' : 'Live'} ·{' '}
-                        {filled}/{max}{' '}
+                        {locale === 'am' ? 'ቀጥታ' : 'Live'} · {filled}/{max}{' '}
                         {locale === 'am' ? 'ተጫዋቾች' : 'players'}
                       </p>
                     </div>
@@ -248,10 +243,17 @@ export default function RoomsPage() {
           </p>
           <NumberPickBoard
             groupSize={groupSize}
-            selected={picks}
+            picks={picks}
             maxPicks={maxPicks}
             locale={locale}
-            onChange={setPicks}
+            onToggle={(n) => {
+              setPicks((prev) => {
+                if (prev.includes(n)) return prev.filter((x) => x !== n);
+                if (prev.length >= maxPicks) return prev;
+                return [...prev, n].sort((a, b) => a - b);
+              });
+            }}
+            onClear={() => setPicks([])}
           />
         </section>
 
@@ -286,9 +288,7 @@ export default function RoomsPage() {
           <div className="grid grid-cols-3 gap-2 pt-1">
             <div className="rounded-xl border border-white/10 bg-black/30 px-2 py-2 text-center">
               <p className="text-white/40">{locale === 'am' ? 'ተጫዋቾች' : 'Players'}</p>
-              <p className="font-mono text-sm font-bold text-white">
-                {groupSize}
-              </p>
+              <p className="font-mono text-sm font-bold text-white">{groupSize}</p>
             </div>
             <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-2 py-2 text-center">
               <p className="text-cyan-300/80">{locale === 'am' ? 'መግቢያ' : 'Entry'}</p>
