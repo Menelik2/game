@@ -22,7 +22,7 @@ export function BrandLogo({
   const img = (
     <span
       className={clsx(
-        'relative shrink-0 overflow-hidden rounded-xl shadow-lg shadow-amber-500/25 ring-1 ring-white/20',
+        'relative shrink-0 overflow-hidden rounded-xl shadow-md shadow-amber-500/20 ring-1 ring-white/15',
         className,
       )}
       style={{ width: size, height: size }}
@@ -40,15 +40,16 @@ export function BrandLogo({
   );
 
   const body = (
-    <span className="flex min-w-0 items-center gap-2">
+    <span className="flex min-w-0 max-w-full items-center gap-2">
       {img}
       {showText && (
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-bold leading-tight lg:text-base">
+        <span className="min-w-0 overflow-hidden">
+          {/* Full title from sm up; short on very small screens */}
+          <span className="block truncate text-xs font-bold leading-tight text-white sm:text-sm">
             {title || 'ፋስት ቢንጎ'}
           </span>
           {subtitle !== '' && (
-            <span className="block truncate text-[10px] text-equb-400">
+            <span className="hidden truncate text-[10px] leading-tight text-equb-400 sm:block">
               {subtitle ?? 'Fast Bingo'}
             </span>
           )}
@@ -59,13 +60,22 @@ export function BrandLogo({
 
   if (href === null) return body;
   return (
-    <Link href={href} className="flex min-w-0 items-center gap-2">
+    <Link
+      href={href}
+      className="flex min-w-0 max-w-[min(100%,11rem)] items-center gap-2 sm:max-w-[14rem]"
+    >
       {body}
     </Link>
   );
 }
 
-export function BrandMark({ size = 88, className }: { size?: number; className?: string }) {
+export function BrandMark({
+  size = 88,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
     <div
       className={clsx(

@@ -18,7 +18,6 @@ function sessionIsAdmin(user: unknown): boolean {
   return (user as { role?: string }).role === 'admin';
 }
 
-/** Sensible back target when history is empty */
 function backHref(path: string): string {
   if (path.startsWith('/admin')) return '/admin';
   if (path.startsWith('/rooms/')) return '/rooms';
@@ -37,6 +36,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const isRoomsHub = path === '/rooms';
   const isAdmin = path.startsWith('/admin');
   const isAdminUser = sessionIsAdmin(user);
+  const showBack = path !== '/';
 
   const nav = [
     { href: '/', label: t.nav.home, icon: Home },
@@ -57,23 +57,37 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-surface-950 text-white">
       {!isPlay && (
-        <header className="sticky top-0 z-40 border-b border-white/5 bg-surface-950/90 backdrop-blur-xl">
+        <header className="sticky top-0 z-40 border-b border-white/5 bg-surface-950/95 backdrop-blur-xl">
           <div
             className={clsx(
-              'mx-auto flex items-center justify-between gap-2 px-4 py-3',
+              'mx-auto flex h-14 items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4',
               contentMax,
             )}
           >
-            <div className="flex min-w-0 items-center gap-2">
-              {path !== '/' && <BackButton href={backHref(path)} />}
-              <Link href="/" className="flex min-w-0 items-center gap-2">
-                <BrandLogo />
-              </Link>
+            {/* Left: back + brand */}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+              {showBack && (
+                <BackButton
+                  href={backHref(path)}
+                  label=""
+                  className="!px-2 !py-2 shrink-0"
+                />
+              )}
+              {/* BrandLogo already links to / — do not wrap again */}
+              <BrandLogo
+                size={36}
+                showText
+                className="!rounded-lg"
+              />
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+
+            {/* Right: tools — never wrap */}
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               {!isAdmin && (
                 <>
-                  <EthDateBadge short />
+                  <span className="hidden md:inline-flex">
+                    <EthDateBadge short />
+                  </span>
                   {user && <LiveBalance size="sm" />}
                 </>
               )}
@@ -81,8 +95,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {isAdminUser && !isAdmin && (
                 <Link
                   href="/admin"
-                  className="rounded-full border border-amber-500/30 bg-amber-500/10 p-2 text-amber-300"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/20"
                   title="Admin"
+                  aria-label="Admin"
                 >
                   <Shield className="h-4 w-4" />
                 </Link>
@@ -94,7 +109,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <main
         className={clsx(
-          'mx-auto w-full px-4',
+          'mx-auto w-full px-3 sm:px-4',
           contentMax,
           isPlay ? 'py-3 pb-8' : 'py-4 pb-28',
         )}
@@ -104,10 +119,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </main>
 
       {!isPlay && !isAdmin && (
-        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl">
+        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl safe-pb">
           <div
             className={clsx(
-              'mx-auto grid grid-cols-5 gap-1 px-2 py-2',
+              'mx-auto grid grid-cols-5 gap-0.5 px-1 py-1.5 sm:gap-1 sm:px-2 sm:py-2',
               contentMax,
             )}
           >
@@ -128,7 +143,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   )}
                 >
                   <Icon className="h-5 w-5" />
-                  <span className="truncate">{label}</span>
+                  <span className="max-w-full truncate">{label}</span>
                 </Link>
               );
             })}

@@ -8,23 +8,34 @@ import clsx from 'clsx';
 type Props = {
   /** Optional destination. If omitted, uses browser history back. */
   href?: string;
+  /** Empty string = icon only */
   label?: string;
   className?: string;
 };
 
 export function BackButton({ href, label = '←', className }: Props) {
   const router = useRouter();
+  const showLabel = Boolean(label && label.trim());
 
   const classes = clsx(
-    'inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10',
+    'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/10 hover:text-white',
+    showLabel && 'w-auto gap-1.5 px-3',
     className,
+  );
+
+  const inner = (
+    <>
+      <ArrowLeft className="h-4 w-4 shrink-0" />
+      {showLabel && (
+        <span className="text-xs font-semibold">{label}</span>
+      )}
+    </>
   );
 
   if (href) {
     return (
-      <Link href={href} className={classes}>
-        <ArrowLeft className="h-3.5 w-3.5" />
-        {label}
+      <Link href={href} className={classes} aria-label="Go back">
+        {inner}
       </Link>
     );
   }
@@ -36,8 +47,7 @@ export function BackButton({ href, label = '←', className }: Props) {
       className={classes}
       aria-label="Go back"
     >
-      <ArrowLeft className="h-3.5 w-3.5" />
-      {label}
+      {inner}
     </button>
   );
 }
