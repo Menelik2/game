@@ -87,7 +87,7 @@ export default function WalletPage() {
     try {
       const res = await fetch(
         `/api/wallet/deposits?userId=${encodeURIComponent(user.id)}`,
-        { cache: 'no-store' },
+        { cache: 'no-store', credentials: 'include' },
       );
       const json = await res.json();
       if (json?.success) {
@@ -107,8 +107,11 @@ export default function WalletPage() {
       /* ignore */
     }
     try {
-      const wr = await fetch('/api/wallet/withdrawals', { cache: 'no-store' });
-      const wj = await wr.json();
+      const wr = await fetch(
+        `/api/wallet/withdrawals?userId=${encodeURIComponent(user.id)}`,
+        { cache: 'no-store', credentials: 'include' },
+      );
+      const wj = await wr.json().catch(() => ({}));
       if (wj?.success) {
         setWithdrawals(wj.withdrawals || []);
         if (wj.config?.minWithdraw) setWdMin(Number(wj.config.minWithdraw));
@@ -141,16 +144,36 @@ export default function WalletPage() {
       flash('err', am ? 'በቂ ቀሪ ሂሳብ የለም' : 'Insufficient balance');
       return;
     }
+    const phone = (wdPhone || user.phone || '').trim();
+    if (!phone) {
+      flash('err', am ? 'የቴሌብር ቁጥር ያስገቡ' : 'Enter your Telebirr number');
+      return;
+    }
     setBusy(true);
+    setMsg(null);
     try {
       const res = await fetch('/api/wallet/withdrawals', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: amt, payoutPhone: wdPhone }),
+        body: JSON.stringify({
+          userId: user.id,
+          amount: amt,
+          payoutPhone: phone,
+        }),
       });
-      const json = await res.json();
-      if (!json.success) {
-        flash('err', json.message || (am ? 'አልተሳካም' : 'Failed'));
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        const m =
+          json.message ||
+          (res.status === 401
+            ? am
+              ? 'እባክዎ እንደገና ይግቡ'
+              : 'Please sign in again'
+            : am
+              ? `አልተሳካም (${res.status})`
+              : `Request failed (${res.status})`);
+        flash('err', m);
       } else {
         flash(
           'ok',
@@ -164,7 +187,19 @@ export default function WalletPage() {
         await load();
       }
     } catch (e) {
-      flash('err', e instanceof Error ? e.message : 'Failed');
+      const net =
+        e instanceof TypeError ||
+        (e instanceof Error && /fetch|network|Failed/i.test(e.message));
+      flash(
+        'err',
+        net
+          ? am
+            ? 'ኢንተርኔት ግንኙነት አልተሳካም — እንደገና ይሞክሩ'
+            : 'Network error — check connection and try again'
+          : e instanceof Error
+            ? e.message
+            : 'Failed',
+      );
     } finally {
       setBusy(false);
     }
@@ -182,6 +217,7 @@ export default function WalletPage() {
     try {
       const res = await fetch('/api/wallet/deposits', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.id,
@@ -225,6 +261,7 @@ export default function WalletPage() {
     try {
       const res = await fetch(`/api/wallet/deposits/${deposit.id}/verify`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.id,
@@ -562,7 +599,7 @@ export default function WalletPage() {
               <input
                 type="tel"
                 inputMode="numeric"
-                placeholder="09xxxxxxxx"
+                placeholder="09xxxxxxxx or +2519xxxxxxxx"
                 value={wdPhone}
                 onChange={(e) => setWdPhone(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-black/40 py-3 pl-10 pr-4 font-mono text-sm text-white"
