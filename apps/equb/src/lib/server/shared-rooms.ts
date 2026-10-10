@@ -12,7 +12,10 @@ import { isFakePlayerId, isFakePlayerName, isRealPlayer } from '@/lib/real-playe
 const ROUND_MS = 60_000;
 /** Game starts only when at least 5 real players have joined. */
 const MIN_PLAYERS = 5;
-const NEXT_CYCLE_DELAY_MS = 8_000;
+/** How long to show results before next open room (serverless-safe via poll). */
+const NEXT_CYCLE_DELAY_MS = 6_000;
+/** If stuck in drawing longer than this, force a new open room. */
+const DRAWING_STUCK_MS = 12_000;
 
 export type Member = {
   playerId: string;
@@ -91,7 +94,6 @@ function isFull(room: SharedRoom) {
   return seatsTaken(room) >= room.groupSize;
 }
 
-/** Real pot = sum of fees players paid (contribution × picks). */
 function collectedPot(room: SharedRoom, humans: Member[]): number {
   const unit = Number(room.contribution) || 0;
   const sum = humans.reduce(
@@ -102,7 +104,8 @@ function collectedPot(room: SharedRoom, humans: Member[]): number {
 }
 
 function sb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -114,6 +117,7 @@ function sb() {
 function withTimer(room: SharedRoom): SharedRoom {
   const members = (room.members || []).filter((m) => isRealPlayer(m));
   const pc = members.length;
+  const open = room.status === 'open' && !room.adminClosed;
   return {
     ...room,
     members,
@@ -121,14 +125,24 @@ function withTimer(room: SharedRoom): SharedRoom {
     maxPlayers: room.groupSize,
     minPlayers: MIN_PLAYERS,
     gameId: room.id,
+    // Only block join while actively open+full, drawing, or admin-closed.
+    // completed rooms are auto-cycled in getShared so clients rarely see this.
     joiningClosed:
       Boolean(room.adminClosed) ||
-      room.status !== 'open' ||
-      isFull({ ...room, members }),
+      room.status === 'drawing' ||
+      (open && isFull({ ...room, members })) ||
+      room.status === 'completed' ||
+      room.status === 'waiting',
     recent: (room.recent || []).filter(
-      (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
+      (r) =>
+        Boolean(r.winnerName) &&
+        r.winnerName !== 'Tie' &&
+        !isFakePlayerName(r.winnerName),
     ),
-    secondsLeft: Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000)),
+    secondsLeft:
+      room.status === 'open'
+        ? Math.max(0, Math.ceil((room.drawAt - Date.now()) / 1000))
+        : 0,
   };
 }
 
@@ -170,6 +184,7 @@ function fresh(
     secondsLeft: ROUND_MS / 1000,
     updatedAt: now,
     gameId: id,
+    joiningClosed: false,
     recent: recent || [],
   };
 }
@@ -202,7 +217,6 @@ async function write(room: SharedRoom): Promise<void> {
   }
 }
 
-/** Fair RNG: number in 1..groupSize (independent of who joined). */
 function cryptoDraw(groupSize: number): {
   winningNumber: number;
   entropyHex: string;
@@ -236,6 +250,44 @@ async function refundAllMembers(
   }
 }
 
+function keepRecent(room: SharedRoom): SharedRoom['recent'] {
+  return (room.recent || []).filter(
+    (r) =>
+      Boolean(r.winnerName) &&
+      r.winnerName !== 'Tie' &&
+      !isFakePlayerName(r.winnerName),
+  );
+}
+
+/** Open a new cycle after completed / stuck drawing (works on Vercel serverless). */
+async function ensureOpenCycle(room: SharedRoom): Promise<SharedRoom> {
+  if (room.adminClosed) return room;
+  const now = Date.now();
+  const age = now - (Number(room.updatedAt) || 0);
+
+  if (room.status === 'completed' && age >= NEXT_CYCLE_DELAY_MS) {
+    const next = fresh(room.templateId, keepRecent(room));
+    await write(next);
+    return next;
+  }
+
+  // drawing stuck (serverless crash mid-draw)
+  if (room.status === 'drawing' && age >= DRAWING_STUCK_MS) {
+    const next = fresh(room.templateId, keepRecent(room));
+    await write(next);
+    return next;
+  }
+
+  // waiting status → treat as open after delay
+  if (room.status === 'waiting' && age >= NEXT_CYCLE_DELAY_MS) {
+    const next = fresh(room.templateId, keepRecent(room));
+    await write(next);
+    return next;
+  }
+
+  return room;
+}
+
 async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
   if (room.adminClosed) {
     room.joiningClosed = true;
@@ -247,9 +299,12 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     const pc = humans.length;
 
     if (pc < MIN_PLAYERS) {
+      // Not enough players — extend timer, keep JOINING OPEN
       room.drawAt = now + ROUND_MS;
       room.secondsLeft = ROUND_MS / 1000;
       room.updatedAt = now;
+      room.joiningClosed = false;
+      room.status = 'open';
       await write(room);
       return room;
     }
@@ -272,7 +327,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     const pot = collectedPot(room, humans);
     room.collectedPot = pot;
 
-    // Only pay from real collected fees — never invent prizePool money
     if (pot <= 0) {
       room.adminFee = 0;
       room.winnerPayout = 0;
@@ -298,7 +352,6 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
         room.paidOut = false;
       }
     } else {
-      // No winner or tie → refund every player's join fee
       room.adminFee = 0;
       room.winnerPayout = 0;
       room.winnerId = null;
@@ -339,20 +392,7 @@ async function drawAsync(room: SharedRoom): Promise<SharedRoom> {
     ].slice(0, 20);
     room.updatedAt = now;
     await write(room);
-
-    setTimeout(async () => {
-      try {
-        const current = await read(room.templateId);
-        if (current?.adminClosed) return;
-        const kept = (room.recent || []).filter(
-          (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
-        );
-        const next = fresh(room.templateId, kept);
-        await write(next);
-      } catch {
-        /* ignore */
-      }
-    }, NEXT_CYCLE_DELAY_MS);
+    // Next cycle is opened by ensureOpenCycle on subsequent polls (no setTimeout)
   }
   return room;
 }
@@ -365,10 +405,11 @@ export async function getShared(templateId: string): Promise<SharedRoom> {
   }
   if (room.adminClosed) {
     room.joiningClosed = true;
-    room.status = room.status === 'drawing' ? 'completed' : room.status;
     return withTimer(room);
   }
+
   room = await drawAsync(room);
+  room = await ensureOpenCycle(room);
   return withTimer(room);
 }
 
@@ -381,6 +422,16 @@ export async function peekShared(
 
 export async function openShared(templateId: string): Promise<SharedRoom> {
   return getShared(templateId);
+}
+
+/** Force-open a new cycle (admin reset or recovery). */
+export async function forceNewCycle(templateId: string): Promise<SharedRoom> {
+  const current = await read(templateId);
+  const kept = current ? keepRecent(current) : [];
+  const next = fresh(templateId, kept);
+  next.adminClosed = false;
+  await write(next);
+  return withTimer(next);
 }
 
 export function sharedEnabled() {
@@ -404,27 +455,26 @@ export async function joinShared(
   }
 
   room = await drawAsync(room);
+  room = await ensureOpenCycle(room);
 
   if (room.adminClosed) {
     throw new Error('This room was closed by an administrator');
   }
 
-  if (room.status === 'completed' || room.status === 'drawing') {
-    if (room.status === 'completed') {
-      const kept = (room.recent || []).filter(
-        (r) => Boolean(r.winnerName) && !isFakePlayerName(r.winnerName),
-      );
-      room = fresh(templateId, kept);
-    } else {
-      throw new Error('Game already started — joining closed');
-    }
+  if (room.status === 'completed') {
+    room = fresh(templateId, keepRecent(room));
+    await write(room);
+  }
+
+  if (room.status === 'drawing') {
+    throw new Error('Game already started — joining closed');
   }
 
   if (room.status !== 'open') {
     throw new Error('Joining is closed for this game');
   }
 
-  if (room.joiningClosed || isFull(room)) {
+  if (isFull(room)) {
     throw new Error(`Room full (${room.groupSize}/${room.groupSize})`);
   }
 
@@ -458,6 +508,7 @@ export async function joinShared(
   });
   room.members = room.members.filter((m) => isRealPlayer(m));
   room.updatedAt = Date.now();
+  room.joiningClosed = false;
   await write(room);
   return withTimer(room);
 }
@@ -466,4 +517,4 @@ export async function listSharedOpen(): Promise<SharedRoom[]> {
   return [];
 }
 
-export { MIN_PLAYERS, ROUND_MS };
+export { MIN_PLAYERS, ROUND_MS, NEXT_CYCLE_DELAY_MS };
