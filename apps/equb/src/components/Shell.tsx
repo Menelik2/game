@@ -42,7 +42,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     { href: '/', label: t.nav?.home || 'Home', icon: Home },
     { href: '/rooms', label: t.nav?.rooms || 'Rooms', icon: Users },
     { href: '/wallet', label: t.nav?.wallet || 'Wallet', icon: Wallet },
-    { href: '/how-to-play', label: t.nav?.help || 'Help', icon: CircleHelp },
+    { href: '/how-to-play', label: t.nav?.howToPlay || 'Help', icon: CircleHelp },
     { href: '/profile', label: t.nav?.profile || 'Profile', icon: User },
   ];
 
