@@ -39,23 +39,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const showBack = path !== '/';
 
   const nav = [
-    { href: '/', label: t.nav.home, icon: Home },
-    { href: '/rooms', label: t.nav.rooms, icon: Users },
-    { href: '/wallet', label: t.nav.wallet, icon: Wallet },
-    { href: '/how-to-play', label: t.nav.howToPlay, icon: CircleHelp },
-    { href: '/profile', label: t.nav.profile, icon: User },
+    { href: '/', label: t.nav?.home || 'Home', icon: Home },
+    { href: '/rooms', label: t.nav?.rooms || 'Rooms', icon: Users },
+    { href: '/wallet', label: t.nav?.wallet || 'Wallet', icon: Wallet },
+    { href: '/how-to-play', label: t.nav?.help || 'Help', icon: CircleHelp },
+    { href: '/profile', label: t.nav?.profile || 'Profile', icon: User },
   ];
 
-  const contentMax = isAdmin
-    ? 'max-w-5xl'
-    : isPlay
-      ? 'max-w-6xl'
-      : isRoomsHub
-        ? 'max-w-2xl'
-        : 'max-w-lg';
+  const contentMax = isAdmin ? 'max-w-5xl' : 'max-w-lg';
 
   return (
     <div className="min-h-dvh bg-surface-950 text-white">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       {!isPlay && (
         <header className="sticky top-0 z-40 border-b border-white/5 bg-surface-950/95 backdrop-blur-xl">
           <div
@@ -64,7 +61,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
               contentMax,
             )}
           >
-            {/* Left: back + brand */}
             <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
               {showBack && (
                 <BackButton
@@ -73,7 +69,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   className="!px-2 !py-2 shrink-0"
                 />
               )}
-              {/* BrandLogo already links to / — do not wrap again */}
               <BrandLogo
                 size={36}
                 showText
@@ -81,7 +76,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
               />
             </div>
 
-            {/* Right: tools — never wrap */}
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               {!isAdmin && (
                 <>
@@ -95,11 +89,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {isAdminUser && !isAdmin && (
                 <Link
                   href="/admin"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/20"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/20 focus-visible:ring-2 focus-visible:ring-amber-400"
                   title="Admin"
                   aria-label="Admin"
                 >
-                  <Shield className="h-4 w-4" />
+                  <Shield className="h-4 w-4" aria-hidden />
                 </Link>
               )}
             </div>
@@ -108,6 +102,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       )}
 
       <main
+        id="main-content"
+        tabIndex={-1}
         className={clsx(
           'mx-auto w-full px-3 sm:px-4',
           contentMax,
@@ -119,7 +115,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </main>
 
       {!isPlay && !isAdmin && (
-        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl safe-pb">
+        <nav
+          className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-surface-950/95 backdrop-blur-xl safe-pb"
+          aria-label="Main"
+        >
           <div
             className={clsx(
               'mx-auto grid grid-cols-5 gap-0.5 px-1 py-1.5 sm:gap-1 sm:px-2 sm:py-2',
@@ -135,14 +134,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={href}
                   href={href}
+                  aria-current={active ? 'page' : undefined}
                   className={clsx(
-                    'flex flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold transition',
+                    'flex flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold transition focus-visible:ring-2 focus-visible:ring-equb-400',
                     active
                       ? 'bg-equb-500/20 text-equb-300'
                       : 'text-white/40 hover:text-white/70',
                   )}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-5 w-5" aria-hidden />
                   <span className="max-w-full truncate">{label}</span>
                 </Link>
               );

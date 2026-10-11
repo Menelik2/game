@@ -49,7 +49,6 @@ export default function RoomsPage() {
     () => contributionPerMember(prize, groupSize),
     [prize, groupSize],
   );
-  const totalFee = Math.round(contribution * Math.max(picks.length, 1) * 100) / 100;
   const templateId = roomId(groupSize, prize);
 
   const refreshLive = useCallback(async () => {
@@ -142,9 +141,9 @@ export default function RoomsPage() {
       </div>
 
       {multiplayer && liveOk && liveDisplay.length > 0 && (
-        <section className="glass rounded-2xl p-3">
+        <section className="glass content-auto rounded-2xl p-3" aria-label={am ? 'ቀጥታ ክፍሎች' : 'Live rooms'}>
           <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-equb-300">
-            <Radio className="h-3 w-3 animate-pulse" />
+            <Radio className="h-3 w-3 animate-pulse" aria-hidden />
             {am ? 'ቀጥታ ክፍሎች' : 'Live rooms'}
           </p>
           <div className="space-y-1.5">
@@ -155,7 +154,7 @@ export default function RoomsPage() {
                 <Link
                   key={r.id || r.templateId}
                   href={`/rooms/${encodeURIComponent(r.templateId || r.id)}`}
-                  className="flex items-center justify-between rounded-xl border border-equb-500/25 bg-black/25 px-3 py-2 active:scale-[0.98]"
+                  className="flex items-center justify-between rounded-xl border border-equb-500/25 bg-black/25 px-3 py-2 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-equb-400"
                 >
                   <span className="text-sm font-semibold">
                     {max} · {formatBirrCompact(r.prizePool, locale)}
@@ -168,26 +167,31 @@ export default function RoomsPage() {
         </section>
       )}
 
-      {/* 1 · Players */}
       <section className="glass space-y-2 rounded-2xl p-3">
         <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-equb-300" />
+          <Users className="h-4 w-4 text-equb-300" aria-hidden />
           <h2 className="text-sm font-bold text-white">
             {am ? '1. ስንት ተጫዋቾች?' : '1. How many players?'}
           </h2>
         </div>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div
+          className="grid grid-cols-5 gap-1.5"
+          role="radiogroup"
+          aria-label={am ? 'የቡድን መጠን' : 'Group size'}
+        >
           {GROUP_SIZES.map((g) => (
             <button
               key={g}
               type="button"
+              role="radio"
+              aria-checked={groupSize === g}
               onClick={() => {
                 setGroupSize(g);
                 setPicks([]);
                 setErr('');
               }}
               className={clsx(
-                'rounded-xl border py-2 text-sm font-bold transition active:scale-95',
+                'rounded-xl border py-2 text-sm font-bold transition active:scale-95 focus-visible:ring-2 focus-visible:ring-equb-400',
                 groupSize === g
                   ? 'border-equb-400 bg-equb-500 text-white shadow-md shadow-equb-500/25'
                   : 'border-white/10 bg-black/30 text-white/80',
@@ -199,11 +203,10 @@ export default function RoomsPage() {
         </div>
       </section>
 
-      {/* 2 · Numbers */}
       <section className="glass space-y-2 rounded-2xl p-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Hash className="h-4 w-4 text-amber-300" />
+            <Hash className="h-4 w-4 text-amber-300" aria-hidden />
             <h2 className="text-sm font-bold text-white">
               {am ? '2. ቁጥርዎን ይምረጡ' : '2. Pick numbers'}
             </h2>
@@ -228,7 +231,7 @@ export default function RoomsPage() {
           onClear={() => setPicks([])}
         />
         {picks.length > 0 && (
-          <p className="text-center text-xs text-equb-200">
+          <p className="text-center text-xs text-equb-200" aria-live="polite">
             {am ? 'የመረጡት' : 'Selected'}:{' '}
             <span className="font-mono font-bold">
               {picks.map((n) => String(n).padStart(2, '0')).join(' · ')}
@@ -237,25 +240,30 @@ export default function RoomsPage() {
         )}
       </section>
 
-      {/* 3 · Birr */}
       <section className="glass space-y-2 rounded-2xl p-3">
         <div className="flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-gold-300" />
+          <Trophy className="h-4 w-4 text-gold-300" aria-hidden />
           <h2 className="text-sm font-bold text-white">
             {am ? '3. በስንት ብር?' : '3. How much Birr?'}
           </h2>
         </div>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div
+          className="grid grid-cols-5 gap-1.5"
+          role="radiogroup"
+          aria-label={am ? 'የብር መጠን' : 'Prize amount'}
+        >
           {PRIZES.map((p) => (
             <button
               key={p}
               type="button"
+              role="radio"
+              aria-checked={prize === p}
               onClick={() => {
                 setPrize(p);
                 setErr('');
               }}
               className={clsx(
-                'rounded-xl border py-2 text-xs font-bold transition active:scale-95 sm:text-sm',
+                'rounded-xl border py-2 text-xs font-bold transition active:scale-95 focus-visible:ring-2 focus-visible:ring-gold-400 sm:text-sm',
                 prize === p
                   ? 'border-gold-400 bg-gold-400 text-black shadow-md shadow-gold-500/25'
                   : 'border-white/10 bg-black/30 text-white/85',
@@ -280,7 +288,10 @@ export default function RoomsPage() {
       </section>
 
       {err && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-sm text-red-200">
+        <p
+          role="alert"
+          className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center text-sm text-red-200"
+        >
           {err}
         </p>
       )}
@@ -288,11 +299,13 @@ export default function RoomsPage() {
       <button
         type="button"
         disabled={busy || picks.length === 0}
+        aria-busy={busy}
+        aria-disabled={busy || picks.length === 0}
         onClick={() => void handleJoin()}
-        className="btn-gold flex w-full items-center justify-center gap-2 py-3.5 text-base disabled:opacity-40"
+        className="btn-gold flex w-full items-center justify-center gap-2 py-3.5 text-base disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-gold-400"
       >
         {busy ? '...' : am ? 'ጨዋታ ጀምር' : 'Join & play'}
-        <ChevronRight className="h-5 w-5" />
+        <ChevronRight className="h-5 w-5" aria-hidden />
       </button>
     </div>
   );
